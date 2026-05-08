@@ -14,6 +14,8 @@ dependencies = [
   "litellm>=1.74.0",
   "tiktoken>=0.9.0",
   "rapidfuzz>=3.14.1",
+  "fastapi>=0.136.1",
+  "uvicorn[standard]>=0.46.0",
 ]
 
 [project.scripts]
@@ -22,6 +24,7 @@ novel-wiki-character = "pipeline.wiki.character:main"
 novel-wiki-timeline = "pipeline.wiki.timeline:main"
 novel-wiki-threads = "pipeline.wiki.threads:main"
 novel-wiki-relationships = "pipeline.wiki.relationships:main"
+novel-webapp = "api.app:run"
 
 [tool.setuptools]
 package-dir = {"" = "backend"}
@@ -31,6 +34,9 @@ where = ["backend"]
 
 [tool.setuptools.package-data]
 "pipeline.db" = ["schema.sql"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
 
 [dependency-groups]
 dev = [
