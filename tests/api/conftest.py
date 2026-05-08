@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -50,6 +50,13 @@ class FakeDB:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
+    def __getattr__(self, name: str) -> Any:
+        raise AttributeError(
+            f"FakeDB has no attribute {name!r}. "
+            f"If this looks like a DBClient method (e.g. fetchall/fetchval/execute), "
+            f"the query function is missing its `hasattr(db, ...)` guard for the in-memory path."
+        )
+
 
 @pytest.fixture
 def fake_db_factory(monkeypatch):
@@ -87,7 +94,7 @@ def make_chapter(novel_id: UUID, number: int, **overrides: Any) -> dict[str, Any
         "number": number,
         "title": None,
         "summary": f"Summary of chapter {number}",
-        "processed_at": datetime(2026, 1, number),
+        "processed_at": datetime(2026, 1, 1) + timedelta(days=number - 1),
     }
     base.update(overrides)
     return base
