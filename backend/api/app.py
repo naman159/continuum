@@ -4,10 +4,11 @@ import argparse
 
 from fastapi import FastAPI
 
-from api.routes import novels
+from api.routes import characters, novels
 
 app = FastAPI(title="Continuum Wiki API")
 app.include_router(novels.router)
+app.include_router(characters.router)
 
 
 @app.get("/api/health")
