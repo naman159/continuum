@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from db.client import DBClient
+from pipeline.db.client import DBClient
 
 
 @dataclass

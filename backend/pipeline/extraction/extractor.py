@@ -5,8 +5,8 @@ import logging
 import re
 from typing import Any
 
-from config import LLM_CONFIG, settings
-from extraction.prompts import PASS_ORDER, build_system_prompt, build_user_prompt
+from pipeline.config import LLM_CONFIG, settings
+from pipeline.extraction.prompts import PASS_ORDER, build_system_prompt, build_user_prompt
 
 logger = logging.getLogger(__name__)
 

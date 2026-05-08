@@ -4,7 +4,7 @@ import argparse
 import json
 from typing import Any
 
-from db.client import DBClient
+from pipeline.db.client import DBClient
 
 
 def build_thread_tracker(

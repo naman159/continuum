@@ -4,9 +4,9 @@ import json
 import logging
 from typing import Any
 
-from config import LLM_CONFIG, settings
-from db.client import DBClient
-from extraction.prompts import (
+from pipeline.config import LLM_CONFIG, settings
+from pipeline.db.client import DBClient
+from pipeline.extraction.prompts import (
     build_canonicalization_system_prompt,
     build_canonicalization_user_prompt,
 )

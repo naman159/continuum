@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from db.client import DBClient
+from pipeline.db.client import DBClient
 
 
 def ingest_chapter(
