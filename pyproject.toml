@@ -29,6 +29,9 @@ package-dir = {"" = "backend"}
 [tool.setuptools.packages.find]
 where = ["backend"]
 
+[tool.setuptools.package-data]
+"pipeline.db" = ["schema.sql"]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
