@@ -6,14 +6,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from config import settings
-from db.client import DBClient
-from embeddings import EmbeddingService, embed_chapter_and_events
-from extraction.canonicalizer import CharacterCanonicalizer, collect_character_names
-from extraction.chunker import sliding_window_chunks
-from extraction.extractor import ChapterExtractor
-from extraction.resolver import EntityResolver
-from ingestion.ingest import ingest_chapter
+from pipeline.config import settings
+from pipeline.db.client import DBClient
+from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
+from pipeline.extraction.canonicalizer import CharacterCanonicalizer, collect_character_names
+from pipeline.extraction.chunker import sliding_window_chunks
+from pipeline.extraction.extractor import ChapterExtractor
+from pipeline.extraction.resolver import EntityResolver
+from pipeline.ingestion.ingest import ingest_chapter
 
 
 def _read_chapter_text(file_path: str | None) -> str:
@@ -33,7 +33,9 @@ def _read_chapter_text(file_path: str | None) -> str:
     return "\n".join(lines)
 
 
-def init_db(schema_path: str) -> None:
+def init_db(schema_path: str | None = None) -> None:
+    if schema_path is None:
+        schema_path = str(Path(__file__).parent / "db" / "schema.sql")
     sql = Path(schema_path).read_text(encoding="utf-8")
     sql = sql.replace("__EMBEDDING_DIM__", str(settings.embedding_dimensions))
     with DBClient() as db:
@@ -488,7 +490,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_db_parser = subparsers.add_parser("init-db", help="Initialize database schema")
-    init_db_parser.add_argument("--schema", default="db/schema.sql", help="Path to schema.sql")
+    init_db_parser.add_argument("--schema", default=None, help="Path to schema.sql (defaults to bundled)")
 
     create_novel_parser = subparsers.add_parser("create-novel", help="Create a novel record")
     create_novel_parser.add_argument("--title", required=True)

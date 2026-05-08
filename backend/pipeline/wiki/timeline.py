@@ -4,7 +4,7 @@ import argparse
 import json
 from typing import Any
 
-from db.client import DBClient
+from pipeline.db.client import DBClient
 
 
 def _resolve_character_id(db: DBClient, novel_id: str, character_name: str) -> str | None:

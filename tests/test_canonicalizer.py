@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from extraction.canonicalizer import CharacterCanonicalizer, collect_character_names
+from pipeline.extraction.canonicalizer import CharacterCanonicalizer, collect_character_names
 
 
 class FakeDB:

@@ -17,17 +17,17 @@ dependencies = [
 ]
 
 [project.scripts]
-novel-pipeline = "pipeline:main"
-novel-wiki-character = "wiki.character:main"
-novel-wiki-timeline = "wiki.timeline:main"
-novel-wiki-threads = "wiki.threads:main"
-novel-wiki-relationships = "wiki.relationships:main"
+novel-pipeline = "pipeline.pipeline:main"
+novel-wiki-character = "pipeline.wiki.character:main"
+novel-wiki-timeline = "pipeline.wiki.timeline:main"
+novel-wiki-threads = "pipeline.wiki.threads:main"
+novel-wiki-relationships = "pipeline.wiki.relationships:main"
 
 [tool.setuptools]
-py-modules = ["config", "embeddings", "main", "pipeline"]
+package-dir = {"" = "backend"}
 
 [tool.setuptools.packages.find]
-include = ["db", "db.*", "extraction", "extraction.*", "ingestion", "ingestion.*", "wiki", "wiki.*"]
+where = ["backend"]
 
 [dependency-groups]
 dev = [

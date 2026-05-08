@@ -4,8 +4,8 @@ import hashlib
 import struct
 from typing import Sequence
 
-from config import settings
-from db.client import DBClient
+from pipeline.config import settings
+from pipeline.db.client import DBClient
 
 
 def _load_embedding():

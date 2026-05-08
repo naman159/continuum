@@ -6,7 +6,7 @@ from typing import Any, Iterable, Sequence
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from config import settings
+from pipeline.config import settings
 
 
 class DBClient:
