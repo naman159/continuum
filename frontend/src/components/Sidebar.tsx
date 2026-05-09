@@ -24,6 +24,7 @@ export default function Sidebar() {
         ["Threads", `/novels/${novelId}/threads`],
         ["Relationships", `/novels/${novelId}/relationships`],
         ["Continuity", `/novels/${novelId}/continuity`],
+        ["Process Chapter", `/novels/${novelId}/process`],
       ]
     : [];
 

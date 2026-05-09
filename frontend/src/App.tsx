@@ -6,6 +6,7 @@ import CharacterList from "./routes/CharacterList";
 import Chapters from "./routes/Chapters";
 import Continuity from "./routes/Continuity";
 import Novels from "./routes/Novels";
+import Process from "./routes/Process";
 import Relationships from "./routes/Relationships";
 import Threads from "./routes/Threads";
 import Timeline from "./routes/Timeline";
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="/novels/:novelId/threads" element={<Layout><Threads /></Layout>} />
           <Route path="/novels/:novelId/continuity" element={<Layout><Continuity /></Layout>} />
           <Route path="/novels/:novelId/relationships" element={<Layout><Relationships /></Layout>} />
+          <Route path="/novels/:novelId/process" element={<Layout><Process /></Layout>} />
         </Routes>
       </Router>
     </QueryClientProvider>
