@@ -4,11 +4,15 @@ import argparse
 
 from fastapi import FastAPI
 
-from api.routes import characters, novels
+from api.routes import characters, chapters, continuity, novels, threads, timeline
 
 app = FastAPI(title="Continuum Wiki API")
 app.include_router(novels.router)
 app.include_router(characters.router)
+app.include_router(chapters.router)
+app.include_router(timeline.router)
+app.include_router(threads.router)
+app.include_router(continuity.router)
 
 
 @app.get("/api/health")
