@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from api.routes import characters, chapters, continuity, novels, relationships, threads, timeline
 
@@ -19,6 +22,18 @@ app.include_router(relationships.router)
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+_FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
+if _FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa_fallback(full_path: str) -> FileResponse:
+        target = _FRONTEND_DIST / full_path
+        if full_path and target.is_file():
+            return FileResponse(target)
+        return FileResponse(_FRONTEND_DIST / "index.html")
 
 
 def run() -> None:

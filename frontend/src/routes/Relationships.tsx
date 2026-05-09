@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { DataSet } from "vis-data";
-import { Network } from "vis-network/standalone/esm/vis-network";
+import { Network } from "vis-network/standalone";
 import { useEffect, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
@@ -41,11 +41,11 @@ export default function Relationships() {
         nodes: { shape: "dot", size: 16, font: { size: 14 } },
         edges: {
           font: { size: 11, align: "middle" },
-          smooth: { type: "continuous" as const },
+          smooth: { enabled: true, type: "continuous", roundness: 0.5 },
         },
       }
     );
-    network.on("doubleClick", (params) => {
+    network.on("doubleClick", (params: any) => {
       if (params.nodes.length > 0) {
         navigate(`/novels/${novelId}/characters/${params.nodes[0]}${window.location.search}`);
       }
