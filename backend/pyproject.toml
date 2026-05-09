@@ -6,7 +6,6 @@ build-backend = "setuptools.build_meta"
 name = "continuum"
 version = "0.1.0"
 description = "Novel knowledge pipeline and wiki generator"
-readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "python-dotenv>=1.0.1",
@@ -27,16 +26,16 @@ novel-wiki-relationships = "pipeline.wiki.relationships:main"
 novel-webapp = "api.app:run"
 
 [tool.setuptools]
-package-dir = {"" = "backend"}
+package-dir = {"" = "."}
 
 [tool.setuptools.packages.find]
-where = ["backend"]
+where = ["."]
 
 [tool.setuptools.package-data]
 "pipeline.db" = ["schema.sql"]
 
 [tool.pytest.ini_options]
-pythonpath = ["backend"]
+pythonpath = ["."]
 
 [dependency-groups]
 dev = [
