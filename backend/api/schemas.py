@@ -108,3 +108,24 @@ class ContinuityFlag(BaseModel):
     flag_type: str | None
     resolved: bool
     resolved_chapter_number: int | None
+
+
+class GraphNode(BaseModel):
+    id: UUID
+    label: str
+    description: str | None
+
+
+class GraphEdge(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: UUID
+    from_: UUID = Field(alias="from")
+    to: UUID
+    label: str | None
+    chapter_number: int | None
+
+
+class RelationshipGraph(BaseModel):
+    nodes: list[GraphNode]
+    edges: list[GraphEdge]
