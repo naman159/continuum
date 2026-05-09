@@ -152,6 +152,7 @@ def process_chapter(
     use_mock_llm: bool | None,
     chunk_size: int,
     chunk_overlap: int,
+    progress: Any | None = None,
 ) -> dict[str, Any]:
     with DBClient() as db:
         chapter_id = ingest_chapter(
@@ -165,13 +166,17 @@ def process_chapter(
         context = load_story_context(db, novel_id, chapter_number)
         chunks = sliding_window_chunks(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
         extractor = ChapterExtractor(use_mock=use_mock_llm)
-        extracted = extractor.extract_chapter(chunks=chunks, context=context)
+        extracted = extractor.extract_chapter(chunks=chunks, context=context, progress=progress)
 
+        if progress is not None:
+            progress.on_pass_start("canonicalization")
         canonicalizer = CharacterCanonicalizer(db, novel_id=novel_id, use_mock=use_mock_llm)
         canonicalizer.canonicalize(
             chapter_text=raw_text,
             candidate_names=collect_character_names(extracted),
         )
+        if progress is not None:
+            progress.on_pass_done("canonicalization")
 
         resolver = EntityResolver(db, novel_id=novel_id, chapter_number=chapter_number)
         event_rows = _persist_extraction(
