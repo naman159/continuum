@@ -213,20 +213,28 @@ class ChapterExtractor:
         else:
             self.use_mock = use_mock
 
-    def extract_chapter(self, chunks: list[str], context: dict[str, Any]) -> dict[str, Any]:
+    def extract_chapter(
+        self, chunks: list[str], context: dict[str, Any], progress: Any | None = None
+    ) -> dict[str, Any]:
         if not chunks:
             return empty_extraction()
 
-        results = [self.extract_chunk(chunk, context) for chunk in chunks]
+        results = [self.extract_chunk(chunk, context, progress=progress) for chunk in chunks]
         return merge_extractions(results)
 
-    def extract_chunk(self, chunk: str, context: dict[str, Any]) -> dict[str, Any]:
+    def extract_chunk(
+        self, chunk: str, context: dict[str, Any], progress: Any | None = None
+    ) -> dict[str, Any]:
         if self.use_mock:
             return self._mock_extract(chunk, context)
 
         pass_payload: dict[str, Any] = {}
         for pass_name in PASS_ORDER:
+            if progress is not None:
+                progress.on_pass_start(pass_name)
             payload = self._run_llm_pass(pass_name, chunk, context)
+            if progress is not None:
+                progress.on_pass_done(pass_name)
             pass_payload[pass_name] = payload
 
         normalized = self._compose_from_pass_payload(pass_payload)
