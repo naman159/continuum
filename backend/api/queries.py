@@ -514,6 +514,69 @@ def list_threads(novel_id: UUID, cap: int | None, status: str) -> list[dict[str,
     return result
 
 
+def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    if hasattr(db, "chapters"):
+        chapter_by_id = {c["id"]: c for c in db.chapters if c["novel_id"] == novel_id}
+        characters = [
+            c for c in db.characters
+            if c["novel_id"] == novel_id
+            and (c.get("first_appearance_chapter") is None or c["first_appearance_chapter"] <= effective_cap)
+        ]
+        rels = [
+            r for r in db.relationships
+            if (r.get("chapter_id") is None or chapter_by_id.get(r["chapter_id"], {}).get("number", 999999) <= effective_cap)
+            and r["entity_a_type"] == "character" and r["entity_b_type"] == "character"
+        ]
+
+        def rel_chapter(r: dict[str, Any]) -> int | None:
+            return chapter_by_id[r["chapter_id"]]["number"] if r.get("chapter_id") else None
+    else:
+        characters = [
+            dict(r) for r in db.fetchall(
+                "SELECT id, name, description, first_appearance_chapter FROM characters WHERE novel_id = %s AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)",
+                (str(novel_id), effective_cap),
+                dict_rows=True,
+            )
+        ]
+        rels_raw = db.fetchall(
+            """
+            SELECT r.id, r.entity_a_id, r.entity_a_type, r.entity_b_id, r.entity_b_type,
+                   r.rel_type, r.chapter_id, ch.number AS chapter_number
+            FROM relationships r
+            LEFT JOIN chapters ch ON ch.id = r.chapter_id
+            WHERE r.entity_a_type = 'character' AND r.entity_b_type = 'character'
+              AND (ch.number IS NULL OR ch.number <= %s)
+              AND EXISTS (SELECT 1 FROM characters c WHERE c.id = r.entity_a_id AND c.novel_id = %s)
+            """,
+            (effective_cap, str(novel_id)),
+            dict_rows=True,
+        )
+        rels = [dict(r) for r in rels_raw]
+
+        def rel_chapter(r: dict[str, Any]) -> int | None:
+            return r.get("chapter_number")
+
+    nodes = [
+        {"id": c["id"], "label": c["name"], "description": c.get("description")}
+        for c in characters
+    ]
+    character_id_set = {c["id"] for c in characters}
+    edges = [
+        {
+            "from": r["entity_a_id"],
+            "to": r["entity_b_id"],
+            "id": r["id"],
+            "label": r.get("rel_type"),
+            "chapter_number": rel_chapter(r),
+        }
+        for r in rels
+        if r["entity_a_id"] in character_id_set and r["entity_b_id"] in character_id_set
+    ]
+    return {"nodes": nodes, "edges": edges}
+
+
 def list_continuity(novel_id: UUID, cap: int | None, resolved_filter: str) -> list[dict[str, Any]]:
     db = _get_db()
     effective_cap = _resolve_cap(db, novel_id, cap)
