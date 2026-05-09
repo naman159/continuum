@@ -129,3 +129,18 @@ class GraphEdge(BaseModel):
 class RelationshipGraph(BaseModel):
     nodes: list[GraphNode]
     edges: list[GraphEdge]
+
+
+class ProcessRequest(BaseModel):
+    number: int
+    text: str
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str
+    current_pass: str | None = None
+    passes_done: int = 0
+    total_passes: int = 0
+    result: dict[str, Any] | None = None
+    error: str | None = None
