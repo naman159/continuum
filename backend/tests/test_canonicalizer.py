@@ -5,7 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from pipeline.extraction.canonicalizer import CharacterCanonicalizer, collect_character_names
+from pipeline.extraction.canonicalizer import (
+    CharacterCanonicalizer,
+    IntraExtractionDeduplicator,
+    collect_character_names,
+    collect_names_by_type,
+)
 
 
 class FakeDB:
@@ -249,9 +254,6 @@ def test_collect_character_names_pulls_from_all_sources():
     assert names == {"John", "Eliza", "the master of Pemberley", "Mr. Bennet"}
 
 
-from pipeline.extraction.canonicalizer import collect_names_by_type
-
-
 def test_collect_names_by_type_characters():
     extracted = {
         "new_entities": {"characters": [{"name": "Jane Bennet"}, {"name": ""}, {"name": "  "}]},
@@ -294,11 +296,7 @@ def test_collect_character_names_is_still_correct():
         "entity_deltas": [{"character_name": "Mr. Darcy"}],
         "events": [{"involved_characters": ["Eliza"]}],
     }
-    from pipeline.extraction.canonicalizer import collect_character_names
     assert collect_character_names(extracted) == {"Eliza", "Mr. Darcy"}
-
-
-from pipeline.extraction.canonicalizer import IntraExtractionDeduplicator
 
 
 def _make_deduplicator(payload: dict):
@@ -361,3 +359,72 @@ def test_intra_dedup_skips_llm_when_fewer_than_two_names():
     dedup = IntraExtractionDeduplicator(use_mock=False, completion_fn=recording_completion)
     dedup.deduplicate(extracted, "text")
     assert calls == []
+
+
+def test_intra_dedup_does_not_mutate_original():
+    extracted = {
+        "new_entities": {
+            "characters": [
+                {"name": "Jane Bennet", "aliases": [], "description": "eldest"},
+                {"name": "Jane", "aliases": [], "description": ""},
+            ],
+        },
+        "entity_deltas": [{"character_name": "Jane", "location": None}],
+        "events": [],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})
+    dedup.deduplicate(extracted, "Jane walked. Jane Bennet smiled.")
+    # Original must be unchanged
+    assert extracted["entity_deltas"][0]["character_name"] == "Jane"
+    assert extracted["new_entities"]["characters"][1]["name"] == "Jane"
+
+
+def test_intra_dedup_renames_relationship_and_dynamics():
+    extracted = {
+        "new_entities": {"characters": [{"name": "Jane Bennet"}, {"name": "Jane"}]},
+        "entity_deltas": [],
+        "events": [],
+        "relationship_updates": [{"entity_a": "Jane", "entity_b": "Mr. Bingley"}],
+        "dynamics_updates": [{"entity_a": "Mr. Bingley", "entity_b": "Jane"}],
+    }
+    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})
+    result = dedup.deduplicate(extracted, "Jane, i.e. Jane Bennet, met Mr. Bingley.")
+    assert result["relationship_updates"][0]["entity_a"] == "Jane Bennet"
+    assert result["dynamics_updates"][0]["entity_b"] == "Jane Bennet"
+
+
+def test_intra_dedup_renames_object_and_faction_variants():
+    extracted = {
+        "new_entities": {
+            "objects": [{"name": "the One Ring"}, {"name": "the Ring"}],
+            "factions": [{"name": "The Fellowship of the Ring"}, {"name": "The Fellowship"}],
+        },
+        "events": [
+            {
+                "involved_characters": [],
+                "involved_locations": [],
+                "involved_objects": ["the Ring"],
+            }
+        ],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+    dedup = IntraExtractionDeduplicator(
+        use_mock=False,
+        completion_fn=_make_completion({
+            "groups": [
+                {"names": ["the One Ring", "the Ring"], "reasoning": "same object"},
+                {"names": ["The Fellowship of the Ring", "The Fellowship"], "reasoning": "shorthand"},
+            ]
+        }),
+    )
+    result = dedup.deduplicate(extracted, "Frodo bore the Ring, also called the One Ring.")
+    objs = [o["name"] for o in result["new_entities"]["objects"]]
+    assert "the Ring" not in objs
+    assert objs.count("the One Ring") == 1
+    factions = [f["name"] for f in result["new_entities"]["factions"]]
+    assert "The Fellowship" not in factions
+    assert factions.count("The Fellowship of the Ring") == 1
+    assert result["events"][0]["involved_objects"] == ["the One Ring"]
