@@ -7,12 +7,13 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import characters, chapters, continuity, dynamics, locations, novels, process, relationships, threads, timeline
+from api.routes import characters, chapters, continuity, dynamics, locations, novels, objects, process, relationships, threads, timeline
 
 app = FastAPI(title="Continuum Wiki API")
 app.include_router(novels.router)
 app.include_router(characters.router)
 app.include_router(locations.router)
+app.include_router(objects.router)
 app.include_router(chapters.router)
 app.include_router(timeline.router)
 app.include_router(threads.router)
