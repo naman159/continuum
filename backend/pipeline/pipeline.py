@@ -268,10 +268,6 @@ def _persist_extraction(
             knowledge = []
         knowledge = [str(item) for item in knowledge if str(item).strip()]
 
-        relationships = delta.get("relationships")
-        if not isinstance(relationships, dict):
-            relationships = {}
-
         db.execute(
             """
             INSERT INTO character_states (
@@ -281,11 +277,10 @@ def _persist_extraction(
                 emotional_state,
                 goals,
                 knowledge,
-                relationships,
                 physical_state,
                 notes
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 character_id,
@@ -294,39 +289,50 @@ def _persist_extraction(
                 delta.get("emotional_state"),
                 delta.get("goals"),
                 knowledge,
-                json.dumps(relationships),
                 delta.get("physical_state"),
                 delta.get("notes"),
             ),
         )
 
-        for target_name, rel_type in relationships.items():
-            clean_target = str(target_name).strip()
-            if not clean_target:
-                continue
-            target_id = resolver.resolve_character(clean_target).entity_id
-            db.execute(
-                """
-                INSERT INTO relationships (
-                    entity_a_id,
-                    entity_a_type,
-                    entity_b_id,
-                    entity_b_type,
-                    rel_type,
-                    status,
-                    chapter_id,
-                    notes
-                )
-                VALUES (%s, 'character', %s, 'character', %s, 'active', %s, %s)
-                """,
-                (
-                    character_id,
-                    target_id,
-                    str(rel_type),
-                    chapter_id,
-                    f"Derived from character delta for chapter {chapter_number}.",
-                ),
+    for rel in extracted.get("relationship_updates", []):
+        a_name = str(rel.get("entity_a", "")).strip()
+        b_name = str(rel.get("entity_b", "")).strip()
+        if not a_name or not b_name:
+            continue
+        a_universal = resolver.resolve_character(a_name).universal_id
+        b_universal = resolver.resolve_character(b_name).universal_id
+        db.execute(
+            """
+            INSERT INTO relationships (
+                entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes
             )
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """,
+            (
+                a_universal,
+                b_universal,
+                rel.get("rel_type"),
+                rel.get("from_chapter"),
+                rel.get("to_chapter"),
+                rel.get("notes"),
+            ),
+        )
+
+    for dyn in extracted.get("dynamics_updates", []):
+        a_name = str(dyn.get("entity_a", "")).strip()
+        b_name = str(dyn.get("entity_b", "")).strip()
+        description = str(dyn.get("description", "")).strip()
+        if not a_name or not b_name or not description:
+            continue
+        a_universal = resolver.resolve_character(a_name).universal_id
+        b_universal = resolver.resolve_character(b_name).universal_id
+        db.execute(
+            """
+            INSERT INTO shared_dynamics (entity_a_id, entity_b_id, chapter_id, description)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (a_universal, b_universal, chapter_id, description),
+        )
 
     inserted_events: list[dict[str, str]] = []
     for event in extracted.get("events", []):
