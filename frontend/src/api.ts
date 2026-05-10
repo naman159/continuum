@@ -55,11 +55,20 @@ export type SharedDynamicRow = {
   description: string | null;
 };
 
+export type CharacterDynamicRow = {
+  id: string;
+  chapter_number: number;
+  other_entity_name: string;
+  other_entity_type: string;
+  description: string | null;
+};
+
 export type CharacterDetail = {
   identity: CharacterSummary;
   current_state: CharacterStateRow | null;
   history: CharacterStateRow[];
   relationships: CharacterRelationshipRow[];
+  dynamics: CharacterDynamicRow[];
   events: CharacterEventRow[];
 };
 

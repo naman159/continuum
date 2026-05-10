@@ -338,11 +338,58 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             "notes": rel.get("notes"),
         }
 
+    # Fetch shared dynamics involving this character
+    if hasattr(db, "shared_dynamics"):
+        entity_by_id = {e["id"]: e for e in db.entities}
+        char_entity_id_for_dyn = char.get("entity_id") if hasattr(db, "characters") else char_entity_id
+        dyn_rows_raw = [
+            d for d in db.shared_dynamics
+            if (d["entity_a_id"] == char_entity_id_for_dyn or d["entity_b_id"] == char_entity_id_for_dyn)
+            and chapter_by_id.get(d["chapter_id"], {}).get("number", 0) <= effective_cap
+        ]
+        dynamics = [
+            {
+                "id": d["id"],
+                "chapter_number": chapter_by_id[d["chapter_id"]]["number"],
+                "other_entity_name": entity_by_id.get(
+                    d["entity_b_id"] if d["entity_a_id"] == char_entity_id_for_dyn else d["entity_a_id"],
+                    {},
+                ).get("name", ""),
+                "other_entity_type": entity_by_id.get(
+                    d["entity_b_id"] if d["entity_a_id"] == char_entity_id_for_dyn else d["entity_a_id"],
+                    {},
+                ).get("entity_type", "character"),
+                "description": d.get("description"),
+            }
+            for d in sorted(dyn_rows_raw, key=lambda d: chapter_by_id[d["chapter_id"]]["number"])
+        ]
+    else:
+        dyn_rows = db.fetchall(
+            """
+            SELECT sd.id, ch.number AS chapter_number,
+                   e_other.name AS other_entity_name,
+                   e_other.entity_type AS other_entity_type,
+                   sd.description
+            FROM shared_dynamics sd
+            JOIN chapters ch ON ch.id = sd.chapter_id
+            JOIN characters c ON (c.entity_id = sd.entity_a_id OR c.entity_id = sd.entity_b_id)
+            JOIN entities e_other ON e_other.id = (
+                CASE WHEN c.entity_id = sd.entity_a_id THEN sd.entity_b_id ELSE sd.entity_a_id END
+            )
+            WHERE c.id = %s AND ch.novel_id = %s AND ch.number <= %s
+            ORDER BY ch.number
+            """,
+            (str(character_id), str(novel_id), effective_cap),
+            dict_rows=True,
+        )
+        dynamics = [dict(r) for r in dyn_rows]
+
     return {
         "identity": identity,
         "current_state": current_state,
         "history": history,
         "relationships": [rel_to_row(r) for r in rels],
+        "dynamics": dynamics,
         "events": [event_to_row(e) for e in events],
     }
 

@@ -82,6 +82,31 @@ function CharacterPage({ data }: { data: Detail }) {
         )}
       </section>
       <section>
+        <h2>Shared Dynamics ({data.dynamics.length})</h2>
+        {data.dynamics.length === 0 ? (
+          <p className="muted">No dynamics recorded within cap.</p>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Chapter</th>
+                <th>With</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.dynamics.map((d) => (
+                <tr key={d.id}>
+                  <td>{d.chapter_number}</td>
+                  <td>{d.other_entity_name} <span className="muted">({d.other_entity_type})</span></td>
+                  <td>{d.description ?? "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+      <section>
         <h2>Events involving ({data.events.length})</h2>
         {data.events.length === 0 ? (
           <p className="muted">None within cap.</p>
