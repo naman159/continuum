@@ -100,7 +100,7 @@ export default function Novels() {
             {mutation.isPending ? "Creating…" : "Create Novel"}
           </button>
           {" "}
-          <button type="button" onClick={() => setShowForm(false)} disabled={mutation.isPending}>
+          <button type="button" onClick={() => { setTitle(""); setAuthor(""); setLanguage(""); setShowForm(false); }} disabled={mutation.isPending}>
             Cancel
           </button>
         </form>
