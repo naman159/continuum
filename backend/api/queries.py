@@ -677,3 +677,47 @@ def list_continuity(novel_id: UUID, cap: int | None, resolved_filter: str) -> li
             }
         )
     return out
+
+
+def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+
+    if hasattr(db, "shared_dynamics"):
+        chapter_by_id = {c["id"]: c for c in db.chapters if c["novel_id"] == novel_id}
+        rows: list[dict[str, Any]] = []
+        for dyn in db.shared_dynamics:
+            ch = chapter_by_id.get(dyn["chapter_id"])
+            if ch is None or ch["number"] > effective_cap:
+                continue
+            rows.append({
+                "id": dyn["id"],
+                "entity_a_id": dyn["entity_a_id"],
+                "entity_b_id": dyn["entity_b_id"],
+                "chapter_number": ch["number"],
+                "description": dyn.get("description"),
+            })
+        rows.sort(key=lambda r: r["chapter_number"])
+        return rows
+
+    raw = db.fetchall(
+        """
+        SELECT sd.id, sd.entity_a_id, sd.entity_b_id, sd.description, ch.number AS chapter_number
+        FROM shared_dynamics sd
+        JOIN chapters ch ON ch.id = sd.chapter_id
+        WHERE ch.novel_id = %s AND ch.number <= %s
+        ORDER BY ch.number
+        """,
+        (str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "entity_a_id": r["entity_a_id"],
+            "entity_b_id": r["entity_b_id"],
+            "chapter_number": r["chapter_number"],
+            "description": r.get("description"),
+        }
+        for r in raw
+    ]
