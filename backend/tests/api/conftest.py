@@ -29,6 +29,7 @@ class FakeDB:
         continuity_flags: list[dict[str, Any]] | None = None,
         locations: list[dict[str, Any]] | None = None,
         objects: list[dict[str, Any]] | None = None,
+        factions: list[dict[str, Any]] | None = None,
         entities: list[dict[str, Any]] | None = None,
     ) -> None:
         self.novels = novels or []
@@ -43,6 +44,7 @@ class FakeDB:
         self.continuity_flags = continuity_flags or []
         self.locations = locations or []
         self.objects = objects or []
+        self.factions = factions or []
         self.entities = entities or []
 
     def close(self) -> None:

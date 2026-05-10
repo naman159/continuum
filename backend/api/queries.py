@@ -778,6 +778,147 @@ def list_continuity(novel_id: UUID, cap: int | None, resolved_filter: str) -> li
     return out
 
 
+def list_locations(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    if hasattr(db, "locations"):
+        rows = [
+            loc for loc in db.locations
+            if loc["novel_id"] == novel_id
+            and (loc.get("first_appearance_chapter") is None or loc["first_appearance_chapter"] <= effective_cap)
+        ]
+    else:
+        rows = [
+            dict(r)
+            for r in db.fetchall(
+                """
+                SELECT id, name, aliases, description, first_appearance_chapter
+                FROM locations
+                WHERE novel_id = %s
+                  AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)
+                ORDER BY name
+                """,
+                (str(novel_id), effective_cap),
+                dict_rows=True,
+            )
+        ]
+    return [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "aliases": list(r.get("aliases") or []),
+            "description": r.get("description"),
+            "first_appearance_chapter": r.get("first_appearance_chapter"),
+        }
+        for r in rows
+    ]
+
+
+def get_location_detail(novel_id: UUID, location_id: UUID, cap: int | None) -> dict[str, Any] | None:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+
+    if hasattr(db, "locations"):
+        loc = next(
+            (l for l in db.locations if l["id"] == location_id and l["novel_id"] == novel_id),
+            None,
+        )
+        if loc is None:
+            return None
+        char_name = {c["id"]: c["name"] for c in db.characters}
+        loc_name = {l["id"]: l["name"] for l in db.locations}
+        obj_name = {o["id"]: o["name"] for o in db.objects}
+        char_ids_at_loc = {cs["character_id"] for cs in db.character_states if cs.get("location_id") == location_id}
+        events = [
+            {
+                "id": e["id"],
+                "chapter_number": e.get("chapter_number", 0),
+                "description": e["description"],
+                "event_type": e.get("event_type"),
+                "impact_level": e.get("impact_level"),
+                "involved_characters": [char_name.get(cid, str(cid)) for cid in (e.get("involved_characters") or [])],
+                "involved_locations": [loc_name.get(lid, str(lid)) for lid in (e.get("involved_locations") or [])],
+                "involved_objects": [obj_name.get(oid, str(oid)) for oid in (e.get("involved_objects") or [])],
+            }
+            for e in db.events
+            if location_id in (e.get("involved_locations") or [])
+        ]
+        characters = sorted(char_name.get(cid, str(cid)) for cid in char_ids_at_loc)
+    else:
+        row = db.fetchone(
+            """
+            SELECT id, name, aliases, description, first_appearance_chapter
+            FROM locations WHERE novel_id = %s AND id = %s
+            """,
+            (str(novel_id), str(location_id)),
+            dict_rows=True,
+        )
+        if row is None:
+            return None
+        loc = dict(row)
+
+        char_name_rows = db.fetchall("SELECT id, name FROM characters WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        loc_name_rows = db.fetchall("SELECT id, name FROM locations WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        obj_name_rows = db.fetchall("SELECT id, name FROM objects WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        char_name = {r["id"]: r["name"] for r in char_name_rows}
+        loc_name = {r["id"]: r["name"] for r in loc_name_rows}
+        obj_name = {r["id"]: r["name"] for r in obj_name_rows}
+
+        event_rows = db.fetchall(
+            """
+            SELECT e.id, e.description, e.event_type, e.impact_level,
+                   ch.number AS chapter_number,
+                   e.involved_characters, e.involved_locations, e.involved_objects
+            FROM events e
+            JOIN chapters ch ON ch.id = e.chapter_id
+            WHERE ch.novel_id = %s AND ch.number <= %s
+              AND %s::uuid = ANY(e.involved_locations)
+            ORDER BY ch.number
+            """,
+            (str(novel_id), effective_cap, str(location_id)),
+            dict_rows=True,
+        )
+        events = [
+            {
+                "id": r["id"],
+                "chapter_number": r["chapter_number"],
+                "description": r["description"],
+                "event_type": r.get("event_type"),
+                "impact_level": r.get("impact_level"),
+                "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
+                "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
+                "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
+            }
+            for r in event_rows
+        ]
+
+        char_rows = db.fetchall(
+            """
+            SELECT DISTINCT c.name
+            FROM character_states cs
+            JOIN characters c ON c.id = cs.character_id
+            JOIN chapters ch ON ch.id = cs.chapter_id
+            WHERE c.novel_id = %s AND cs.location_id = %s AND ch.number <= %s
+            ORDER BY c.name
+            """,
+            (str(novel_id), str(location_id), effective_cap),
+            dict_rows=True,
+        )
+        characters = [r["name"] for r in char_rows]
+
+    return {
+        "identity": {
+            "id": loc["id"],
+            "name": loc["name"],
+            "aliases": list(loc.get("aliases") or []),
+            "description": loc.get("description"),
+            "first_appearance_chapter": loc.get("first_appearance_chapter"),
+        },
+        "events": events,
+        "characters": characters,
+    }
+
+
 def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     db = _get_db()
     effective_cap = _resolve_cap(db, novel_id, cap)
