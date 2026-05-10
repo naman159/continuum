@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { api, type FactionDetail as Detail } from "../api";
+import { api } from "../api";
 import FieldList, { renderArray } from "../components/FieldList";
 
 export default function FactionDetail() {
