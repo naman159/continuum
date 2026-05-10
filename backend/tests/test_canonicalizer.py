@@ -247,3 +247,52 @@ def test_collect_character_names_pulls_from_all_sources():
     }
     names = collect_character_names(extracted)
     assert names == {"John", "Eliza", "the master of Pemberley", "Mr. Bennet"}
+
+
+from pipeline.extraction.canonicalizer import collect_names_by_type
+
+
+def test_collect_names_by_type_characters():
+    extracted = {
+        "new_entities": {"characters": [{"name": "Jane Bennet"}, {"name": ""}, {"name": "  "}]},
+        "entity_deltas": [{"character_name": "Jane", "location": "Netherfield Park"}],
+        "events": [
+            {
+                "involved_characters": ["Jane Bennet"],
+                "involved_locations": ["Longbourn"],
+                "involved_objects": ["letter"],
+            }
+        ],
+        "relationship_updates": [{"entity_a": "Jane Bennet", "entity_b": "Mr. Bingley"}],
+        "dynamics_updates": [{"entity_a": "Jane Bennet", "entity_b": "Mr. Bingley"}],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert by_type["character"] == {"Jane Bennet", "Jane", "Mr. Bingley"}
+    assert by_type["location"] == {"Netherfield Park", "Longbourn"}
+    assert by_type["object"] == {"letter"}
+    assert by_type["faction"] == set()
+
+
+def test_collect_names_by_type_locations_and_objects():
+    extracted = {
+        "new_entities": {
+            "locations": [{"name": "Pemberley"}],
+            "objects": [{"name": "the ring"}],
+            "factions": [{"name": "The Order"}],
+        },
+    }
+    by_type = collect_names_by_type(extracted)
+    assert by_type["location"] == {"Pemberley"}
+    assert by_type["object"] == {"the ring"}
+    assert by_type["faction"] == {"The Order"}
+    assert by_type["character"] == set()
+
+
+def test_collect_character_names_is_still_correct():
+    extracted = {
+        "new_entities": {"characters": [{"name": "Eliza"}]},
+        "entity_deltas": [{"character_name": "Mr. Darcy"}],
+        "events": [{"involved_characters": ["Eliza"]}],
+    }
+    from pipeline.extraction.canonicalizer import collect_character_names
+    assert collect_character_names(extracted) == {"Eliza", "Mr. Darcy"}
