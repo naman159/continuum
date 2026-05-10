@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 
 from api import queries
-from api.schemas import NovelSummary
+from api.schemas import NovelCreate, NovelSummary
 
 router = APIRouter(prefix="/api/novels", tags=["novels"])
 
@@ -13,6 +13,14 @@ router = APIRouter(prefix="/api/novels", tags=["novels"])
 @router.get("", response_model=list[NovelSummary])
 def list_novels() -> list[NovelSummary]:
     return [NovelSummary(**row) for row in queries.list_novels()]
+
+
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=NovelSummary)
+def create_novel(body: NovelCreate) -> NovelSummary:
+    if not body.title or not body.title.strip():
+        raise HTTPException(status_code=422, detail="title must not be blank")
+    row = queries.create_novel(body.title.strip(), body.author, body.language)
+    return NovelSummary(**row)
 
 
 @router.get("/{novel_id}", response_model=NovelSummary)
