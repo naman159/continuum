@@ -225,38 +225,71 @@ class CharacterCanonicalizer:
         return [r for r in resolutions if isinstance(r, dict)]
 
 
-def collect_character_names(extracted: dict[str, Any]) -> set[str]:
-    names: set[str] = set()
+def collect_names_by_type(extracted: dict[str, Any]) -> dict[str, set[str]]:
+    result: dict[str, set[str]] = {
+        "character": set(),
+        "location": set(),
+        "object": set(),
+        "faction": set(),
+    }
 
     new_entities = extracted.get("new_entities", {}) or {}
-    for char in new_entities.get("characters", []) or []:
-        if isinstance(char, dict):
-            name = str(char.get("name", "")).strip()
-            if name:
-                names.add(name)
+    _collect_from_list(new_entities.get("characters"), "character", result)
+    _collect_from_list(new_entities.get("locations"), "location", result)
+    _collect_from_list(new_entities.get("factions"), "faction", result)
+    _collect_from_list(new_entities.get("objects"), "object", result)
 
     for delta in extracted.get("entity_deltas", []) or []:
         if not isinstance(delta, dict):
             continue
-        name = str(delta.get("character_name", "")).strip()
-        if name:
-            names.add(name)
-        relationships = delta.get("relationships")
-        if isinstance(relationships, dict):
-            for target in relationships.keys():
-                target_name = str(target).strip()
-                if target_name:
-                    names.add(target_name)
+        _add_name(str(delta.get("character_name", "")), "character", result)
+        _add_name(str(delta.get("location", "")), "location", result)
+        for target in (delta.get("relationships") or {}).keys():
+            _add_name(str(target), "character", result)
 
     for event in extracted.get("events", []) or []:
         if not isinstance(event, dict):
             continue
-        for character in event.get("involved_characters", []) or []:
-            character_name = str(character).strip()
-            if character_name:
-                names.add(character_name)
+        for n in event.get("involved_characters", []) or []:
+            _add_name(str(n), "character", result)
+        for n in event.get("involved_locations", []) or []:
+            _add_name(str(n), "location", result)
+        for n in event.get("involved_objects", []) or []:
+            _add_name(str(n), "object", result)
 
-    return names
+    for rel in extracted.get("relationship_updates", []) or []:
+        if not isinstance(rel, dict):
+            continue
+        _add_name(str(rel.get("entity_a", "")), "character", result)
+        _add_name(str(rel.get("entity_b", "")), "character", result)
+
+    for dyn in extracted.get("dynamics_updates", []) or []:
+        if not isinstance(dyn, dict):
+            continue
+        _add_name(str(dyn.get("entity_a", "")), "character", result)
+        _add_name(str(dyn.get("entity_b", "")), "character", result)
+
+    return result
 
 
-__all__ = ["CharacterCanonicalizer", "collect_character_names"]
+def _collect_from_list(
+    items: list[Any] | None,
+    entity_type: str,
+    result: dict[str, set[str]],
+) -> None:
+    for item in items or []:
+        if isinstance(item, dict):
+            _add_name(str(item.get("name", "")), entity_type, result)
+
+
+def _add_name(name: str, entity_type: str, result: dict[str, set[str]]) -> None:
+    normalized = name.strip()
+    if normalized:
+        result[entity_type].add(normalized)
+
+
+def collect_character_names(extracted: dict[str, Any]) -> set[str]:
+    return collect_names_by_type(extracted)["character"]
+
+
+__all__ = ["CharacterCanonicalizer", "collect_character_names", "collect_names_by_type"]
