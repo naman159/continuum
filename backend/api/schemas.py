@@ -64,11 +64,20 @@ class SharedDynamicRow(BaseModel):
     description: str | None
 
 
+class CharacterDynamicRow(BaseModel):
+    id: UUID
+    chapter_number: int
+    other_entity_name: str
+    other_entity_type: str
+    description: str | None
+
+
 class CharacterDetail(BaseModel):
     identity: CharacterSummary
     current_state: CharacterStateRow | None
     history: list[CharacterStateRow]
     relationships: list[CharacterRelationshipRow]
+    dynamics: list[CharacterDynamicRow]
     events: list[CharacterEventRow]
 
 
