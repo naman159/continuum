@@ -35,6 +35,19 @@ async function fetchJob(jobId: string): Promise<JobStatus> {
   return res.json();
 }
 
+const PASS_LABELS: Record<string, string> = {
+  chapter_summary: "Summarising chapter",
+  new_entities: "Extracting new entities",
+  entity_deltas: "Tracking character changes",
+  events: "Extracting events",
+  thread_updates: "Updating plot threads",
+  continuity_flags: "Checking continuity",
+  relationship_updates: "Mapping relationships",
+  dynamics_updates: "Tracking dynamics",
+  intra_dedup: "Deduplicating entities",
+  canonicalization: "Canonicalising names",
+};
+
 export default function Process() {
   const { novelId } = useParams();
   const [chapterNumber, setChapterNumber] = useState<number>(1);
@@ -117,7 +130,7 @@ export default function Process() {
               {job && (
                 <p>
                   {job.current_pass
-                    ? `Running pass: ${job.current_pass}`
+                    ? `Running pass: ${PASS_LABELS[job.current_pass] ?? job.current_pass}`
                     : "Starting…"}
                   {job.total_passes > 0 &&
                     ` (${job.passes_done} / ${job.total_passes})`}
