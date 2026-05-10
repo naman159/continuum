@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { api, type ObjectDetail as Detail } from "../api";
+import { api } from "../api";
 import FieldList, { renderArray } from "../components/FieldList";
 import { useChapterCap } from "../hooks/useChapterCap";
 
