@@ -7,6 +7,7 @@ import pytest
 
 from pipeline.extraction.canonicalizer import (
     CharacterCanonicalizer,
+    EntityCanonicalizer,
     IntraExtractionDeduplicator,
     collect_character_names,
     collect_names_by_type,
@@ -85,7 +86,7 @@ def roster_rows():
 
 
 def _make_canon(db, completion_fn):
-    return CharacterCanonicalizer(
+    return EntityCanonicalizer(
         db,
         novel_id="novel-1",
         use_mock=False,
@@ -109,9 +110,9 @@ def test_existing_with_valid_anchor_appends_alias(roster_rows):
     canon = _make_canon(db, _make_completion(response))
     merges = canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"the master of Pemberley"},
+        candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
-    assert merges == {"the master of Pemberley": "11111111-1111-1111-1111-111111111111"}
+    assert merges == {"character": {"the master of Pemberley": "11111111-1111-1111-1111-111111111111"}}
     darcy = next(r for r in roster_rows if r["name"] == "Mr. Darcy")
     assert "the master of Pemberley" in darcy["aliases"]
 
@@ -132,7 +133,7 @@ def test_existing_with_missing_anchor_is_rejected(roster_rows):
     canon = _make_canon(db, _make_completion(response))
     merges = canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"the master of Pemberley"},
+        candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
     assert merges == {}
     darcy = next(r for r in roster_rows if r["name"] == "Mr. Darcy")
@@ -156,7 +157,7 @@ def test_existing_with_anchor_not_in_text_is_rejected(roster_rows):
     canon = _make_canon(db, _make_completion(response))
     merges = canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"the master of Pemberley"},
+        candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
     assert merges == {}
     darcy = next(r for r in roster_rows if r["name"] == "Mr. Darcy")
@@ -179,7 +180,7 @@ def test_candidate_already_in_aliases_is_noop(roster_rows):
     canon = _make_canon(db, _make_completion(response))
     canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"Lizzy"},
+        candidate_names_by_type={"character": {"Lizzy"}, "location": set(), "object": set(), "faction": set()},
     )
     elizabeth = next(r for r in roster_rows if r["name"] == "Elizabeth Bennet")
     assert elizabeth["aliases"].count("Lizzy") == 1
@@ -191,7 +192,7 @@ def test_malformed_json_response_is_safe(roster_rows):
     canon = _make_canon(db, _make_completion("not json at all"))
     merges = canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"the master of Pemberley"},
+        candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
     assert merges == {}
     assert all("UPDATE characters" not in q for q, _ in db.executed)
@@ -213,7 +214,7 @@ def test_new_verdict_does_nothing_to_roster(roster_rows):
     canon = _make_canon(db, _make_completion(response))
     canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"John Smith"},
+        candidate_names_by_type={"character": {"John Smith"}, "location": set(), "object": set(), "faction": set()},
     )
     assert all("UPDATE characters" not in q for q, _ in db.executed)
     for row in roster_rows:
@@ -231,7 +232,7 @@ def test_already_known_candidates_are_not_sent_to_llm(roster_rows):
     canon = _make_canon(db, recording_completion)
     canon.canonicalize(
         chapter_text=CHAPTER_TEXT,
-        candidate_names={"Mr. Darcy", "Lizzy"},
+        candidate_names_by_type={"character": {"Mr. Darcy", "Lizzy"}, "location": set(), "object": set(), "faction": set()},
     )
     assert calls == []
 
@@ -428,3 +429,85 @@ def test_intra_dedup_renames_object_and_faction_variants():
     assert "The Fellowship" not in factions
     assert factions.count("The Fellowship of the Ring") == 1
     assert result["events"][0]["involved_objects"] == ["the One Ring"]
+
+
+class FakeDBMultiType(FakeDB):
+    """Extends FakeDB to support location roster rows."""
+
+    def __init__(self, roster_by_type: dict[str, list[dict]]) -> None:
+        super().__init__(roster_by_type.get("character", []))
+        self._roster_by_type = roster_by_type
+
+    def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+        for entity_type, rows in self._roster_by_type.items():
+            table = {
+                "character": "characters",
+                "location": "locations",
+                "object": "objects",
+                "faction": "factions",
+            }[entity_type]
+            if f"FROM {table}" in query:
+                return [dict(r) for r in rows]
+        return []
+
+    def execute(self, query, params=None):
+        self.executed.append((query, tuple(params or ())))
+        for entity_type, rows in self._roster_by_type.items():
+            table = {
+                "character": "characters",
+                "location": "locations",
+                "object": "objects",
+                "faction": "factions",
+            }[entity_type]
+            if f"UPDATE {table}" in query and "aliases = %s" in query:
+                new_aliases, row_id, _novel_id = params
+                for row in rows:
+                    if str(row["id"]) == str(row_id):
+                        row["aliases"] = list(new_aliases)
+
+
+def test_entity_canonicalizer_handles_location_type():
+    location_roster = [
+        {
+            "id": "aaaa0000-0000-0000-0000-000000000001",
+            "name": "Netherfield Park",
+            "aliases": [],
+            "description": "A grand estate.",
+        }
+    ]
+    db = FakeDBMultiType({"location": location_roster})
+    response = {
+        "resolutions": [
+            {
+                "candidate": "Netherfield",
+                "verdict": "existing",
+                "id": "aaaa0000-0000-0000-0000-000000000001",
+                "grammatical_anchor": "Netherfield, the great park",
+                "reasoning": "shorthand",
+            }
+        ]
+    }
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=_make_completion(response))
+    chapter_text = "They arrived at Netherfield, the great park nearby."
+    merges = canon.canonicalize(
+        chapter_text=chapter_text,
+        candidate_names_by_type={"character": set(), "location": {"Netherfield"}, "object": set(), "faction": set()},
+    )
+    assert merges.get("location", {}).get("Netherfield") == "aaaa0000-0000-0000-0000-000000000001"
+    assert "Netherfield" in location_roster[0]["aliases"]
+
+
+def test_entity_canonicalizer_skips_type_with_no_candidates():
+    db = FakeDBMultiType({"character": []})
+    calls: list = []
+
+    def recording_completion(**kwargs):
+        calls.append(kwargs)
+        return _make_completion({"resolutions": []})()
+
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=recording_completion)
+    canon.canonicalize(
+        chapter_text="text",
+        candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": set()},
+    )
+    assert calls == []

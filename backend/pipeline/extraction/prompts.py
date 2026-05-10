@@ -162,19 +162,18 @@ CANONICALIZATION_SCHEMA = {
 }
 
 
-def build_canonicalization_system_prompt() -> str:
+def build_canonicalization_system_prompt(entity_type: str = "character") -> str:
     return dedent(
         f"""
-        You are a strict character canonicalizer for a novel continuity pipeline.
-        For each candidate name, decide whether it refers to an EXISTING character
-        in the roster or is a NEW character.
+        You are a strict {entity_type} canonicalizer for a novel continuity pipeline.
+        For each candidate name, decide whether it refers to an EXISTING {entity_type}
+        in the roster or is a NEW {entity_type}.
 
         Rules:
         - Verdict "existing" requires BOTH an id from the roster AND a
           grammatical_anchor: a verbatim substring of the chapter text in which
-          the candidate is grammatically tied to that existing character via
-          apposition ("Mr. Darcy, the master of Pemberley"), unambiguous
-          possessive ("Elizabeth's father"), or a restated full name in
+          the candidate is grammatically tied to that existing {entity_type} via
+          apposition, unambiguous possessive, or a restated full name in
           immediate context.
         - Do NOT merge based on stylistic similarity, topical inference, plot
           guesswork, or general knowledge of the source novel. Use only the
@@ -195,13 +194,14 @@ def build_canonicalization_user_prompt(
     chapter_text: str,
     candidates: list[str],
     roster: list[dict],
+    entity_type: str = "character",
 ) -> str:
     return dedent(
         f"""
         CHAPTER TEXT
         {chapter_text}
 
-        EXISTING CHARACTER ROSTER (JSON)
+        EXISTING {entity_type.upper()} ROSTER (JSON)
         {json.dumps(roster, ensure_ascii=True, default=str)}
 
         CANDIDATE NAMES TO RESOLVE (JSON)
