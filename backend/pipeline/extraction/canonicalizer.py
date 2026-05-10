@@ -115,7 +115,7 @@ class IntraExtractionDeduplicator:
 
 
 def _apply_rename_map(
-    extracted: dict[str, Any],
+    data: dict[str, Any],
     rename_map: dict[str, dict[str, str]],
 ) -> dict[str, Any]:
     char_map = rename_map.get("character", {})
@@ -126,7 +126,7 @@ def _apply_rename_map(
     def _r(name: str, m: dict[str, str]) -> str:
         return m.get(name.lower(), name) if name else name
 
-    new_entities = extracted.get("new_entities", {}) or {}
+    new_entities = data.get("new_entities", {}) or {}
     for char in new_entities.get("characters", []) or []:
         if isinstance(char, dict):
             char["name"] = _r(char.get("name", ""), char_map)
@@ -160,33 +160,33 @@ def _apply_rename_map(
         if key in new_entities:
             new_entities[key] = deduped
 
-    for delta in extracted.get("entity_deltas", []) or []:
+    for delta in data.get("entity_deltas", []) or []:
         if not isinstance(delta, dict):
             continue
         delta["character_name"] = _r(delta.get("character_name", ""), char_map)
         if delta.get("location"):
             delta["location"] = _r(delta["location"], loc_map)
 
-    for event in extracted.get("events", []) or []:
+    for event in data.get("events", []) or []:
         if not isinstance(event, dict):
             continue
         event["involved_characters"] = [_r(n, char_map) for n in (event.get("involved_characters") or [])]
         event["involved_locations"] = [_r(n, loc_map) for n in (event.get("involved_locations") or [])]
         event["involved_objects"] = [_r(n, obj_map) for n in (event.get("involved_objects") or [])]
 
-    for rel in extracted.get("relationship_updates", []) or []:
+    for rel in data.get("relationship_updates", []) or []:
         if not isinstance(rel, dict):
             continue
         rel["entity_a"] = _r(rel.get("entity_a", ""), char_map)
         rel["entity_b"] = _r(rel.get("entity_b", ""), char_map)
 
-    for dyn in extracted.get("dynamics_updates", []) or []:
+    for dyn in data.get("dynamics_updates", []) or []:
         if not isinstance(dyn, dict):
             continue
         dyn["entity_a"] = _r(dyn.get("entity_a", ""), char_map)
         dyn["entity_b"] = _r(dyn.get("entity_b", ""), char_map)
 
-    return extracted
+    return data
 
 
 class EntityCanonicalizer:
