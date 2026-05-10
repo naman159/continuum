@@ -73,3 +73,36 @@ def test_resolve_character_returns_same_ids_on_second_call():
     assert first.entity_id == second.entity_id
     assert first.universal_id == second.universal_id
     assert second.created is False
+
+
+def test_resolve_location_by_alias_returns_existing():
+    """Resolver finds a location by alias instead of creating a new one."""
+    import uuid
+    from pipeline.extraction.resolver import EntityResolver
+
+    class AliasDB:
+        def __init__(self):
+            self.loc_id = str(uuid.uuid4())
+            self.entity_id = str(uuid.uuid4())
+            self.executed = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            # Exact name lookup returns None (no exact match for alias form)
+            if "lower(name) = lower" in query:
+                return None
+            # Alias lookup — match when the query uses unnest(aliases)
+            if "unnest(aliases)" in query:
+                return (self.loc_id, self.entity_id)
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            return None
+
+        def execute(self, query, params=None):
+            self.executed.append((query, params))
+
+    db = AliasDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    resolved = resolver.resolve_location("Netherfield")
+    assert resolved.entity_id == db.loc_id
+    assert resolved.created is False

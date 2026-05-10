@@ -59,25 +59,25 @@ class EntityResolver:
             self._cache[cache_key] = (entity_id, universal_id)
             return ResolvedEntity(entity_id, universal_id, created=False)
 
-        if entity_type == "character":
-            alias_row = self.db.fetchone(
-                """
-                SELECT id, entity_id
-                FROM characters
-                WHERE novel_id = %s
-                  AND EXISTS (
-                      SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
-                  )
-                LIMIT 1
-                """,
-                (self.novel_id, normalized_name),
-            )
-            if alias_row:
-                entity_id = str(alias_row[0])
-                universal_id = str(alias_row[1]) if alias_row[1] else entity_id
-                self._cache[cache_key] = (entity_id, universal_id)
-                return ResolvedEntity(entity_id, universal_id, created=False)
+        alias_row = self.db.fetchone(
+            f"""
+            SELECT id, entity_id
+            FROM {table}
+            WHERE novel_id = %s
+              AND EXISTS (
+                  SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
+              )
+            LIMIT 1
+            """,
+            (self.novel_id, normalized_name),
+        )
+        if alias_row:
+            entity_id = str(alias_row[0])
+            universal_id = str(alias_row[1]) if alias_row[1] else entity_id
+            self._cache[cache_key] = (entity_id, universal_id)
+            return ResolvedEntity(entity_id, universal_id, created=False)
 
+        if entity_type == "character":
             # Partial-name match: "Jane" <-> "Jane Bennet" (one name is a word-boundary
             # prefix of the other). The shorter form becomes an alias of the longer one.
             partial_row = self.db.fetchone(
