@@ -92,6 +92,38 @@ New api functions: `locations(novelId, cap)`, `location(novelId, locationId, cap
 
 ---
 
+---
+
+## Pipeline Fix: Cross-Entity Relationships
+
+### Problem
+
+`_persist_extraction` in `pipeline.py` currently calls `resolver.resolve_character()` for **both** sides of every `relationship_update`. If `entity_b` is an object (e.g. "the One Ring"), it gets resolved as a character — creating a duplicate character record or matching nothing. Character→object relationships are never correctly stored.
+
+### Fix
+
+Add `resolve_any_entity(name) -> str` to `EntityResolver` in `resolver.py`. It returns the `entities.id` (universal ID) for any entity type:
+
+1. Check the in-memory cache (keyed as `("any", lower_name)`)
+2. Query `entities WHERE novel_id = %s AND lower(name) = lower(%s) LIMIT 1`
+3. If found, cache and return `entities.id`
+4. If not found, fall back to `resolver.resolve_character(name).universal_id` (preserves current behaviour for pure character-to-character rels)
+
+In `_persist_extraction`, replace the two `resolve_character` calls in the `relationship_updates` loop with `resolve_any_entity`:
+
+```python
+a_universal = resolver.resolve_any_entity(a_name)
+b_universal = resolver.resolve_any_entity(b_name)
+```
+
+Same fix for `dynamics_updates` (lines 338–339), since dynamics can also involve non-character entities.
+
+### Result
+
+Character→object (and character→location, character→faction) relationships are stored with the correct universal IDs, making the ownership section on `ObjectDetail` accurate.
+
+---
+
 ## Out of Scope
 
 - Editing or deleting entities
