@@ -22,9 +22,20 @@ CREATE TABLE IF NOT EXISTS chapters (
     UNIQUE(novel_id, number)
 );
 
+CREATE TABLE IF NOT EXISTS entities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('character', 'location', 'faction', 'object')),
+    name TEXT NOT NULL,
+    UNIQUE(novel_id, entity_type, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_entities_novel ON entities(novel_id, entity_type);
+
 CREATE TABLE IF NOT EXISTS characters (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     aliases TEXT[] DEFAULT '{}',
     first_appearance_chapter INTEGER,
@@ -38,6 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_characters_novel_name ON characters(novel_id, low
 CREATE TABLE IF NOT EXISTS locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     description TEXT,
     parent_location_id UUID REFERENCES locations(id),
@@ -50,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_locations_novel_name ON locations(novel_id, lower
 CREATE TABLE IF NOT EXISTS factions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     description TEXT,
     UNIQUE(novel_id, name)
@@ -60,6 +73,7 @@ CREATE INDEX IF NOT EXISTS idx_factions_novel_name ON factions(novel_id, lower(n
 CREATE TABLE IF NOT EXISTS objects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     description TEXT,
     significance TEXT,
@@ -77,7 +91,6 @@ CREATE TABLE IF NOT EXISTS character_states (
     emotional_state TEXT,
     goals TEXT,
     knowledge TEXT[] DEFAULT '{}',
-    relationships JSONB DEFAULT '{}'::jsonb,
     physical_state TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
@@ -103,19 +116,29 @@ CREATE INDEX IF NOT EXISTS idx_events_chapter ON events(chapter_id);
 
 CREATE TABLE IF NOT EXISTS relationships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_a_id UUID NOT NULL,
-    entity_a_type TEXT NOT NULL,
-    entity_b_id UUID NOT NULL,
-    entity_b_type TEXT NOT NULL,
+    entity_a_id UUID NOT NULL REFERENCES entities(id),
+    entity_b_id UUID NOT NULL REFERENCES entities(id),
     rel_type TEXT,
-    status TEXT,
-    chapter_id UUID REFERENCES chapters(id) ON DELETE SET NULL,
+    from_chapter INTEGER,
+    to_chapter INTEGER,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_relationships_a ON relationships(entity_a_id, entity_a_type);
-CREATE INDEX IF NOT EXISTS idx_relationships_b ON relationships(entity_b_id, entity_b_type);
+CREATE INDEX IF NOT EXISTS idx_relationships_a ON relationships(entity_a_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_b ON relationships(entity_b_id);
+
+CREATE TABLE IF NOT EXISTS shared_dynamics (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_a_id UUID NOT NULL REFERENCES entities(id),
+    entity_b_id UUID NOT NULL REFERENCES entities(id),
+    chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_shared_dynamics_entities ON shared_dynamics(entity_a_id, entity_b_id);
+CREATE INDEX IF NOT EXISTS idx_shared_dynamics_chapter ON shared_dynamics(chapter_id);
 
 CREATE TABLE IF NOT EXISTS plot_threads (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
