@@ -66,7 +66,7 @@ export default function Relationships() {
       <h2>All relationships ({data?.edges.length ?? 0})</h2>
       <table>
         <thead>
-          <tr><th>From</th><th>To</th><th>Type</th><th>Chapter</th></tr>
+          <tr><th>From</th><th>To</th><th>Type</th><th>From ch.</th></tr>
         </thead>
         <tbody>
           {data?.edges.map((e) => {

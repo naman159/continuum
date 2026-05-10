@@ -21,7 +21,6 @@ export type CharacterStateRow = {
   emotional_state: string | null;
   goals: string | null;
   knowledge: string[];
-  relationships: Record<string, string>;
   physical_state: string | null;
   notes: string | null;
 };
@@ -38,13 +37,22 @@ export type CharacterEventRow = {
 };
 
 export type CharacterRelationshipRow = {
-  chapter_number: number | null;
-  other_character_id: string;
-  other_character_name: string;
+  other_entity_id: string;
+  other_entity_name: string;
+  other_entity_type: string;
   direction: "from" | "to";
   rel_type: string | null;
-  status: string | null;
+  from_chapter: number | null;
+  to_chapter: number | null;
   notes: string | null;
+};
+
+export type SharedDynamicRow = {
+  id: string;
+  entity_a_id: string;
+  entity_b_id: string;
+  chapter_number: number;
+  description: string | null;
 };
 
 export type CharacterDetail = {
@@ -129,4 +137,6 @@ export const api = {
   },
   relationships: (id: string, cap: number | null) =>
     fetchJson<RelationshipGraph>(`/api/novels/${id}/relationships${capParam(cap)}`),
+  dynamics: (id: string, cap: number | null) =>
+    fetchJson<SharedDynamicRow[]>(`/api/novels/${id}/dynamics${capParam(cap)}`),
 };

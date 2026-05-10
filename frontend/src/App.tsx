@@ -8,6 +8,7 @@ import Continuity from "./routes/Continuity";
 import Novels from "./routes/Novels";
 import Process from "./routes/Process";
 import Relationships from "./routes/Relationships";
+import SharedDynamics from "./routes/SharedDynamics";
 import Threads from "./routes/Threads";
 import Timeline from "./routes/Timeline";
 
@@ -29,6 +30,7 @@ export default function App() {
           <Route path="/novels/:novelId/threads" element={<Layout><Threads /></Layout>} />
           <Route path="/novels/:novelId/continuity" element={<Layout><Continuity /></Layout>} />
           <Route path="/novels/:novelId/relationships" element={<Layout><Relationships /></Layout>} />
+          <Route path="/novels/:novelId/dynamics" element={<Layout><SharedDynamics /></Layout>} />
           <Route path="/novels/:novelId/process" element={<Layout><Process /></Layout>} />
         </Routes>
       </Router>
