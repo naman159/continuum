@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "continuum"
+version = "0.1.0"
+description = "Novel knowledge pipeline and wiki generator"
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv>=1.0.1",
+  "psycopg[binary,pool]>=3.2.0",
+  "litellm>=1.74.0",
+  "tiktoken>=0.9.0",
+  "rapidfuzz>=3.14.1",
+  "fastapi>=0.136.1",
+  "uvicorn[standard]>=0.46.0",
+]
+
+[project.scripts]
+novel-pipeline = "pipeline.pipeline:main"
+novel-wiki-character = "pipeline.wiki.character:main"
+novel-wiki-timeline = "pipeline.wiki.timeline:main"
+novel-wiki-threads = "pipeline.wiki.threads:main"
+novel-wiki-relationships = "pipeline.wiki.relationships:main"
+novel-webapp = "api.app:run"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.setuptools.package-data]
+"pipeline.db" = ["schema.sql"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.0.3",
+]
