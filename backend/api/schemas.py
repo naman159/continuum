@@ -30,7 +30,6 @@ class CharacterStateRow(BaseModel):
     emotional_state: str | None
     goals: str | None
     knowledge: list[str]
-    relationships: dict[str, Any]
     physical_state: str | None
     notes: str | None
 
@@ -47,13 +46,22 @@ class CharacterEventRow(BaseModel):
 
 
 class CharacterRelationshipRow(BaseModel):
-    chapter_number: int | None
-    other_character_id: UUID
-    other_character_name: str
-    direction: str  # "from" if this character is entity_a; "to" if entity_b
+    other_entity_id: UUID
+    other_entity_name: str
+    other_entity_type: str
+    direction: str  # "from" = this character is entity_a; "to" = entity_b
     rel_type: str | None
-    status: str | None
+    from_chapter: int | None
+    to_chapter: int | None
     notes: str | None
+
+
+class SharedDynamicRow(BaseModel):
+    id: UUID
+    entity_a_id: UUID
+    entity_b_id: UUID
+    chapter_number: int
+    description: str | None
 
 
 class CharacterDetail(BaseModel):
