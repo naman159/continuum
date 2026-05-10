@@ -23,11 +23,13 @@ class FakeDB:
         character_states: list[dict[str, Any]] | None = None,
         events: list[dict[str, Any]] | None = None,
         relationships: list[dict[str, Any]] | None = None,
+        shared_dynamics: list[dict[str, Any]] | None = None,
         plot_threads: list[dict[str, Any]] | None = None,
         thread_events: list[dict[str, Any]] | None = None,
         continuity_flags: list[dict[str, Any]] | None = None,
         locations: list[dict[str, Any]] | None = None,
         objects: list[dict[str, Any]] | None = None,
+        entities: list[dict[str, Any]] | None = None,
     ) -> None:
         self.novels = novels or []
         self.chapters = chapters or []
@@ -35,11 +37,13 @@ class FakeDB:
         self.character_states = character_states or []
         self.events = events or []
         self.relationships = relationships or []
+        self.shared_dynamics = shared_dynamics or []
         self.plot_threads = plot_threads or []
         self.thread_events = thread_events or []
         self.continuity_flags = continuity_flags or []
         self.locations = locations or []
         self.objects = objects or []
+        self.entities = entities or []
 
     def close(self) -> None:
         pass
