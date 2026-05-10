@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from typing import Any
@@ -9,6 +10,8 @@ from pipeline.db.client import DBClient
 from pipeline.extraction.prompts import (
     build_canonicalization_system_prompt,
     build_canonicalization_user_prompt,
+    build_intra_dedup_system_prompt,
+    build_intra_dedup_user_prompt,
 )
 
 logger = logging.getLogger(__name__)
@@ -40,6 +43,150 @@ def _safe_json_loads(raw: str) -> dict[str, Any]:
         except Exception:
             pass
     return {}
+
+
+class IntraExtractionDeduplicator:
+    """Rewrites variant entity names within a single extraction to their canonical
+    (longest) form before any DB writes, using one focused LLM call per entity type."""
+
+    def __init__(
+        self,
+        *,
+        use_mock: bool | None = None,
+        completion_fn=None,
+    ) -> None:
+        self._completion = completion_fn if completion_fn is not None else _load_completion()
+        if use_mock is None:
+            self.use_mock = settings.use_mock_llm or self._completion is None
+        else:
+            self.use_mock = use_mock
+
+    def deduplicate(self, extracted: dict[str, Any], chapter_text: str) -> dict[str, Any]:
+        result = copy.deepcopy(extracted)
+        if self.use_mock:
+            return result
+
+        by_type = collect_names_by_type(extracted)
+        rename_map: dict[str, dict[str, str]] = {}
+
+        for entity_type, names in by_type.items():
+            if len(names) < 2:
+                continue
+            groups = self._call_llm(entity_type=entity_type, names=sorted(names), chapter_text=chapter_text)
+            type_map: dict[str, str] = {}
+            for group in groups:
+                valid = [n for n in group if isinstance(n, str) and n.strip()]
+                if len(valid) < 2:
+                    continue
+                canonical = max(valid, key=len)
+                for variant in valid:
+                    if variant != canonical:
+                        type_map[variant.lower()] = canonical
+            rename_map[entity_type] = type_map
+
+        return _apply_rename_map(result, rename_map)
+
+    def _call_llm(self, *, entity_type: str, names: list[str], chapter_text: str) -> list[list[str]]:
+        if self._completion is None:
+            return []
+        system_prompt = build_intra_dedup_system_prompt(entity_type)
+        user_prompt = build_intra_dedup_user_prompt(entity_type, names, chapter_text)
+        try:
+            response = self._completion(
+                model=LLM_CONFIG["model"],
+                temperature=LLM_CONFIG["temperature"],
+                response_format=LLM_CONFIG["response_format"],
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            content = response.choices[0].message.content
+            if isinstance(content, list):
+                content = "".join(str(p) for p in content)
+            payload = _safe_json_loads(str(content))
+        except Exception as exc:
+            logger.warning("intra_dedup: LLM call failed: %s", exc)
+            return []
+        groups_raw = payload.get("groups")
+        if not isinstance(groups_raw, list):
+            return []
+        return [g.get("names", []) for g in groups_raw if isinstance(g, dict)]
+
+
+def _apply_rename_map(
+    extracted: dict[str, Any],
+    rename_map: dict[str, dict[str, str]],
+) -> dict[str, Any]:
+    char_map = rename_map.get("character", {})
+    loc_map = rename_map.get("location", {})
+    obj_map = rename_map.get("object", {})
+    faction_map = rename_map.get("faction", {})
+
+    def _r(name: str, m: dict[str, str]) -> str:
+        return m.get(name.lower(), name) if name else name
+
+    new_entities = extracted.get("new_entities", {}) or {}
+    for char in new_entities.get("characters", []) or []:
+        if isinstance(char, dict):
+            char["name"] = _r(char.get("name", ""), char_map)
+    for loc in new_entities.get("locations", []) or []:
+        if isinstance(loc, dict):
+            loc["name"] = _r(loc.get("name", ""), loc_map)
+    for faction in new_entities.get("factions", []) or []:
+        if isinstance(faction, dict):
+            faction["name"] = _r(faction.get("name", ""), faction_map)
+    for obj in new_entities.get("objects", []) or []:
+        if isinstance(obj, dict):
+            obj["name"] = _r(obj.get("name", ""), obj_map)
+
+    # deduplicate new_entities lists by name after renaming
+    type_map_pairs = [
+        ("characters", char_map),
+        ("locations", loc_map),
+        ("factions", faction_map),
+        ("objects", obj_map),
+    ]
+    for key, _ in type_map_pairs:
+        items = new_entities.get(key) or []
+        seen: set[str] = set()
+        deduped: list[Any] = []
+        for item in items:
+            if isinstance(item, dict):
+                n = item.get("name", "")
+                if n.lower() not in seen:
+                    seen.add(n.lower())
+                    deduped.append(item)
+        if key in new_entities:
+            new_entities[key] = deduped
+
+    for delta in extracted.get("entity_deltas", []) or []:
+        if not isinstance(delta, dict):
+            continue
+        delta["character_name"] = _r(delta.get("character_name", ""), char_map)
+        if delta.get("location"):
+            delta["location"] = _r(delta["location"], loc_map)
+
+    for event in extracted.get("events", []) or []:
+        if not isinstance(event, dict):
+            continue
+        event["involved_characters"] = [_r(n, char_map) for n in (event.get("involved_characters") or [])]
+        event["involved_locations"] = [_r(n, loc_map) for n in (event.get("involved_locations") or [])]
+        event["involved_objects"] = [_r(n, obj_map) for n in (event.get("involved_objects") or [])]
+
+    for rel in extracted.get("relationship_updates", []) or []:
+        if not isinstance(rel, dict):
+            continue
+        rel["entity_a"] = _r(rel.get("entity_a", ""), char_map)
+        rel["entity_b"] = _r(rel.get("entity_b", ""), char_map)
+
+    for dyn in extracted.get("dynamics_updates", []) or []:
+        if not isinstance(dyn, dict):
+            continue
+        dyn["entity_a"] = _r(dyn.get("entity_a", ""), char_map)
+        dyn["entity_b"] = _r(dyn.get("entity_b", ""), char_map)
+
+    return extracted
 
 
 class CharacterCanonicalizer:
@@ -292,4 +439,9 @@ def collect_character_names(extracted: dict[str, Any]) -> set[str]:
     return collect_names_by_type(extracted)["character"]
 
 
-__all__ = ["CharacterCanonicalizer", "collect_character_names", "collect_names_by_type"]
+__all__ = [
+    "CharacterCanonicalizer",
+    "IntraExtractionDeduplicator",
+    "collect_character_names",
+    "collect_names_by_type",
+]

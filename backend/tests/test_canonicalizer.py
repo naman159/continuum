@@ -296,3 +296,68 @@ def test_collect_character_names_is_still_correct():
     }
     from pipeline.extraction.canonicalizer import collect_character_names
     assert collect_character_names(extracted) == {"Eliza", "Mr. Darcy"}
+
+
+from pipeline.extraction.canonicalizer import IntraExtractionDeduplicator
+
+
+def _make_deduplicator(payload: dict):
+    return IntraExtractionDeduplicator(use_mock=False, completion_fn=_make_completion(payload))
+
+
+def test_intra_dedup_renames_character_variant():
+    extracted = {
+        "new_entities": {
+            "characters": [
+                {"name": "Jane Bennet", "aliases": [], "description": "eldest Bennet"},
+                {"name": "Jane", "aliases": [], "description": ""},
+            ],
+        },
+        "entity_deltas": [{"character_name": "Jane", "location": None}],
+        "events": [{"involved_characters": ["Jane", "Jane Bennet"], "involved_locations": [], "involved_objects": []}],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same person"}]})
+    result = dedup.deduplicate(extracted, "Jane walked in. Jane Bennet smiled.")
+    chars = [c["name"] for c in result["new_entities"]["characters"]]
+    assert "Jane" not in chars
+    assert chars.count("Jane Bennet") == 1
+    assert result["entity_deltas"][0]["character_name"] == "Jane Bennet"
+    assert result["events"][0]["involved_characters"] == ["Jane Bennet", "Jane Bennet"]
+
+
+def test_intra_dedup_renames_location_variant():
+    extracted = {
+        "new_entities": {"locations": [{"name": "Netherfield Park"}, {"name": "Netherfield"}]},
+        "events": [{"involved_characters": [], "involved_locations": ["Netherfield"], "involved_objects": []}],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+    dedup = _make_deduplicator({"groups": [{"names": ["Netherfield", "Netherfield Park"], "reasoning": "shorthand"}]})
+    result = dedup.deduplicate(extracted, "They arrived at Netherfield, also called Netherfield Park.")
+    locs = [l["name"] for l in result["new_entities"]["locations"]]
+    assert "Netherfield" not in locs
+    assert locs.count("Netherfield Park") == 1
+    assert result["events"][0]["involved_locations"] == ["Netherfield Park"]
+
+
+def test_intra_dedup_mock_mode_returns_unchanged():
+    extracted = {"new_entities": {"characters": [{"name": "Jane"}, {"name": "Jane Bennet"}]}}
+    dedup = IntraExtractionDeduplicator(use_mock=True)
+    result = dedup.deduplicate(extracted, "chapter text")
+    assert result is not extracted  # deep copy
+    assert [c["name"] for c in result["new_entities"]["characters"]] == ["Jane", "Jane Bennet"]
+
+
+def test_intra_dedup_skips_llm_when_fewer_than_two_names():
+    calls: list = []
+
+    def recording_completion(**kwargs):
+        calls.append(kwargs)
+        return _make_completion({"groups": []})()
+
+    extracted = {"new_entities": {"characters": [{"name": "Jane Bennet"}]}}
+    dedup = IntraExtractionDeduplicator(use_mock=False, completion_fn=recording_completion)
+    dedup.deduplicate(extracted, "text")
+    assert calls == []
