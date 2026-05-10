@@ -7,26 +7,30 @@ from tests.api.conftest import make_chapter, make_novel
 
 def test_relationships_graph_returns_nodes_and_edges(fake_db_factory, client):
     novel = make_novel()
-    a = uuid4()
-    b = uuid4()
+    a_entity_id = uuid4()
+    b_entity_id = uuid4()
+    a_char_id = uuid4()
+    b_char_id = uuid4()
     chap1 = make_chapter(novel["id"], 1)
     fake_db_factory(
         novels=[novel],
         chapters=[chap1],
+        entities=[
+            {"id": a_entity_id, "novel_id": novel["id"], "entity_type": "character", "name": "Alice"},
+            {"id": b_entity_id, "novel_id": novel["id"], "entity_type": "character", "name": "Bob"},
+        ],
         characters=[
-            {"id": a, "novel_id": novel["id"], "name": "Alice", "aliases": [], "description": None, "first_appearance_chapter": 1},
-            {"id": b, "novel_id": novel["id"], "name": "Bob", "aliases": [], "description": None, "first_appearance_chapter": 1},
+            {"id": a_char_id, "entity_id": a_entity_id, "novel_id": novel["id"], "name": "Alice", "aliases": [], "description": None, "first_appearance_chapter": 1},
+            {"id": b_char_id, "entity_id": b_entity_id, "novel_id": novel["id"], "name": "Bob", "aliases": [], "description": None, "first_appearance_chapter": 1},
         ],
         relationships=[
             {
                 "id": uuid4(),
-                "entity_a_id": a,
-                "entity_a_type": "character",
-                "entity_b_id": b,
-                "entity_b_type": "character",
+                "entity_a_id": a_entity_id,
+                "entity_b_id": b_entity_id,
                 "rel_type": "friend",
-                "status": "active",
-                "chapter_id": chap1["id"],
+                "from_chapter": 1,
+                "to_chapter": None,
                 "notes": None,
             }
         ],

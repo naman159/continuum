@@ -184,11 +184,11 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             and chapter_by_id[e["chapter_id"]]["number"] <= effective_cap
         ]
         events.sort(key=lambda e: chapter_by_id[e["chapter_id"]]["number"])
+        char_entity_id = char.get("entity_id")
         rels = [
             r
             for r in db.relationships
-            if (r["entity_a_id"] == character_id or r["entity_b_id"] == character_id)
-            and (r.get("chapter_id") is None or chapter_by_id[r["chapter_id"]]["number"] <= effective_cap)
+            if r["entity_a_id"] == char_entity_id or r["entity_b_id"] == char_entity_id
         ]
         # Resolve names
         char_name = {c["id"]: c["name"] for c in db.characters}
@@ -240,15 +240,20 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
         )
         rels_rows = db.fetchall(
             """
-            SELECT r.*, ch.number AS chapter_number
+            SELECT r.id, r.entity_a_id, r.entity_b_id, r.rel_type,
+                   r.from_chapter, r.to_chapter, r.notes
             FROM relationships r
-            LEFT JOIN chapters ch ON ch.id = r.chapter_id
-            WHERE (r.entity_a_id = %s OR r.entity_b_id = %s)
-              AND (ch.number IS NULL OR ch.number <= %s)
+            JOIN characters c ON c.entity_id = r.entity_a_id OR c.entity_id = r.entity_b_id
+            WHERE c.id = %s
+              AND (r.from_chapter IS NULL OR r.from_chapter <= %s)
             """,
-            (str(character_id), str(character_id), effective_cap),
+            (str(character_id), effective_cap),
             dict_rows=True,
         )
+        char_entity_row = db.fetchone(
+            "SELECT entity_id FROM characters WHERE id = %s", (str(character_id),)
+        )
+        char_entity_id = str(char_entity_row[0]) if char_entity_row else None
         # Need names for involved_*; do another fetch
         char_name_rows = db.fetchall("SELECT id, name FROM characters WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         char_name = {r["id"]: r["name"] for r in char_name_rows}
@@ -273,7 +278,6 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             "emotional_state": state.get("emotional_state"),
             "goals": state.get("goals"),
             "knowledge": list(state.get("knowledge") or []),
-            "relationships": dict(state.get("relationships") or {}),
             "physical_state": state.get("physical_state"),
             "notes": state.get("notes"),
         }
@@ -297,24 +301,40 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
         }
 
     def rel_to_row(rel: dict[str, Any]) -> dict[str, Any]:
-        chapter_number = (
-            chapter_by_id[rel["chapter_id"]]["number"]
-            if chapter_by_id and rel.get("chapter_id")
-            else rel.get("chapter_number")
-        )
-        if rel["entity_a_id"] == character_id:
-            other = rel["entity_b_id"]
-            direction = "from"
+        if hasattr(db, "entities"):
+            entity_id_map = {e["id"]: e for e in db.entities}
+            this_entity_id = char.get("entity_id") if char else None
+            if rel["entity_a_id"] == this_entity_id:
+                other_universal = rel["entity_b_id"]
+                direction = "from"
+            else:
+                other_universal = rel["entity_a_id"]
+                direction = "to"
+            other_entity = entity_id_map.get(other_universal, {})
+            other_name = other_entity.get("name", str(other_universal))
+            other_type = other_entity.get("entity_type", "character")
         else:
-            other = rel["entity_a_id"]
-            direction = "to"
+            if str(rel["entity_a_id"]) == char_entity_id:
+                other_universal = rel["entity_b_id"]
+                direction = "from"
+            else:
+                other_universal = rel["entity_a_id"]
+                direction = "to"
+            other_entity = db.fetchone(
+                "SELECT name, entity_type FROM entities WHERE id = %s",
+                (str(other_universal),),
+                dict_rows=True,
+            )
+            other_name = other_entity["name"] if other_entity else str(other_universal)
+            other_type = other_entity["entity_type"] if other_entity else "character"
         return {
-            "chapter_number": chapter_number,
-            "other_character_id": other,
-            "other_character_name": char_name.get(other, str(other)),
+            "other_entity_id": other_universal,
+            "other_entity_name": other_name,
+            "other_entity_type": other_type,
             "direction": direction,
             "rel_type": rel.get("rel_type"),
-            "status": rel.get("status"),
+            "from_chapter": rel.get("from_chapter"),
+            "to_chapter": rel.get("to_chapter"),
             "notes": rel.get("notes"),
         }
 
@@ -518,51 +538,61 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
     db = _get_db()
     effective_cap = _resolve_cap(db, novel_id, cap)
     if hasattr(db, "chapters"):
-        chapter_by_id = {c["id"]: c for c in db.chapters if c["novel_id"] == novel_id}
-        characters = [
-            c for c in db.characters
-            if c["novel_id"] == novel_id
-            and (c.get("first_appearance_chapter") is None or c["first_appearance_chapter"] <= effective_cap)
+        nodes = [
+            {"id": e["id"], "label": e["name"], "description": None}
+            for e in db.entities
+            if e.get("novel_id") == novel_id and e.get("entity_type") == "character"
+            and any(
+                c.get("entity_id") == e["id"]
+                and (c.get("first_appearance_chapter") is None or c["first_appearance_chapter"] <= effective_cap)
+                for c in db.characters
+            )
         ]
+        entity_id_set = {e["id"] for e in db.entities if e.get("novel_id") == novel_id}
         rels = [
             r for r in db.relationships
-            if (r.get("chapter_id") is None or chapter_by_id.get(r["chapter_id"], {}).get("number", 999999) <= effective_cap)
-            and r["entity_a_type"] == "character" and r["entity_b_type"] == "character"
+            if r["entity_a_id"] in entity_id_set and r["entity_b_id"] in entity_id_set
+            and (r.get("from_chapter") is None or r["from_chapter"] <= effective_cap)
         ]
 
         def rel_chapter(r: dict[str, Any]) -> int | None:
-            return chapter_by_id[r["chapter_id"]]["number"] if r.get("chapter_id") else None
+            return r.get("from_chapter")
     else:
         characters = [
             dict(r) for r in db.fetchall(
-                "SELECT id, name, description, first_appearance_chapter FROM characters WHERE novel_id = %s AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)",
+                """
+                SELECT e.id, e.name, NULL AS description, c.first_appearance_chapter
+                FROM entities e
+                JOIN characters c ON c.entity_id = e.id
+                WHERE e.novel_id = %s AND e.entity_type = 'character'
+                  AND (c.first_appearance_chapter IS NULL OR c.first_appearance_chapter <= %s)
+                """,
                 (str(novel_id), effective_cap),
                 dict_rows=True,
             )
         ]
         rels_raw = db.fetchall(
             """
-            SELECT r.id, r.entity_a_id, r.entity_a_type, r.entity_b_id, r.entity_b_type,
-                   r.rel_type, r.chapter_id, ch.number AS chapter_number
+            SELECT r.id, r.entity_a_id, r.entity_b_id, r.rel_type, r.from_chapter
             FROM relationships r
-            LEFT JOIN chapters ch ON ch.id = r.chapter_id
-            WHERE r.entity_a_type = 'character' AND r.entity_b_type = 'character'
-              AND (ch.number IS NULL OR ch.number <= %s)
-              AND EXISTS (SELECT 1 FROM characters c WHERE c.id = r.entity_a_id AND c.novel_id = %s)
+            JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s AND ea.entity_type = 'character'
+            JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
+            WHERE (r.from_chapter IS NULL OR r.from_chapter <= %s)
             """,
-            (effective_cap, str(novel_id)),
+            (str(novel_id), effective_cap),
             dict_rows=True,
         )
         rels = [dict(r) for r in rels_raw]
 
         def rel_chapter(r: dict[str, Any]) -> int | None:
-            return r.get("chapter_number")
+            return r.get("from_chapter")
 
-    nodes = [
-        {"id": c["id"], "label": c["name"], "description": c.get("description")}
-        for c in characters
-    ]
-    character_id_set = {c["id"] for c in characters}
+        nodes = [
+            {"id": c["id"], "label": c["name"], "description": c.get("description")}
+            for c in characters
+        ]
+
+    character_id_set = {n["id"] for n in nodes}
     edges = [
         {
             "from": r["entity_a_id"],
