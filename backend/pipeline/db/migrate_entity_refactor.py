@@ -35,8 +35,7 @@ def migrate(db: DBClient) -> None:
     for entity_type, table in ENTITY_TYPES:
         db.execute(
             f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS entity_id UUID REFERENCES entities(id)",
-            commit=True,
-        )
+                    )
         db.execute(
             f"""
             UPDATE {table} t
@@ -55,16 +54,13 @@ def migrate(db: DBClient) -> None:
     # Add temp columns for new FKs
     db.execute(
         "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_a_id UUID",
-        commit=True,
-    )
+            )
     db.execute(
         "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_b_id UUID",
-        commit=True,
-    )
+            )
     db.execute(
         "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS from_chapter INTEGER",
-        commit=True,
-    )
+            )
 
     # Populate new_entity_a_id / new_entity_b_id using type-specific tables
     for entity_type, table in ENTITY_TYPES:
