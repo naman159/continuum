@@ -211,3 +211,57 @@ def build_canonicalization_user_prompt(
         For each candidate, return a resolution per the schema. Return JSON only.
         """
     ).strip()
+
+
+INTRA_DEDUP_SCHEMA = {
+    "groups": [
+        {
+            "names": ["string (verbatim from input list — only names that refer to the same entity)"],
+            "reasoning": "string",
+        }
+    ]
+}
+
+
+def build_intra_dedup_system_prompt(entity_type: str) -> str:
+    return dedent(
+        f"""
+        You are a strict entity deduplicator for a novel continuity pipeline.
+        You will receive a list of {entity_type} names extracted from a chapter.
+        Identify groups of names that clearly refer to the SAME {entity_type}
+        based solely on the chapter text provided.
+
+        Rules:
+        - Only group names when the chapter text makes it unambiguous they are
+          the same entity (e.g. "Jane" and "Jane Bennet" used interchangeably,
+          "Netherfield" as a clear shorthand for "Netherfield Park").
+        - Do NOT group based on general knowledge of the source material.
+          Use only the chapter text.
+        - Do NOT include singleton groups (groups with only one name).
+        - When in doubt, do NOT group. Wrong merges are worse than duplicates.
+        - Return ONLY strict JSON matching the schema. No prose, no markdown.
+
+        Output schema:
+        {json.dumps(INTRA_DEDUP_SCHEMA, ensure_ascii=True, indent=2)}
+        """
+    ).strip()
+
+
+def build_intra_dedup_user_prompt(
+    entity_type: str,
+    names: list[str],
+    chapter_text: str,
+) -> str:
+    return dedent(
+        f"""
+        CHAPTER TEXT
+        {chapter_text}
+
+        {entity_type.upper()} NAMES TO DEDUPLICATE (JSON)
+        {json.dumps(names, ensure_ascii=True)}
+
+        TASK
+        Group any names that clearly refer to the same {entity_type}.
+        Return only groups of 2 or more. Return JSON only.
+        """
+    ).strip()
