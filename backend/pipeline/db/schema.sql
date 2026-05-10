@@ -144,7 +144,8 @@ CREATE TABLE IF NOT EXISTS shared_dynamics (
     chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
     description TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
-    CHECK (entity_a_id <> entity_b_id)
+    CHECK (entity_a_id <> entity_b_id),
+    UNIQUE(entity_a_id, entity_b_id, chapter_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_shared_dynamics_entities ON shared_dynamics(entity_a_id, entity_b_id);
