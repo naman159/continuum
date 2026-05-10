@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS characters (
 
 CREATE INDEX IF NOT EXISTS idx_characters_novel_name ON characters(novel_id, lower(name));
 
+CREATE INDEX IF NOT EXISTS idx_characters_entity_id ON characters(entity_id);
+
 CREATE TABLE IF NOT EXISTS locations (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
@@ -59,6 +61,8 @@ CREATE TABLE IF NOT EXISTS locations (
 
 CREATE INDEX IF NOT EXISTS idx_locations_novel_name ON locations(novel_id, lower(name));
 
+CREATE INDEX IF NOT EXISTS idx_locations_entity_id ON locations(entity_id);
+
 CREATE TABLE IF NOT EXISTS factions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
@@ -69,6 +73,8 @@ CREATE TABLE IF NOT EXISTS factions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_factions_novel_name ON factions(novel_id, lower(name));
+
+CREATE INDEX IF NOT EXISTS idx_factions_entity_id ON factions(entity_id);
 
 CREATE TABLE IF NOT EXISTS objects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -82,6 +88,8 @@ CREATE TABLE IF NOT EXISTS objects (
 );
 
 CREATE INDEX IF NOT EXISTS idx_objects_novel_name ON objects(novel_id, lower(name));
+
+CREATE INDEX IF NOT EXISTS idx_objects_entity_id ON objects(entity_id);
 
 CREATE TABLE IF NOT EXISTS character_states (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -116,13 +124,14 @@ CREATE INDEX IF NOT EXISTS idx_events_chapter ON events(chapter_id);
 
 CREATE TABLE IF NOT EXISTS relationships (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_a_id UUID NOT NULL REFERENCES entities(id),
-    entity_b_id UUID NOT NULL REFERENCES entities(id),
+    entity_a_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    entity_b_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     rel_type TEXT,
     from_chapter INTEGER,
     to_chapter INTEGER,
     notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CHECK (entity_a_id <> entity_b_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_relationships_a ON relationships(entity_a_id);
@@ -130,11 +139,12 @@ CREATE INDEX IF NOT EXISTS idx_relationships_b ON relationships(entity_b_id);
 
 CREATE TABLE IF NOT EXISTS shared_dynamics (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entity_a_id UUID NOT NULL REFERENCES entities(id),
-    entity_b_id UUID NOT NULL REFERENCES entities(id),
+    entity_a_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    entity_b_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
     description TEXT,
-    created_at TIMESTAMPTZ DEFAULT now()
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CHECK (entity_a_id <> entity_b_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_shared_dynamics_entities ON shared_dynamics(entity_a_id, entity_b_id);
