@@ -11,6 +11,8 @@ PASS_ORDER = [
     "events",
     "thread_updates",
     "continuity_flags",
+    "relationship_updates",
+    "dynamics_updates",
 ]
 
 
@@ -44,7 +46,6 @@ PASS_SCHEMAS = {
                 "emotional_state": "string|null",
                 "goals": "string|null",
                 "knowledge": ["string"],
-                "relationships": {"character_name": "relationship_state"},
                 "physical_state": "string|null",
                 "notes": "string|null",
             }
@@ -79,6 +80,27 @@ PASS_SCHEMAS = {
             {
                 "description": "string",
                 "flag_type": "foreshadowing|planted_detail|setup|callback|other",
+            }
+        ]
+    },
+    "relationship_updates": {
+        "relationship_updates": [
+            {
+                "entity_a": "string",
+                "entity_b": "string",
+                "rel_type": "string",
+                "from_chapter": "integer|null",
+                "to_chapter": "integer|null",
+                "notes": "string|null",
+            }
+        ]
+    },
+    "dynamics_updates": {
+        "dynamics_updates": [
+            {
+                "entity_a": "string",
+                "entity_b": "string",
+                "description": "string",
             }
         ]
     },
