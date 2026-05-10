@@ -10,7 +10,9 @@ from pipeline.config import settings
 
 
 class DBClient:
-    def __init__(self, dsn: str | None = None, minconn: int = 1, maxconn: int = 5) -> None:
+    def __init__(
+        self, dsn: str | None = None, minconn: int = 1, maxconn: int = 5
+    ) -> None:
         self._pool = ConnectionPool(
             conninfo=dsn or settings.database_url,
             min_size=minconn,
@@ -87,7 +89,9 @@ class DBClient:
             rows = cur.fetchall()
             return list(rows)
 
-    def fetchval(self, query: str, params: Sequence[Any] | None = None, *, commit: bool = False) -> Any:
+    def fetchval(
+        self, query: str, params: Sequence[Any] | None = None, *, commit: bool = False
+    ) -> Any:
         row = self.fetchone(query, params, commit=commit)
         if row is None:
             return None
