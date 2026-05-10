@@ -5,10 +5,10 @@ JSONB to shared_dynamics rows.
 
 Run: uv run python -m pipeline.db.migrate_entity_refactor
 """
+
 from __future__ import annotations
 
 from pipeline.db.client import DBClient
-
 
 ENTITY_TYPES = [
     ("character", "characters"),
@@ -34,6 +34,10 @@ def migrate(db: DBClient) -> None:
     print("Step 2: Backfill entity_id on type tables...")
     for entity_type, table in ENTITY_TYPES:
         db.execute(
+            f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS entity_id UUID REFERENCES entities(id)",
+            commit=True,
+        )
+        db.execute(
             f"""
             UPDATE {table} t
             SET entity_id = e.id
@@ -49,9 +53,18 @@ def migrate(db: DBClient) -> None:
 
     print("Step 3: Migrate relationships to use entities.id FKs...")
     # Add temp columns for new FKs
-    db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_a_id UUID", commit=True)
-    db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_b_id UUID", commit=True)
-    db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS from_chapter INTEGER", commit=True)
+    db.execute(
+        "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_a_id UUID",
+        commit=True,
+    )
+    db.execute(
+        "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_b_id UUID",
+        commit=True,
+    )
+    db.execute(
+        "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS from_chapter INTEGER",
+        commit=True,
+    )
 
     # Populate new_entity_a_id / new_entity_b_id using type-specific tables
     for entity_type, table in ENTITY_TYPES:
@@ -79,15 +92,13 @@ def migrate(db: DBClient) -> None:
         )
 
     # Populate from_chapter from chapter_id
-    db.execute(
-        """
+    db.execute("""
         UPDATE relationships r
         SET from_chapter = ch.number
         FROM chapters ch
         WHERE ch.id = r.chapter_id
           AND r.from_chapter IS NULL
-        """
-    )
+        """)
 
     # Drop old columns, rename new ones
     db.execute("ALTER TABLE relationships DROP COLUMN IF EXISTS entity_a_id")
@@ -119,7 +130,9 @@ def migrate(db: DBClient) -> None:
             continue
         a_entity_id = str(char_entity[0])
 
-        rels: dict = row["relationships"] if isinstance(row["relationships"], dict) else {}
+        rels: dict = (
+            row["relationships"] if isinstance(row["relationships"], dict) else {}
+        )
         for target_name, description in rels.items():
             target = db.fetchone(
                 """
@@ -147,9 +160,7 @@ def migrate(db: DBClient) -> None:
     print(f"  Inserted {inserted} shared_dynamics rows from character_states.")
 
     print("Step 5: Drop character_states.relationships column...")
-    db.execute(
-        "ALTER TABLE character_states DROP COLUMN IF EXISTS relationships"
-    )
+    db.execute("ALTER TABLE character_states DROP COLUMN IF EXISTS relationships")
     print("  Done.")
 
 
