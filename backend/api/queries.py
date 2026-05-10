@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from pipeline.db.client import DBClient
 
@@ -71,6 +72,35 @@ def get_novel(novel_id: UUID) -> dict[str, Any] | None:
         "created_at": novel["created_at"],
         "max_chapter": max_chapter,
     }
+
+
+def create_novel(title: str, author: str | None, language: str | None) -> dict[str, Any]:
+    db = _get_db()
+    if hasattr(db, "novels"):
+        novel: dict[str, Any] = {
+            "id": uuid4(),
+            "title": title,
+            "author": author,
+            "language": language,
+            "created_at": datetime.now(timezone.utc),
+        }
+        db.novels.append(novel)
+        return {**novel, "max_chapter": 0}
+    return _create_novel_real(db, title, author, language)
+
+
+def _create_novel_real(db: DBClient, title: str, author: str | None, language: str | None) -> dict[str, Any]:
+    row = db.fetchone(
+        """
+        INSERT INTO novels (id, title, author, language, created_at)
+        VALUES (%s, %s, %s, %s, NOW())
+        RETURNING id, title, author, language, created_at
+        """,
+        (str(uuid4()), title, author, language),
+        dict_rows=True,
+        commit=True,
+    )
+    return {**dict(row), "max_chapter": 0}
 
 
 def _get_novel_real(db: DBClient, novel_id: UUID) -> dict[str, Any] | None:
