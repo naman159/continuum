@@ -23,6 +23,7 @@ export default function Sidebar() {
         ["Timeline", `/novels/${novelId}/timeline`],
         ["Threads", `/novels/${novelId}/threads`],
         ["Relationships", `/novels/${novelId}/relationships`],
+        ["Dynamics", `/novels/${novelId}/dynamics`],
         ["Continuity", `/novels/${novelId}/continuity`],
         ["Process Chapter", `/novels/${novelId}/process`],
       ]

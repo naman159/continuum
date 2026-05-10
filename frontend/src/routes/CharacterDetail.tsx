@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api, type CharacterDetail as Detail } from "../api";
-import FieldList, { renderArray, renderJson } from "../components/FieldList";
+import FieldList, { renderArray } from "../components/FieldList";
 import { useChapterCap } from "../hooks/useChapterCap";
 
 export default function CharacterDetail() {
@@ -58,22 +58,22 @@ function CharacterPage({ data }: { data: Detail }) {
           <table>
             <thead>
               <tr>
-                <th>Chapter</th>
                 <th>Direction</th>
-                <th>Other</th>
+                <th>Entity</th>
                 <th>Type</th>
-                <th>Status</th>
+                <th>From ch.</th>
+                <th>To ch.</th>
                 <th>Notes</th>
               </tr>
             </thead>
             <tbody>
               {data.relationships.map((r, i) => (
                 <tr key={i}>
-                  <td>{r.chapter_number ?? "—"}</td>
                   <td>{r.direction}</td>
-                  <td>{r.other_character_name}</td>
+                  <td>{r.other_entity_name} <span className="muted">({r.other_entity_type})</span></td>
                   <td>{r.rel_type ?? "—"}</td>
-                  <td>{r.status ?? "—"}</td>
+                  <td>{r.from_chapter ?? "—"}</td>
+                  <td>{r.to_chapter ?? "ongoing"}</td>
                   <td>{r.notes ?? "—"}</td>
                 </tr>
               ))}
@@ -123,7 +123,6 @@ function StateBlock({ state }: { state: Detail["history"][number] }) {
         { label: "Emotional state", value: state.emotional_state },
         { label: "Goals", value: state.goals },
         { label: "Knowledge", value: renderArray(state.knowledge) },
-        { label: "Relationships (snapshot)", value: renderJson(state.relationships as Record<string, unknown>) },
         { label: "Physical state", value: state.physical_state },
         { label: "Notes", value: state.notes },
       ]}
