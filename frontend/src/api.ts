@@ -113,6 +113,57 @@ export type GraphNode = { id: string; label: string; description: string | null 
 export type GraphEdge = { id: string; from: string; to: string; label: string | null; chapter_number: number | null };
 export type RelationshipGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 
+export type LocationSummary = {
+  id: string;
+  name: string;
+  aliases: string[];
+  description: string | null;
+  first_appearance_chapter: number | null;
+};
+
+export type LocationDetail = {
+  identity: LocationSummary;
+  events: TimelineEvent[];
+  characters: string[];
+};
+
+export type ObjectSummary = {
+  id: string;
+  name: string;
+  aliases: string[];
+  description: string | null;
+  significance: string | null;
+  first_appearance_chapter: number | null;
+};
+
+export type ObjectRelationship = {
+  character_name: string;
+  rel_type: string | null;
+  from_chapter: number | null;
+  to_chapter: number | null;
+  notes: string | null;
+};
+
+export type ObjectDetail = {
+  identity: ObjectSummary;
+  events: TimelineEvent[];
+  characters: string[];
+  relationships: ObjectRelationship[];
+};
+
+export type FactionSummary = {
+  id: string;
+  name: string;
+  aliases: string[];
+  description: string | null;
+};
+
+export type FactionDetail = {
+  identity: FactionSummary;
+  events: TimelineEvent[];
+  characters: string[];
+};
+
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -148,4 +199,16 @@ export const api = {
     fetchJson<RelationshipGraph>(`/api/novels/${id}/relationships${capParam(cap)}`),
   dynamics: (id: string, cap: number | null) =>
     fetchJson<SharedDynamicRow[]>(`/api/novels/${id}/dynamics${capParam(cap)}`),
+  locations: (novelId: string, cap: number | null) =>
+    fetchJson<LocationSummary[]>(`/api/novels/${novelId}/locations${capParam(cap)}`),
+  location: (novelId: string, locationId: string, cap: number | null) =>
+    fetchJson<LocationDetail>(`/api/novels/${novelId}/locations/${locationId}${capParam(cap)}`),
+  objects: (novelId: string, cap: number | null) =>
+    fetchJson<ObjectSummary[]>(`/api/novels/${novelId}/objects${capParam(cap)}`),
+  object: (novelId: string, objectId: string, cap: number | null) =>
+    fetchJson<ObjectDetail>(`/api/novels/${novelId}/objects/${objectId}${capParam(cap)}`),
+  factions: (novelId: string) =>
+    fetchJson<FactionSummary[]>(`/api/novels/${novelId}/factions`),
+  faction: (novelId: string, factionId: string) =>
+    fetchJson<FactionDetail>(`/api/novels/${novelId}/factions/${factionId}`),
 };
