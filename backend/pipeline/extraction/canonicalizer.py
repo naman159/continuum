@@ -189,7 +189,14 @@ def _apply_rename_map(
     return extracted
 
 
-class CharacterCanonicalizer:
+class EntityCanonicalizer:
+    _TABLE = {
+        "character": "characters",
+        "location": "locations",
+        "object": "objects",
+        "faction": "factions",
+    }
+
     def __init__(
         self,
         db: DBClient,
@@ -206,100 +213,64 @@ class CharacterCanonicalizer:
         else:
             self.use_mock = use_mock
 
-    def canonicalize(self, *, chapter_text: str, candidate_names: set[str]) -> dict[str, str]:
+    def canonicalize(
+        self,
+        *,
+        chapter_text: str,
+        candidate_names_by_type: dict[str, set[str]],
+    ) -> dict[str, dict[str, str]]:
         """
-        Resolve candidate names against the existing roster. Appends any merged
-        candidate forms to the matched character's `aliases` array.
+        For each entity type, resolves unrecognised candidate names against the
+        DB roster and appends matched forms as aliases.
 
-        Returns a mapping of {candidate_name: existing_character_id} for merges
-        actually performed (caller may use this for telemetry; pipeline does not
-        rely on it because the strict resolver re-reads aliases from the DB).
+        Returns {entity_type: {candidate_name: entity_id}} for all merges performed.
         """
-        if self.use_mock or not candidate_names:
+        if self.use_mock:
             return {}
 
-        roster = self._load_roster()
-        unresolved = self._filter_already_known(candidate_names, roster)
-        if not unresolved or not roster:
-            return {}
-
-        resolutions = self._call_llm(chapter_text=chapter_text, candidates=unresolved, roster=roster)
-        if not resolutions:
-            return {}
-
-        roster_by_id: dict[str, dict[str, Any]] = {str(item["id"]): item for item in roster}
-
-        merges: dict[str, str] = {}
-        for resolution in resolutions:
-            candidate = str(resolution.get("candidate", "")).strip()
-            if not candidate:
+        all_merges: dict[str, dict[str, str]] = {}
+        for entity_type, candidates in candidate_names_by_type.items():
+            if not candidates:
                 continue
-
-            verdict = str(resolution.get("verdict", "")).strip().lower()
-            if verdict != "existing":
+            roster = self._load_roster(entity_type)
+            unresolved = self._filter_already_known(candidates, roster)
+            if not unresolved or not roster:
                 continue
-
-            target_id = resolution.get("id")
-            if not target_id or str(target_id) not in roster_by_id:
-                continue
-
-            anchor = str(resolution.get("grammatical_anchor") or "").strip()
-            if not anchor or anchor not in chapter_text:
-                logger.info(
-                    "canonicalizer: rejected merge (anchor missing or not in text): %s -> %s",
-                    candidate,
-                    target_id,
-                )
-                continue
-
-            target = roster_by_id[str(target_id)]
-            existing_aliases = [str(a) for a in (target.get("aliases") or [])]
-            existing_aliases_lower = {a.lower() for a in existing_aliases}
-            if candidate.lower() in existing_aliases_lower:
-                merges[candidate] = str(target_id)
-                continue
-            if candidate.lower() == str(target.get("name", "")).lower():
-                merges[candidate] = str(target_id)
-                continue
-
-            new_aliases = [*existing_aliases, candidate]
-            self.db.execute(
-                """
-                UPDATE characters
-                SET aliases = %s
-                WHERE id = %s AND novel_id = %s
-                """,
-                (new_aliases, target_id, self.novel_id),
+            resolutions = self._call_llm(
+                chapter_text=chapter_text,
+                entity_type=entity_type,
+                candidates=unresolved,
+                roster=roster,
             )
-            target["aliases"] = new_aliases
-            merges[candidate] = str(target_id)
-            logger.info("canonicalizer: merged %r -> %s", candidate, target_id)
+            merges = self._apply_resolutions(entity_type, resolutions, roster, chapter_text)
+            if merges:
+                all_merges[entity_type] = merges
 
-        return merges
+        return all_merges
 
-    def _load_roster(self) -> list[dict[str, Any]]:
-        rows = self.db.fetchall(
-            """
-            SELECT c.id, c.name, c.aliases, c.description,
-                   ls.location_id, ls.emotional_state, ls.goals, ls.physical_state
-            FROM characters c
-            LEFT JOIN LATERAL (
-                SELECT cs.location_id, cs.emotional_state, cs.goals, cs.physical_state
-                FROM character_states cs
-                JOIN chapters ch ON ch.id = cs.chapter_id
-                WHERE cs.character_id = c.id
-                ORDER BY ch.number DESC
-                LIMIT 1
-            ) ls ON true
-            WHERE c.novel_id = %s
-            ORDER BY c.name
-            """,
-            (self.novel_id,),
-            dict_rows=True,
-        )
-        roster: list[dict[str, Any]] = []
-        for row in rows:
-            roster.append(
+    def _load_roster(self, entity_type: str) -> list[dict[str, Any]]:
+        table = self._TABLE[entity_type]
+        if entity_type == "character":
+            rows = self.db.fetchall(
+                """
+                SELECT c.id, c.name, c.aliases, c.description,
+                       ls.emotional_state, ls.goals, ls.physical_state
+                FROM characters c
+                LEFT JOIN LATERAL (
+                    SELECT cs.emotional_state, cs.goals, cs.physical_state
+                    FROM character_states cs
+                    JOIN chapters ch ON ch.id = cs.chapter_id
+                    WHERE cs.character_id = c.id
+                    ORDER BY ch.number DESC
+                    LIMIT 1
+                ) ls ON true
+                WHERE c.novel_id = %s
+                ORDER BY c.name
+                """,
+                (self.novel_id,),
+                dict_rows=True,
+            )
+            return [
                 {
                     "id": str(row["id"]),
                     "name": row["name"],
@@ -311,8 +282,28 @@ class CharacterCanonicalizer:
                         "physical_state": row.get("physical_state"),
                     },
                 }
-            )
-        return roster
+                for row in rows
+            ]
+
+        rows = self.db.fetchall(
+            f"""
+            SELECT id, name, aliases, description
+            FROM {table}
+            WHERE novel_id = %s
+            ORDER BY name
+            """,
+            (self.novel_id,),
+            dict_rows=True,
+        )
+        return [
+            {
+                "id": str(row["id"]),
+                "name": row["name"],
+                "aliases": list(row.get("aliases") or []),
+                "description": row.get("description"),
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _filter_already_known(candidates: set[str], roster: list[dict[str, Any]]) -> list[str]:
@@ -321,7 +312,6 @@ class CharacterCanonicalizer:
             known.add(str(entry.get("name", "")).lower())
             for alias in entry.get("aliases") or []:
                 known.add(str(alias).lower())
-
         unresolved: list[str] = []
         seen: set[str] = set()
         for name in candidates:
@@ -339,15 +329,14 @@ class CharacterCanonicalizer:
         self,
         *,
         chapter_text: str,
+        entity_type: str,
         candidates: list[str],
         roster: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         if self._completion is None:
             return []
-
-        system_prompt = build_canonicalization_system_prompt()
-        user_prompt = build_canonicalization_user_prompt(chapter_text, candidates, roster)
-
+        system_prompt = build_canonicalization_system_prompt(entity_type)
+        user_prompt = build_canonicalization_user_prompt(chapter_text, candidates, roster, entity_type)
         try:
             response = self._completion(
                 model=LLM_CONFIG["model"],
@@ -360,16 +349,64 @@ class CharacterCanonicalizer:
             )
             content = response.choices[0].message.content
             if isinstance(content, list):
-                content = "".join(str(part) for part in content)
+                content = "".join(str(p) for p in content)
             payload = _safe_json_loads(str(content))
-        except Exception as exc:  # pragma: no cover
-            logger.warning("canonicalizer: LLM call failed: %s", exc)
+        except Exception as exc:
+            logger.warning("entity_canonicalizer: LLM call failed for %s: %s", entity_type, exc)
             return []
-
         resolutions = payload.get("resolutions")
         if not isinstance(resolutions, list):
             return []
         return [r for r in resolutions if isinstance(r, dict)]
+
+    def _apply_resolutions(
+        self,
+        entity_type: str,
+        resolutions: list[dict[str, Any]],
+        roster: list[dict[str, Any]],
+        chapter_text: str,
+    ) -> dict[str, str]:
+        table = self._TABLE[entity_type]
+        roster_by_id: dict[str, dict[str, Any]] = {str(item["id"]): item for item in roster}
+        merges: dict[str, str] = {}
+
+        for resolution in resolutions:
+            candidate = str(resolution.get("candidate", "")).strip()
+            if not candidate:
+                continue
+            if str(resolution.get("verdict", "")).strip().lower() != "existing":
+                continue
+            target_id = resolution.get("id")
+            if not target_id or str(target_id) not in roster_by_id:
+                continue
+            anchor = str(resolution.get("grammatical_anchor") or "").strip()
+            if not anchor or anchor not in chapter_text:
+                logger.info(
+                    "entity_canonicalizer: rejected merge (anchor missing or not in text): %s -> %s",
+                    candidate,
+                    target_id,
+                )
+                continue
+            target = roster_by_id[str(target_id)]
+            existing_aliases = [str(a) for a in (target.get("aliases") or [])]
+            existing_aliases_lower = {a.lower() for a in existing_aliases}
+            if candidate.lower() in existing_aliases_lower or candidate.lower() == str(target.get("name", "")).lower():
+                merges[candidate] = str(target_id)
+                continue
+            new_aliases = [*existing_aliases, candidate]
+            self.db.execute(
+                f"UPDATE {table} SET aliases = %s WHERE id = %s AND novel_id = %s",
+                (new_aliases, target_id, self.novel_id),
+            )
+            target["aliases"] = new_aliases
+            merges[candidate] = str(target_id)
+            logger.info("entity_canonicalizer: merged %r -> %s (%s)", candidate, target_id, entity_type)
+
+        return merges
+
+
+# Backwards-compatibility alias — existing code that imports CharacterCanonicalizer still works
+CharacterCanonicalizer = EntityCanonicalizer
 
 
 def collect_names_by_type(extracted: dict[str, Any]) -> dict[str, set[str]]:
@@ -440,7 +477,8 @@ def collect_character_names(extracted: dict[str, Any]) -> set[str]:
 
 
 __all__ = [
-    "CharacterCanonicalizer",
+    "CharacterCanonicalizer",       # backwards-compat alias
+    "EntityCanonicalizer",
     "IntraExtractionDeduplicator",
     "collect_character_names",
     "collect_names_by_type",
