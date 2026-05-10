@@ -108,3 +108,39 @@ Relationship graph JSON:
 ```bash
 uv run novel-wiki-relationships --novel-id <uuid> --up-to-chapter 5
 ```
+
+## Wiki Web App
+
+Local read-only browser UI over the pipeline data. Supports all four data views — characters, chapters, timeline, threads, continuity flags, and an interactive relationship graph — with a global "as of chapter N" cap slider.
+
+### Dev (two processes)
+
+```bash
+# Terminal 1: API backend
+uv run novel-webapp --port 8000
+
+# Terminal 2: Vite frontend (proxies /api/* to port 8000)
+cd frontend && npm install && npm run dev
+```
+
+Open http://localhost:5173.
+
+### Production (single process)
+
+```bash
+cd frontend && npm run build && cd ..
+uv run novel-webapp --port 8000
+```
+
+Open http://localhost:8000. The FastAPI server serves both the API and the built frontend.
+
+### Features
+
+- **Novel picker** — select a novel from the home page
+- **Chapter cap** — sidebar slider filters all views to "as of chapter N"
+- **Characters** — list with aliases and first-appearance chapter; detail page shows every DB field (state history, relationships, events)
+- **Chapters** — table of processed chapters with summaries
+- **Timeline** — events grouped by chapter with involved characters resolved to names
+- **Threads** — plot threads with status filter (open/progressing/closed) and linked events
+- **Continuity flags** — foreshadowing, setups, callbacks with resolved/open filter
+- **Relationships** — interactive vis-network graph (double-click a node to open the character); table fallback below

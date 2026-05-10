@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+from pipeline.extraction.resolver import EntityResolver, ResolvedEntity
+
+
+class FakeDBForResolver:
+    """Minimal fake DB for resolver tests."""
+
+    def __init__(self) -> None:
+        self._entities: list[dict] = []
+        self._characters: list[dict] = []
+
+    def fetchone(self, sql: str, params=(), dict_rows: bool = False):
+        sql_lower = sql.lower()
+        if "from entities" in sql_lower:
+            name = params[1] if len(params) > 1 else None
+            novel_id = params[0]
+            for e in self._entities:
+                if str(e["novel_id"]) == str(novel_id) and e["name"].lower() == str(name).lower():
+                    return (e["id"],) if not dict_rows else e
+            return None
+        if "from characters" in sql_lower and "entity_id" in sql_lower:
+            char_id = params[0]
+            for c in self._characters:
+                if str(c["id"]) == str(char_id):
+                    row = {"entity_id": c.get("entity_id")}
+                    return (c.get("entity_id"),) if not dict_rows else row
+            return None
+        if "from characters" in sql_lower:
+            novel_id = params[0]
+            name = params[1] if len(params) > 1 else None
+            for c in self._characters:
+                if str(c["novel_id"]) == str(novel_id) and c["name"].lower() == str(name).lower():
+                    return (c["id"], c.get("entity_id")) if not dict_rows else c
+            return None
+        return None
+
+    def fetchval(self, sql: str, params=(), commit: bool = False):
+        import uuid
+        new_id = uuid.uuid4()
+        sql_lower = sql.lower()
+        if "insert into entities" in sql_lower:
+            entity = {"id": new_id, "novel_id": params[0], "entity_type": params[1], "name": params[2]}
+            self._entities.append(entity)
+            return new_id
+        if "insert into characters" in sql_lower:
+            char = {"id": new_id, "novel_id": params[0], "name": params[1], "entity_id": params[2]}
+            self._characters.append(char)
+            return new_id
+        return new_id
+
+    def execute(self, sql: str, params=(), commit: bool = False):
+        pass
+
+
+def test_resolve_character_creates_entity_record():
+    db = FakeDBForResolver()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    result = resolver.resolve_character("Alice", {"description": "Hero"})
+
+    assert result.entity_id is not None
+    assert result.universal_id is not None
+    assert result.created is True
+    assert any(e["name"] == "Alice" and e["entity_type"] == "character" for e in db._entities)
+
+
+def test_resolve_character_returns_same_ids_on_second_call():
+    db = FakeDBForResolver()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    first = resolver.resolve_character("Alice")
+    second = resolver.resolve_character("Alice")
+
+    assert first.entity_id == second.entity_id
+    assert first.universal_id == second.universal_id
+    assert second.created is False
