@@ -16,6 +16,12 @@ class NovelSummary(BaseModel):
     max_chapter: int
 
 
+class NovelCreate(BaseModel):
+    title: str
+    author: str | None = None
+    language: str | None = None
+
+
 class CharacterSummary(BaseModel):
     id: UUID
     name: str
