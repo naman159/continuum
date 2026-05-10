@@ -1086,6 +1086,69 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
     }
 
 
+def list_factions(novel_id: UUID) -> list[dict[str, Any]]:
+    db = _get_db()
+    if hasattr(db, "factions"):
+        rows = [f for f in db.factions if f["novel_id"] == novel_id]
+    else:
+        rows = [
+            dict(r)
+            for r in db.fetchall(
+                """
+                SELECT id, name, aliases, description
+                FROM factions
+                WHERE novel_id = %s
+                ORDER BY name
+                """,
+                (str(novel_id),),
+                dict_rows=True,
+            )
+        ]
+    return [
+        {
+            "id": r["id"],
+            "name": r["name"],
+            "aliases": list(r.get("aliases") or []),
+            "description": r.get("description"),
+        }
+        for r in rows
+    ]
+
+
+def get_faction_detail(novel_id: UUID, faction_id: UUID) -> dict[str, Any] | None:
+    db = _get_db()
+    if hasattr(db, "factions"):
+        faction = next(
+            (f for f in db.factions if f["id"] == faction_id and f["novel_id"] == novel_id),
+            None,
+        )
+        if faction is None:
+            return None
+    else:
+        row = db.fetchone(
+            """
+            SELECT id, name, aliases, description
+            FROM factions WHERE novel_id = %s AND id = %s
+            """,
+            (str(novel_id), str(faction_id)),
+            dict_rows=True,
+        )
+        if row is None:
+            return None
+        faction = dict(row)
+
+    return {
+        "identity": {
+            "id": faction["id"],
+            "name": faction["name"],
+            "aliases": list(faction.get("aliases") or []),
+            "description": faction.get("description"),
+        },
+        "events": [],
+        "characters": [],
+    }
+
+
 def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     db = _get_db()
     effective_cap = _resolve_cap(db, novel_id, cap)
