@@ -249,7 +249,10 @@ class EntityCanonicalizer:
         return all_merges
 
     def _load_roster(self, entity_type: str) -> list[dict[str, Any]]:
-        table = self._TABLE[entity_type]
+        table = self._TABLE.get(entity_type)
+        if table is None:
+            logger.warning("entity_canonicalizer: unknown entity_type %r, skipping roster load", entity_type)
+            return []
         if entity_type == "character":
             rows = self.db.fetchall(
                 """
@@ -366,7 +369,10 @@ class EntityCanonicalizer:
         roster: list[dict[str, Any]],
         chapter_text: str,
     ) -> dict[str, str]:
-        table = self._TABLE[entity_type]
+        table = self._TABLE.get(entity_type)
+        if table is None:
+            logger.warning("entity_canonicalizer: unknown entity_type %r, skipping resolutions", entity_type)
+            return {}
         roster_by_id: dict[str, dict[str, Any]] = {str(item["id"]): item for item in roster}
         merges: dict[str, str] = {}
 
