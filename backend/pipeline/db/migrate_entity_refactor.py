@@ -7,9 +7,6 @@ Run: uv run python -m pipeline.db.migrate_entity_refactor
 """
 from __future__ import annotations
 
-import json
-import sys
-
 from pipeline.db.client import DBClient
 
 
@@ -52,13 +49,9 @@ def migrate(db: DBClient) -> None:
 
     print("Step 3: Migrate relationships to use entities.id FKs...")
     # Add temp columns for new FKs
-    try:
-        db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_a_id UUID")
-        db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_b_id UUID")
-        db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS from_chapter INTEGER")
-        db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS to_chapter INTEGER")
-    except Exception as e:
-        print(f"  Column addition skipped (may already exist): {e}")
+    db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_a_id UUID", commit=True)
+    db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS new_entity_b_id UUID", commit=True)
+    db.execute("ALTER TABLE relationships ADD COLUMN IF NOT EXISTS from_chapter INTEGER", commit=True)
 
     # Populate new_entity_a_id / new_entity_b_id using type-specific tables
     for entity_type, table in ENTITY_TYPES:
@@ -131,11 +124,13 @@ def migrate(db: DBClient) -> None:
             target = db.fetchone(
                 """
                 SELECT c.entity_id FROM characters c
-                WHERE lower(c.name) = lower(%s)
-                   OR EXISTS (SELECT 1 FROM unnest(c.aliases) alias WHERE lower(alias) = lower(%s))
+                JOIN chapters ch ON ch.id = %s
+                WHERE c.novel_id = ch.novel_id
+                  AND (lower(c.name) = lower(%s)
+                       OR EXISTS (SELECT 1 FROM unnest(c.aliases) alias WHERE lower(alias) = lower(%s)))
                 LIMIT 1
                 """,
-                (str(target_name), str(target_name)),
+                (str(row["chapter_id"]), str(target_name), str(target_name)),
             )
             if not target or not target[0]:
                 continue
