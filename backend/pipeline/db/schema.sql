@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS locations (
     entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     description TEXT,
+    aliases TEXT[] DEFAULT '{}',
     parent_location_id UUID REFERENCES locations(id),
     first_appearance_chapter INTEGER,
     UNIQUE(novel_id, name)
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS factions (
     entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     description TEXT,
+    aliases TEXT[] DEFAULT '{}',
     UNIQUE(novel_id, name)
 );
 
@@ -82,6 +84,7 @@ CREATE TABLE IF NOT EXISTS objects (
     entity_id UUID REFERENCES entities(id),
     name TEXT NOT NULL,
     description TEXT,
+    aliases TEXT[] DEFAULT '{}',
     significance TEXT,
     first_appearance_chapter INTEGER,
     UNIQUE(novel_id, name)
