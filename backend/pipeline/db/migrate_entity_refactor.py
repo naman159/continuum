@@ -61,6 +61,9 @@ def migrate(db: DBClient) -> None:
     db.execute(
         "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS from_chapter INTEGER",
             )
+    db.execute(
+        "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS to_chapter INTEGER",
+            )
 
     # Populate new_entity_a_id / new_entity_b_id using type-specific tables
     for entity_type, table in ENTITY_TYPES:
