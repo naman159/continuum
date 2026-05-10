@@ -8,7 +8,8 @@ from pipeline.db.client import DBClient
 
 @dataclass
 class ResolvedEntity:
-    entity_id: str
+    entity_id: str       # type-specific ID (e.g. characters.id)
+    universal_id: str    # entities.id — use for relationships / shared_dynamics
     created: bool
 
 
@@ -17,7 +18,8 @@ class EntityResolver:
         self.db = db
         self.novel_id = novel_id
         self.chapter_number = chapter_number
-        self._cache: dict[tuple[str, str], str] = {}
+        # (entity_type, lower_name) -> (entity_id, universal_id)
+        self._cache: dict[tuple[str, str], tuple[str, str]] = {}
 
     def resolve_character(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
         return self._resolve("character", name, metadata or {})
@@ -39,12 +41,12 @@ class EntityResolver:
         cache_key = (entity_type, normalized_name.lower())
         cached = self._cache.get(cache_key)
         if cached:
-            return ResolvedEntity(cached, created=False)
+            return ResolvedEntity(cached[0], cached[1], created=False)
 
         table = _table_for(entity_type)
         name_row = self.db.fetchone(
             f"""
-            SELECT id
+            SELECT id, entity_id
             FROM {table}
             WHERE novel_id = %s AND lower(name) = lower(%s)
             LIMIT 1
@@ -53,13 +55,14 @@ class EntityResolver:
         )
         if name_row:
             entity_id = str(name_row[0])
-            self._cache[cache_key] = entity_id
-            return ResolvedEntity(entity_id, created=False)
+            universal_id = str(name_row[1]) if name_row[1] else entity_id
+            self._cache[cache_key] = (entity_id, universal_id)
+            return ResolvedEntity(entity_id, universal_id, created=False)
 
         if entity_type == "character":
             alias_row = self.db.fetchone(
                 """
-                SELECT id
+                SELECT id, entity_id
                 FROM characters
                 WHERE novel_id = %s
                   AND EXISTS (
@@ -71,94 +74,87 @@ class EntityResolver:
             )
             if alias_row:
                 entity_id = str(alias_row[0])
-                self._cache[cache_key] = entity_id
-                return ResolvedEntity(entity_id, created=False)
+                universal_id = str(alias_row[1]) if alias_row[1] else entity_id
+                self._cache[cache_key] = (entity_id, universal_id)
+                return ResolvedEntity(entity_id, universal_id, created=False)
 
-        created_id = self._create_entity(entity_type, normalized_name, metadata)
-        self._cache[cache_key] = created_id
-        return ResolvedEntity(created_id, created=True)
+        entity_id, universal_id = self._create_entity(entity_type, normalized_name, metadata)
+        self._cache[cache_key] = (entity_id, universal_id)
+        return ResolvedEntity(entity_id, universal_id, created=True)
 
-    def _create_entity(self, entity_type: str, name: str, metadata: dict[str, Any]) -> str:
+    def _create_entity(self, entity_type: str, name: str, metadata: dict[str, Any]) -> tuple[str, str]:
+        universal_id = str(self.db.fetchval(
+            """
+            INSERT INTO entities (novel_id, entity_type, name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (novel_id, entity_type, name) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            (self.novel_id, entity_type, name),
+            commit=True,
+        ))
+
         if entity_type == "character":
-            entity_id = self.db.fetchval(
+            entity_id = str(self.db.fetchval(
                 """
-                INSERT INTO characters (
-                    novel_id,
-                    name,
-                    aliases,
-                    first_appearance_chapter,
-                    description
-                )
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO characters (novel_id, entity_id, name, aliases, first_appearance_chapter, description)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     self.novel_id,
+                    universal_id,
                     name,
                     metadata.get("aliases") or [],
                     self.chapter_number,
                     metadata.get("description"),
                 ),
                 commit=True,
-            )
-            return str(entity_id)
+            ))
+            return entity_id, universal_id
 
         if entity_type == "location":
-            entity_id = self.db.fetchval(
+            entity_id = str(self.db.fetchval(
                 """
-                INSERT INTO locations (
-                    novel_id,
-                    name,
-                    description,
-                    first_appearance_chapter
-                )
+                INSERT INTO locations (novel_id, entity_id, name, description, first_appearance_chapter)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (self.novel_id, universal_id, name, metadata.get("description"), self.chapter_number),
+                commit=True,
+            ))
+            return entity_id, universal_id
+
+        if entity_type == "faction":
+            entity_id = str(self.db.fetchval(
+                """
+                INSERT INTO factions (novel_id, entity_id, name, description)
                 VALUES (%s, %s, %s, %s)
                 RETURNING id
                 """,
-                (self.novel_id, name, metadata.get("description"), self.chapter_number),
+                (self.novel_id, universal_id, name, metadata.get("description")),
                 commit=True,
-            )
-            return str(entity_id)
-
-        if entity_type == "faction":
-            entity_id = self.db.fetchval(
-                """
-                INSERT INTO factions (
-                    novel_id,
-                    name,
-                    description
-                )
-                VALUES (%s, %s, %s)
-                RETURNING id
-                """,
-                (self.novel_id, name, metadata.get("description")),
-                commit=True,
-            )
-            return str(entity_id)
+            ))
+            return entity_id, universal_id
 
         if entity_type == "object":
-            entity_id = self.db.fetchval(
+            entity_id = str(self.db.fetchval(
                 """
-                INSERT INTO objects (
-                    novel_id,
-                    name,
-                    description,
-                    significance,
-                    first_appearance_chapter
-                )
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO objects (novel_id, entity_id, name, description, significance, first_appearance_chapter)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
                     self.novel_id,
+                    universal_id,
                     name,
                     metadata.get("description"),
                     metadata.get("significance"),
                     self.chapter_number,
                 ),
                 commit=True,
-            )
-            return str(entity_id)
+            ))
+            return entity_id, universal_id
 
         raise ValueError(f"Unsupported entity type: {entity_type}")
 
