@@ -538,14 +538,19 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
     db = _get_db()
     effective_cap = _resolve_cap(db, novel_id, cap)
     if hasattr(db, "chapters"):
+        # Build entity_id -> character lookup for mapping entities.id -> characters.id
+        char_by_entity_id = {
+            c["entity_id"]: c for c in db.characters
+            if c.get("entity_id") is not None
+        }
         nodes = [
-            {"id": e["id"], "label": e["name"], "description": None}
+            {"id": char_by_entity_id[e["id"]]["id"], "label": e["name"], "description": None}
             for e in db.entities
             if e.get("novel_id") == novel_id and e.get("entity_type") == "character"
-            and any(
-                c.get("entity_id") == e["id"]
-                and (c.get("first_appearance_chapter") is None or c["first_appearance_chapter"] <= effective_cap)
-                for c in db.characters
+            and e["id"] in char_by_entity_id
+            and (
+                char_by_entity_id[e["id"]].get("first_appearance_chapter") is None
+                or char_by_entity_id[e["id"]]["first_appearance_chapter"] <= effective_cap
             )
         ]
         entity_id_set = {e["id"] for e in db.entities if e.get("novel_id") == novel_id}
@@ -557,11 +562,26 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
 
         def rel_chapter(r: dict[str, Any]) -> int | None:
             return r.get("from_chapter")
+
+        character_id_set = {n["id"] for n in nodes}
+        edges = [
+            {
+                "from": char_by_entity_id[r["entity_a_id"]]["id"],
+                "to": char_by_entity_id[r["entity_b_id"]]["id"],
+                "id": r["id"],
+                "label": r.get("rel_type"),
+                "chapter_number": rel_chapter(r),
+            }
+            for r in rels
+            if r["entity_a_id"] in char_by_entity_id and r["entity_b_id"] in char_by_entity_id
+            and char_by_entity_id[r["entity_a_id"]]["id"] in character_id_set
+            and char_by_entity_id[r["entity_b_id"]]["id"] in character_id_set
+        ]
     else:
         characters = [
             dict(r) for r in db.fetchall(
                 """
-                SELECT e.id, e.name, NULL AS description, c.first_appearance_chapter
+                SELECT c.id, e.name, NULL AS description, c.first_appearance_chapter
                 FROM entities e
                 JOIN characters c ON c.entity_id = e.id
                 WHERE e.novel_id = %s AND e.entity_type = 'character'
@@ -573,10 +593,12 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         ]
         rels_raw = db.fetchall(
             """
-            SELECT r.id, r.entity_a_id, r.entity_b_id, r.rel_type, r.from_chapter
+            SELECT r.id, ca.id AS char_a_id, cb.id AS char_b_id, r.rel_type, r.from_chapter
             FROM relationships r
             JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s AND ea.entity_type = 'character'
             JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
+            JOIN characters ca ON ca.entity_id = ea.id
+            JOIN characters cb ON cb.entity_id = eb.id
             WHERE (r.from_chapter IS NULL OR r.from_chapter <= %s)
             """,
             (str(novel_id), effective_cap),
@@ -591,19 +613,19 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
             {"id": c["id"], "label": c["name"], "description": c.get("description")}
             for c in characters
         ]
+        character_id_set = {n["id"] for n in nodes}
+        edges = [
+            {
+                "from": r["char_a_id"],
+                "to": r["char_b_id"],
+                "id": r["id"],
+                "label": r.get("rel_type"),
+                "chapter_number": rel_chapter(r),
+            }
+            for r in rels
+            if r["char_a_id"] in character_id_set and r["char_b_id"] in character_id_set
+        ]
 
-    character_id_set = {n["id"] for n in nodes}
-    edges = [
-        {
-            "from": r["entity_a_id"],
-            "to": r["entity_b_id"],
-            "id": r["id"],
-            "label": r.get("rel_type"),
-            "chapter_number": rel_chapter(r),
-        }
-        for r in rels
-        if r["entity_a_id"] in character_id_set and r["entity_b_id"] in character_id_set
-    ]
     return {"nodes": nodes, "edges": edges}
 
 
