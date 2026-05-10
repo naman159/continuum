@@ -167,3 +167,54 @@ class JobStatusResponse(BaseModel):
     total_passes: int = 0
     result: dict[str, Any] | None = None
     error: str | None = None
+
+
+class LocationSummary(BaseModel):
+    id: UUID
+    name: str
+    aliases: list[str]
+    description: str | None
+    first_appearance_chapter: int | None
+
+
+class LocationDetail(BaseModel):
+    identity: LocationSummary
+    events: list[TimelineEvent]
+    characters: list[str]
+
+
+class ObjectSummary(BaseModel):
+    id: UUID
+    name: str
+    aliases: list[str]
+    description: str | None
+    significance: str | None
+    first_appearance_chapter: int | None
+
+
+class ObjectRelationship(BaseModel):
+    character_name: str
+    rel_type: str | None
+    from_chapter: int | None
+    to_chapter: int | None
+    notes: str | None
+
+
+class ObjectDetail(BaseModel):
+    identity: ObjectSummary
+    events: list[TimelineEvent]
+    characters: list[str]
+    relationships: list[ObjectRelationship]
+
+
+class FactionSummary(BaseModel):
+    id: UUID
+    name: str
+    aliases: list[str]
+    description: str | None
+
+
+class FactionDetail(BaseModel):
+    identity: FactionSummary
+    events: list[TimelineEvent]
+    characters: list[str]
