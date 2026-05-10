@@ -9,7 +9,11 @@ from typing import Any
 from pipeline.config import settings
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
-from pipeline.extraction.canonicalizer import CharacterCanonicalizer, collect_character_names
+from pipeline.extraction.canonicalizer import (
+    EntityCanonicalizer,
+    IntraExtractionDeduplicator,
+    collect_names_by_type,
+)
 from pipeline.extraction.chunker import sliding_window_chunks
 from pipeline.extraction.extractor import ChapterExtractor
 from pipeline.extraction.resolver import EntityResolver
@@ -169,11 +173,18 @@ def process_chapter(
         extracted = extractor.extract_chapter(chunks=chunks, context=context, progress=progress)
 
         if progress is not None:
+            progress.on_pass_start("intra_dedup")
+        deduplicator = IntraExtractionDeduplicator(use_mock=use_mock_llm)
+        extracted = deduplicator.deduplicate(extracted, raw_text)
+        if progress is not None:
+            progress.on_pass_done("intra_dedup")
+
+        if progress is not None:
             progress.on_pass_start("canonicalization")
-        canonicalizer = CharacterCanonicalizer(db, novel_id=novel_id, use_mock=use_mock_llm)
+        canonicalizer = EntityCanonicalizer(db, novel_id=novel_id, use_mock=use_mock_llm)
         canonicalizer.canonicalize(
             chapter_text=raw_text,
-            candidate_names=collect_character_names(extracted),
+            candidate_names_by_type=collect_names_by_type(extracted),
         )
         if progress is not None:
             progress.on_pass_done("canonicalization")
