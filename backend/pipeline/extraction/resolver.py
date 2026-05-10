@@ -78,6 +78,37 @@ class EntityResolver:
                 self._cache[cache_key] = (entity_id, universal_id)
                 return ResolvedEntity(entity_id, universal_id, created=False)
 
+            # Partial-name match: "Jane" <-> "Jane Bennet" (one name is a word-boundary
+            # prefix of the other). The shorter form becomes an alias of the longer one.
+            partial_row = self.db.fetchone(
+                """
+                SELECT id, entity_id, name, aliases
+                FROM characters
+                WHERE novel_id = %s
+                  AND (
+                      lower(name) LIKE lower(%s || ' %%')
+                      OR lower(%s) LIKE lower(name || ' %%')
+                  )
+                LIMIT 1
+                """,
+                (self.novel_id, normalized_name, normalized_name),
+            )
+            if partial_row:
+                entity_id = str(partial_row[0])
+                universal_id = str(partial_row[1]) if partial_row[1] else entity_id
+                existing_name = str(partial_row[2])
+                existing_aliases = list(partial_row[3] or [])
+                # Add whichever form is shorter as an alias (the short form may
+                # not be in aliases yet if this is the first time it appears).
+                short_form = normalized_name if len(normalized_name) < len(existing_name) else existing_name
+                if short_form.lower() not in {a.lower() for a in existing_aliases} and short_form.lower() != existing_name.lower():
+                    self.db.execute(
+                        "UPDATE characters SET aliases = %s WHERE id = %s",
+                        (existing_aliases + [short_form], entity_id),
+                    )
+                self._cache[cache_key] = (entity_id, universal_id)
+                return ResolvedEntity(entity_id, universal_id, created=False)
+
         entity_id, universal_id = self._create_entity(entity_type, normalized_name, metadata)
         self._cache[cache_key] = (entity_id, universal_id)
         return ResolvedEntity(entity_id, universal_id, created=True)
