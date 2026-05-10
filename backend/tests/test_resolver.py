@@ -106,3 +106,63 @@ def test_resolve_location_by_alias_returns_existing():
     resolved = resolver.resolve_location("Netherfield")
     assert resolved.entity_id == db.loc_id
     assert resolved.created is False
+
+
+def test_resolve_any_entity_finds_entity_by_name():
+    """resolve_any_entity returns the entity's universal ID from the entities table."""
+    import uuid
+    from pipeline.extraction.resolver import EntityResolver
+
+    obj_entity_id = str(uuid.uuid4())
+
+    class EntityDB:
+        def __init__(self):
+            self.entities = [
+                {"id": obj_entity_id, "novel_id": "novel-1", "entity_type": "object", "name": "the One Ring"}
+            ]
+            self.executed = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            return None  # no exact name / alias hit via characters table
+
+        def fetchval(self, query, params=None, *, commit=False):
+            return None
+
+        def execute(self, query, params=None):
+            self.executed.append((query, params))
+
+    db = EntityDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    uid = resolver.resolve_any_entity("the One Ring")
+    assert uid == obj_entity_id
+
+
+def test_resolve_any_entity_falls_back_to_character():
+    """resolve_any_entity falls back to resolve_character when entity not in entities table."""
+    import uuid
+    from pipeline.extraction.resolver import EntityResolver
+
+    char_entity_id = str(uuid.uuid4())
+    char_id = str(uuid.uuid4())
+
+    class FallbackDB:
+        def __init__(self):
+            self.entities = []  # empty — will fall through to resolve_character
+            self.executed = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            # exact name match in characters table
+            if "lower(name) = lower" in query and "characters" in query:
+                return (char_id, char_entity_id)
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            return None
+
+        def execute(self, query, params=None):
+            self.executed.append((query, params))
+
+    db = FallbackDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    uid = resolver.resolve_any_entity("Frodo")
+    assert uid == char_entity_id

@@ -33,6 +33,53 @@ class EntityResolver:
     def resolve_object(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
         return self._resolve("object", name, metadata or {})
 
+    def resolve_any_entity(self, name: str) -> str:
+        """Return the universal entity ID for any entity type.
+
+        Looks up the entities table by name first. Falls back to
+        resolve_character if not found, preserving backward-compat for
+        purely character-to-character relationships.
+        """
+        normalized = (name or "").strip()
+        if not normalized:
+            raise ValueError("Cannot resolve empty entity name")
+
+        cache_key = ("any", normalized.lower())
+        cached = self._cache.get(cache_key)
+        if cached:
+            return cached[1]
+
+        if hasattr(self.db, "entities"):
+            entity = next(
+                (
+                    e for e in self.db.entities
+                    if str(e.get("novel_id")) == str(self.novel_id)
+                    and str(e.get("name", "")).lower() == normalized.lower()
+                ),
+                None,
+            )
+            if entity:
+                uid = str(entity["id"])
+                self._cache[cache_key] = (uid, uid)
+                return uid
+        else:
+            row = self.db.fetchone(
+                """
+                SELECT id FROM entities
+                WHERE novel_id = %s AND lower(name) = lower(%s)
+                LIMIT 1
+                """,
+                (self.novel_id, normalized),
+            )
+            if row:
+                uid = str(row[0])
+                self._cache[cache_key] = (uid, uid)
+                return uid
+
+        resolved = self.resolve_character(normalized)
+        self._cache[cache_key] = (resolved.entity_id, resolved.universal_id)
+        return resolved.universal_id
+
     def _resolve(self, entity_type: str, name: str, metadata: dict[str, Any]) -> ResolvedEntity:
         normalized_name = (name or "").strip()
         if not normalized_name:

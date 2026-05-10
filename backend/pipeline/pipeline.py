@@ -310,8 +310,8 @@ def _persist_extraction(
         b_name = str(rel.get("entity_b", "")).strip()
         if not a_name or not b_name:
             continue
-        a_universal = resolver.resolve_character(a_name).universal_id
-        b_universal = resolver.resolve_character(b_name).universal_id
+        a_universal = resolver.resolve_any_entity(a_name)
+        b_universal = resolver.resolve_any_entity(b_name)
         db.execute(
             """
             INSERT INTO relationships (
@@ -335,8 +335,8 @@ def _persist_extraction(
         description = str(dyn.get("description", "")).strip()
         if not a_name or not b_name or not description:
             continue
-        a_universal = resolver.resolve_character(a_name).universal_id
-        b_universal = resolver.resolve_character(b_name).universal_id
+        a_universal = resolver.resolve_any_entity(a_name)
+        b_universal = resolver.resolve_any_entity(b_name)
         db.execute(
             """
             INSERT INTO shared_dynamics (entity_a_id, entity_b_id, chapter_id, description)
