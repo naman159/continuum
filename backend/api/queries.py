@@ -364,7 +364,6 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             other_name = other_entity["name"] if other_entity else str(other_universal)
             other_type = other_entity["entity_type"] if other_entity else "character"
         return {
-            "other_entity_id": other_universal,
             "other_entity_name": other_name,
             "other_entity_type": other_type,
             "direction": direction,

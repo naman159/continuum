@@ -36,8 +36,8 @@ export default function SharedDynamics() {
             {data.map((d) => (
               <tr key={d.id}>
                 <td>{d.chapter_number}</td>
-                <td><code>{d.entity_a_id.slice(0, 8)}…</code></td>
-                <td><code>{d.entity_b_id.slice(0, 8)}…</code></td>
+                <td>{d.entity_a_name}</td>
+                <td>{d.entity_b_name}</td>
                 <td>{d.description ?? "—"}</td>
               </tr>
             ))}
