@@ -1,8 +1,29 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
+import type { CharacterRelationshipRow } from "../api";
 import { api, type CharacterDetail as Detail } from "../api";
 import FieldList, { renderArray } from "../components/FieldList";
 import { useChapterCap } from "../hooks/useChapterCap";
+
+type RelGroup = {
+  key: string;
+  direction: string;
+  entity: string;
+  entityType: string;
+  rows: CharacterRelationshipRow[];
+};
+
+function groupRelationships(rels: CharacterRelationshipRow[]): RelGroup[] {
+  const map = new Map<string, RelGroup>();
+  for (const r of rels) {
+    const key = `${r.direction}::${r.other_entity_name}::${r.other_entity_type}`;
+    if (!map.has(key)) {
+      map.set(key, { key, direction: r.direction, entity: r.other_entity_name, entityType: r.other_entity_type, rows: [] });
+    }
+    map.get(key)!.rows.push(r);
+  }
+  return Array.from(map.values());
+}
 
 export default function CharacterDetail() {
   const { novelId, characterId } = useParams();
@@ -67,16 +88,22 @@ function CharacterPage({ data }: { data: Detail }) {
               </tr>
             </thead>
             <tbody>
-              {data.relationships.map((r, i) => (
-                <tr key={i}>
-                  <td>{r.direction}</td>
-                  <td>{r.other_entity_name} <span className="muted">({r.other_entity_type})</span></td>
-                  <td>{r.rel_type ?? "—"}</td>
-                  <td>{r.from_chapter ?? "—"}</td>
-                  <td>{r.to_chapter ?? "ongoing"}</td>
-                  <td>{r.notes ?? "—"}</td>
-                </tr>
-              ))}
+              {groupRelationships(data.relationships).map(({ key, direction, entity, entityType, rows }) =>
+                rows.map((r, ri) => (
+                  <tr key={`${key}-${ri}`}>
+                    {ri === 0 && (
+                      <>
+                        <td rowSpan={rows.length}>{direction}</td>
+                        <td rowSpan={rows.length}>{entity} <span className="muted">({entityType})</span></td>
+                      </>
+                    )}
+                    <td>{r.rel_type ?? "—"}</td>
+                    <td>{r.from_chapter ?? "—"}</td>
+                    <td>{r.to_chapter ?? "ongoing"}</td>
+                    <td>{r.notes ?? "—"}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         )}
