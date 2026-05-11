@@ -60,6 +60,7 @@ PASS_SCHEMAS = {
                 "involved_characters": ["string"],
                 "involved_locations": ["string"],
                 "involved_objects": ["string"],
+                "involved_factions": ["string"],
             }
         ]
     },

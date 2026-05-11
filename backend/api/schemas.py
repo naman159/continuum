@@ -49,10 +49,10 @@ class CharacterEventRow(BaseModel):
     involved_characters: list[str]
     involved_locations: list[str]
     involved_objects: list[str]
+    involved_factions: list[str]
 
 
 class CharacterRelationshipRow(BaseModel):
-    other_entity_id: UUID
     other_entity_name: str
     other_entity_type: str
     direction: str  # "from" = this character is entity_a; "to" = entity_b
@@ -64,8 +64,8 @@ class CharacterRelationshipRow(BaseModel):
 
 class SharedDynamicRow(BaseModel):
     id: UUID
-    entity_a_id: UUID
-    entity_b_id: UUID
+    entity_a_name: str
+    entity_b_name: str
     chapter_number: int
     description: str | None
 
@@ -104,6 +104,7 @@ class TimelineEvent(BaseModel):
     involved_characters: list[str]
     involved_locations: list[str]
     involved_objects: list[str]
+    involved_factions: list[str]
 
 
 class ThreadEventLink(BaseModel):

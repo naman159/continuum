@@ -366,6 +366,11 @@ def _persist_extraction(
             for name in event.get("involved_objects", [])
             if str(name).strip()
         ]
+        involved_factions = [
+            resolver.resolve_faction(name).entity_id
+            for name in event.get("involved_factions", [])
+            if str(name).strip()
+        ]
 
         event_id = db.fetchval(
             """
@@ -376,9 +381,10 @@ def _persist_extraction(
                 impact_level,
                 involved_characters,
                 involved_locations,
-                involved_objects
+                involved_objects,
+                involved_factions
             )
-            VALUES (%s, %s, %s, %s, %s::uuid[], %s::uuid[], %s::uuid[])
+            VALUES (%s, %s, %s, %s, %s::uuid[], %s::uuid[], %s::uuid[], %s::uuid[])
             RETURNING id
             """,
             (
@@ -389,6 +395,7 @@ def _persist_extraction(
                 involved_characters,
                 involved_locations,
                 involved_objects,
+                involved_factions,
             ),
             commit=True,
         )

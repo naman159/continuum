@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS events (
     involved_characters UUID[] DEFAULT '{}',
     involved_locations UUID[] DEFAULT '{}',
     involved_objects UUID[] DEFAULT '{}',
+    involved_factions UUID[] DEFAULT '{}',
     embedding VECTOR(__EMBEDDING_DIM__),
     created_at TIMESTAMPTZ DEFAULT now()
 );
