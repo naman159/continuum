@@ -34,10 +34,10 @@ export type CharacterEventRow = {
   involved_characters: string[];
   involved_locations: string[];
   involved_objects: string[];
+  involved_factions: string[];
 };
 
 export type CharacterRelationshipRow = {
-  other_entity_id: string;
   other_entity_name: string;
   other_entity_type: string;
   direction: "from" | "to";
@@ -49,8 +49,8 @@ export type CharacterRelationshipRow = {
 
 export type SharedDynamicRow = {
   id: string;
-  entity_a_id: string;
-  entity_b_id: string;
+  entity_a_name: string;
+  entity_b_name: string;
   chapter_number: number;
   description: string | null;
 };
