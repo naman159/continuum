@@ -224,6 +224,7 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
         char_name = {c["id"]: c["name"] for c in db.characters}
         location_name = {l["id"]: l["name"] for l in db.locations}
         object_name = {o["id"]: o["name"] for o in db.objects}
+        faction_name = {f["id"]: f["name"] for f in db.factions}
         identity = {
             "id": char["id"],
             "name": char["name"],
@@ -259,7 +260,9 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
         )
         events_rows = db.fetchall(
             """
-            SELECT e.*, ch.number AS chapter_number
+            SELECT e.id, e.description, e.event_type, e.impact_level,
+                   e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions,
+                   ch.number AS chapter_number
             FROM events e
             JOIN chapters ch ON ch.id = e.chapter_id
             WHERE %s = ANY(e.involved_characters) AND ch.number <= %s
@@ -291,6 +294,8 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
         location_name = {r["id"]: r["name"] for r in loc_name_rows}
         obj_name_rows = db.fetchall("SELECT id, name FROM objects WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         object_name = {r["id"]: r["name"] for r in obj_name_rows}
+        faction_rows = db.fetchall("SELECT id, name FROM factions WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        faction_name = {r["id"]: r["name"] for r in faction_rows}
 
         chapter_by_id = {}  # not needed in real path
         states = [dict(r) for r in states_rows]
@@ -328,6 +333,7 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             "involved_characters": [char_name.get(cid, str(cid)) for cid in event.get("involved_characters") or []],
             "involved_locations": [location_name.get(lid, str(lid)) for lid in event.get("involved_locations") or []],
             "involved_objects": [object_name.get(oid, str(oid)) for oid in event.get("involved_objects") or []],
+            "involved_factions": [faction_name.get(fid, str(fid)) for fid in (event.get("involved_factions") or [])],
         }
 
     def rel_to_row(rel: dict[str, Any]) -> dict[str, Any]:
@@ -461,6 +467,7 @@ def list_timeline(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
         char_name = {c["id"]: c["name"] for c in db.characters}
         loc_name = {loc["id"]: loc["name"] for loc in db.locations}
         obj_name = {o["id"]: o["name"] for o in db.objects}
+        faction_name = {f["id"]: f["name"] for f in db.factions}
         rows: list[dict[str, Any]] = []
         for e in db.events:
             ch = chapter_by_id.get(e["chapter_id"])
@@ -476,6 +483,7 @@ def list_timeline(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
                     "involved_characters": [char_name.get(c, str(c)) for c in e.get("involved_characters") or []],
                     "involved_locations": [loc_name.get(l, str(l)) for l in e.get("involved_locations") or []],
                     "involved_objects": [obj_name.get(o, str(o)) for o in e.get("involved_objects") or []],
+                    "involved_factions": [faction_name.get(fid, str(fid)) for fid in (e.get("involved_factions") or [])],
                 }
             )
         rows.sort(key=lambda r: r["chapter_number"])
@@ -483,7 +491,7 @@ def list_timeline(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     raw = db.fetchall(
         """
         SELECT e.id, e.description, e.event_type, e.impact_level,
-               e.involved_characters, e.involved_locations, e.involved_objects,
+               e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions,
                ch.number AS chapter_number
         FROM events e
         JOIN chapters ch ON ch.id = e.chapter_id
@@ -499,6 +507,8 @@ def list_timeline(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     loc_name = {r["id"]: r["name"] for r in loc_rows}
     obj_rows = db.fetchall("SELECT id, name FROM objects WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
     obj_name = {r["id"]: r["name"] for r in obj_rows}
+    faction_rows = db.fetchall("SELECT id, name FROM factions WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+    faction_name = {r["id"]: r["name"] for r in faction_rows}
     return [
         {
             "id": r["id"],
@@ -509,6 +519,7 @@ def list_timeline(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             "involved_characters": [char_name.get(c, str(c)) for c in (r.get("involved_characters") or [])],
             "involved_locations": [loc_name.get(l, str(l)) for l in (r.get("involved_locations") or [])],
             "involved_objects": [obj_name.get(o, str(o)) for o in (r.get("involved_objects") or [])],
+            "involved_factions": [faction_name.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
         }
         for r in raw
     ]
@@ -828,6 +839,7 @@ def get_location_detail(novel_id: UUID, location_id: UUID, cap: int | None) -> d
         char_name = {c["id"]: c["name"] for c in db.characters}
         loc_name = {l["id"]: l["name"] for l in db.locations}
         obj_name = {o["id"]: o["name"] for o in db.objects}
+        faction_name = {f["id"]: f["name"] for f in db.factions}
         char_ids_at_loc = {cs["character_id"] for cs in db.character_states if cs.get("location_id") == location_id}
         events = [
             {
@@ -839,6 +851,7 @@ def get_location_detail(novel_id: UUID, location_id: UUID, cap: int | None) -> d
                 "involved_characters": [char_name.get(cid, str(cid)) for cid in (e.get("involved_characters") or [])],
                 "involved_locations": [loc_name.get(lid, str(lid)) for lid in (e.get("involved_locations") or [])],
                 "involved_objects": [obj_name.get(oid, str(oid)) for oid in (e.get("involved_objects") or [])],
+                "involved_factions": [faction_name.get(fid, str(fid)) for fid in (e.get("involved_factions") or [])],
             }
             for e in db.events
             if location_id in (e.get("involved_locations") or [])
@@ -860,15 +873,17 @@ def get_location_detail(novel_id: UUID, location_id: UUID, cap: int | None) -> d
         char_name_rows = db.fetchall("SELECT id, name FROM characters WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         loc_name_rows = db.fetchall("SELECT id, name FROM locations WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         obj_name_rows = db.fetchall("SELECT id, name FROM objects WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        faction_rows = db.fetchall("SELECT id, name FROM factions WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         char_name = {r["id"]: r["name"] for r in char_name_rows}
         loc_name = {r["id"]: r["name"] for r in loc_name_rows}
         obj_name = {r["id"]: r["name"] for r in obj_name_rows}
+        faction_name = {r["id"]: r["name"] for r in faction_rows}
 
         event_rows = db.fetchall(
             """
             SELECT e.id, e.description, e.event_type, e.impact_level,
                    ch.number AS chapter_number,
-                   e.involved_characters, e.involved_locations, e.involved_objects
+                   e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
             FROM events e
             JOIN chapters ch ON ch.id = e.chapter_id
             WHERE ch.novel_id = %s AND ch.number <= %s
@@ -888,6 +903,7 @@ def get_location_detail(novel_id: UUID, location_id: UUID, cap: int | None) -> d
                 "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
                 "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
                 "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
+                "involved_factions": [faction_name.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
             }
             for r in event_rows
         ]
@@ -972,6 +988,7 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
         char_entity_name = {c["entity_id"]: c["name"] for c in db.characters if c.get("entity_id")}
         loc_name = {l["id"]: l["name"] for l in db.locations}
         obj_name_map = {o["id"]: o["name"] for o in db.objects}
+        faction_name = {f["id"]: f["name"] for f in db.factions}
         events = [
             {
                 "id": e["id"],
@@ -982,6 +999,7 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
                 "involved_characters": [char_name.get(cid, str(cid)) for cid in (e.get("involved_characters") or [])],
                 "involved_locations": [loc_name.get(lid, str(lid)) for lid in (e.get("involved_locations") or [])],
                 "involved_objects": [obj_name_map.get(oid, str(oid)) for oid in (e.get("involved_objects") or [])],
+                "involved_factions": [faction_name.get(fid, str(fid)) for fid in (e.get("involved_factions") or [])],
             }
             for e in db.events
             if object_id in (e.get("involved_objects") or [])
@@ -1019,15 +1037,17 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
         char_name_rows = db.fetchall("SELECT id, name FROM characters WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         loc_name_rows = db.fetchall("SELECT id, name FROM locations WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         obj_name_rows = db.fetchall("SELECT id, name FROM objects WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        faction_rows = db.fetchall("SELECT id, name FROM factions WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
         char_name = {r["id"]: r["name"] for r in char_name_rows}
         loc_name = {r["id"]: r["name"] for r in loc_name_rows}
         obj_name_map = {r["id"]: r["name"] for r in obj_name_rows}
+        faction_name = {r["id"]: r["name"] for r in faction_rows}
 
         event_rows = db.fetchall(
             """
             SELECT e.id, e.description, e.event_type, e.impact_level,
                    ch.number AS chapter_number,
-                   e.involved_characters, e.involved_locations, e.involved_objects
+                   e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
             FROM events e
             JOIN chapters ch ON ch.id = e.chapter_id
             WHERE ch.novel_id = %s AND ch.number <= %s
@@ -1047,6 +1067,7 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
                 "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
                 "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
                 "involved_objects": [obj_name_map.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
+                "involved_factions": [faction_name.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
             }
             for r in event_rows
         ]
@@ -1124,6 +1145,26 @@ def get_faction_detail(novel_id: UUID, faction_id: UUID) -> dict[str, Any] | Non
         )
         if faction is None:
             return None
+        faction_id_local = faction["id"]
+        char_name = {c["id"]: c["name"] for c in db.characters}
+        loc_name = {l["id"]: l["name"] for l in db.locations}
+        obj_name = {o["id"]: o["name"] for o in db.objects}
+        faction_name_map = {f["id"]: f["name"] for f in db.factions}
+        events = [
+            {
+                "id": e["id"],
+                "chapter_number": e.get("chapter_number", 0),
+                "description": e["description"],
+                "event_type": e.get("event_type"),
+                "impact_level": e.get("impact_level"),
+                "involved_characters": [char_name.get(cid, str(cid)) for cid in (e.get("involved_characters") or [])],
+                "involved_locations": [loc_name.get(lid, str(lid)) for lid in (e.get("involved_locations") or [])],
+                "involved_objects": [obj_name.get(oid, str(oid)) for oid in (e.get("involved_objects") or [])],
+                "involved_factions": [faction_name_map.get(fid, str(fid)) for fid in (e.get("involved_factions") or [])],
+            }
+            for e in db.events
+            if faction_id_local in (e.get("involved_factions") or [])
+        ]
     else:
         row = db.fetchone(
             """
@@ -1137,6 +1178,53 @@ def get_faction_detail(novel_id: UUID, faction_id: UUID) -> dict[str, Any] | Non
             return None
         faction = dict(row)
 
+        char_name_rows = db.fetchall("SELECT id, name FROM characters WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        loc_name_rows = db.fetchall("SELECT id, name FROM locations WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        obj_name_rows = db.fetchall("SELECT id, name FROM objects WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        faction_name_rows = db.fetchall("SELECT id, name FROM factions WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
+        char_name = {r["id"]: r["name"] for r in char_name_rows}
+        loc_name = {r["id"]: r["name"] for r in loc_name_rows}
+        obj_name = {r["id"]: r["name"] for r in obj_name_rows}
+        faction_name_map = {r["id"]: r["name"] for r in faction_name_rows}
+
+        faction_row = db.fetchone(
+            "SELECT entity_id FROM factions WHERE id = %s AND novel_id = %s",
+            (str(faction_id), str(novel_id)),
+        )
+        faction_entity_id = str(faction_row[0]) if faction_row else None
+
+        if faction_entity_id:
+            event_rows = db.fetchall(
+                """
+                SELECT e.id, e.description, e.event_type, e.impact_level,
+                       ch.number AS chapter_number,
+                       e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
+                FROM events e
+                JOIN chapters ch ON ch.id = e.chapter_id
+                WHERE ch.novel_id = %s
+                  AND %s::uuid = ANY(e.involved_factions)
+                ORDER BY ch.number
+                """,
+                (str(novel_id), faction_entity_id),
+                dict_rows=True,
+            )
+            events = [
+                {
+                    "id": r["id"],
+                    "chapter_number": r["chapter_number"],
+                    "description": r["description"],
+                    "event_type": r.get("event_type"),
+                    "impact_level": r.get("impact_level"),
+                    "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
+                    "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
+                    "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
+                    "involved_factions": [faction_name_map.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
+                }
+                for r in event_rows
+            ]
+        else:
+            events = []
+
     return {
         "identity": {
             "id": faction["id"],
@@ -1144,7 +1232,7 @@ def get_faction_detail(novel_id: UUID, faction_id: UUID) -> dict[str, Any] | Non
             "aliases": list(faction.get("aliases") or []),
             "description": faction.get("description"),
         },
-        "events": [],
+        "events": events,
         "characters": [],
     }
 
@@ -1155,15 +1243,20 @@ def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]
 
     if hasattr(db, "shared_dynamics"):
         chapter_by_id = {c["id"]: c for c in db.chapters if c["novel_id"] == novel_id}
+        entity_by_id = {e["id"]: e for e in db.entities} if hasattr(db, "entities") else {}
         rows: list[dict[str, Any]] = []
         for dyn in db.shared_dynamics:
             ch = chapter_by_id.get(dyn["chapter_id"])
             if ch is None or ch["number"] > effective_cap:
                 continue
+            ea = entity_by_id.get(dyn["entity_a_id"], {})
+            eb = entity_by_id.get(dyn["entity_b_id"], {})
             rows.append({
                 "id": dyn["id"],
                 "entity_a_id": dyn["entity_a_id"],
+                "entity_a_name": ea.get("name", str(dyn["entity_a_id"])[:8]),
                 "entity_b_id": dyn["entity_b_id"],
+                "entity_b_name": eb.get("name", str(dyn["entity_b_id"])[:8]),
                 "chapter_number": ch["number"],
                 "description": dyn.get("description"),
             })
@@ -1172,9 +1265,13 @@ def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]
 
     raw = db.fetchall(
         """
-        SELECT sd.id, sd.entity_a_id, sd.entity_b_id, sd.description, ch.number AS chapter_number
+        SELECT sd.id, sd.entity_a_id, ea.name AS entity_a_name,
+               sd.entity_b_id, eb.name AS entity_b_name,
+               sd.description, ch.number AS chapter_number
         FROM shared_dynamics sd
         JOIN chapters ch ON ch.id = sd.chapter_id
+        JOIN entities ea ON ea.id = sd.entity_a_id
+        JOIN entities eb ON eb.id = sd.entity_b_id
         WHERE ch.novel_id = %s AND ch.number <= %s
         ORDER BY ch.number
         """,
@@ -1185,7 +1282,9 @@ def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]
         {
             "id": r["id"],
             "entity_a_id": r["entity_a_id"],
+            "entity_a_name": r["entity_a_name"],
             "entity_b_id": r["entity_b_id"],
+            "entity_b_name": r["entity_b_name"],
             "chapter_number": r["chapter_number"],
             "description": r.get("description"),
         }
