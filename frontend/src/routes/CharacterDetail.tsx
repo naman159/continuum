@@ -94,7 +94,7 @@ function CharacterPage({ data }: { data: Detail }) {
                     {ri === 0 && (
                       <>
                         <td rowSpan={rows.length}>{direction}</td>
-                        <td rowSpan={rows.length}>{entity} <span className="muted">({entityType})</span></td>
+                        <td rowSpan={rows.length}>{entity}</td>
                       </>
                     )}
                     <td>{r.rel_type ?? "—"}</td>
