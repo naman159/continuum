@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from tests.api.conftest import make_chapter, make_novel
+from api.tests.conftest import make_chapter, make_novel
 
 
 def _make_object(novel_id, name="the One Ring", **overrides):

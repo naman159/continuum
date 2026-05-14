@@ -13,6 +13,7 @@ PASS_ORDER = [
     "continuity_flags",
     "relationship_updates",
     "dynamics_updates",
+    "timeline_entries",
 ]
 
 
@@ -105,6 +106,19 @@ PASS_SCHEMAS = {
             }
         ]
     },
+    "timeline_entries": {
+        "timeline_entries": [
+            {
+                "description": "string — a significant story event worth recording in the story chronology",
+                "story_date": "string|null — in-world date or time reference if mentioned, otherwise null",
+                "sort_order": "integer — relative chronological position within the story world (not narrative order)",
+                "involved_characters": ["string"],
+                "involved_locations": ["string"],
+                "involved_objects": ["string"],
+                "involved_factions": ["string"],
+            }
+        ]
+    },
 }
 
 
@@ -132,8 +146,36 @@ def build_system_prompt(pass_name: str) -> str:
     ).strip()
 
 
+PASS_TASK_INSTRUCTIONS: dict[str, str] = {
+    "continuity_flags": dedent(
+        """
+        Flag ONLY narrative elements that must pay off in a future chapter or would
+        create a plot hole / broken promise if forgotten. Ask: "If the author never
+        references this again, would a careful reader feel cheated?"
+
+        Flag:
+        - Character abilities, skills, or traits explicitly established for later use
+        - Backstory (trauma, rivalries, history) that will plausibly drive future choices
+        - Introduced objects whose special properties haven't been exercised yet
+        - Explicit foreshadowing — stated predictions, ominous hints, prophecies
+        - Open promises, threats, oaths, or stated goals not yet pursued
+        - Unresolved mysteries or questions the narrative implicitly promises to answer
+
+        Do NOT flag:
+        - Mechanical scene transitions (timers, transport messages, system notifications)
+        - World-building facts that are informational but carry no narrative debt
+        - Events or setups that are fully resolved within the same chapter
+        - Generic character traits with no specific future hook
+        """
+    ).strip(),
+}
+
+
 def build_user_prompt(pass_name: str, chunk: str, context: dict) -> str:
     context_block = build_context_block(context)
+    task = PASS_TASK_INSTRUCTIONS.get(
+        pass_name, f"Execute the {pass_name} pass and return JSON only."
+    )
     return dedent(
         f"""
         {context_block}
@@ -142,7 +184,8 @@ def build_user_prompt(pass_name: str, chunk: str, context: dict) -> str:
         {chunk}
 
         TASK
-        Execute the {pass_name} pass and return JSON only.
+        {task}
+        Return JSON only.
         """
     ).strip()
 
