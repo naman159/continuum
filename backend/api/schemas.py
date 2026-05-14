@@ -95,12 +95,23 @@ class ChapterSummary(BaseModel):
     processed_at: datetime | None
 
 
-class TimelineEvent(BaseModel):
+class ChapterEvent(BaseModel):
     id: UUID
     chapter_number: int
     description: str
     event_type: str | None
     impact_level: str | None
+    involved_characters: list[str]
+    involved_locations: list[str]
+    involved_objects: list[str]
+    involved_factions: list[str]
+
+
+class TimelineEntry(BaseModel):
+    id: UUID
+    description: str
+    story_date: str | None
+    sort_order: int
     involved_characters: list[str]
     involved_locations: list[str]
     involved_objects: list[str]
@@ -180,7 +191,7 @@ class LocationSummary(BaseModel):
 
 class LocationDetail(BaseModel):
     identity: LocationSummary
-    events: list[TimelineEvent]
+    events: list[ChapterEvent]
     characters: list[str]
 
 
@@ -203,7 +214,7 @@ class ObjectRelationship(BaseModel):
 
 class ObjectDetail(BaseModel):
     identity: ObjectSummary
-    events: list[TimelineEvent]
+    events: list[ChapterEvent]
     characters: list[str]
     relationships: list[ObjectRelationship]
 
@@ -217,5 +228,5 @@ class FactionSummary(BaseModel):
 
 class FactionDetail(BaseModel):
     identity: FactionSummary
-    events: list[TimelineEvent]
+    events: list[ChapterEvent]
     characters: list[str]

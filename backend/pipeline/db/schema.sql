@@ -187,6 +187,21 @@ CREATE TABLE IF NOT EXISTS continuity_flags (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS timeline (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    description TEXT NOT NULL,
+    story_date TEXT,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    involved_characters UUID[] DEFAULT '{}',
+    involved_locations UUID[] DEFAULT '{}',
+    involved_objects UUID[] DEFAULT '{}',
+    involved_factions UUID[] DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_timeline_novel ON timeline(novel_id, sort_order);
+
 CREATE INDEX IF NOT EXISTS idx_chapters_embedding
 ON chapters USING ivfflat (embedding vector_cosine_ops)
 WITH (lists = 100);

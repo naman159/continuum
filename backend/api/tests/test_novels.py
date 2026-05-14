@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tests.api.conftest import make_chapter, make_novel
+from api.tests.conftest import make_chapter, make_novel
 
 
 def test_list_novels_returns_max_chapter(fake_db_factory, client):

@@ -19,10 +19,10 @@ dependencies = [
 
 [project.scripts]
 novel-pipeline = "pipeline.pipeline:main"
-novel-wiki-character = "pipeline.wiki.character:main"
-novel-wiki-timeline = "pipeline.wiki.timeline:main"
-novel-wiki-threads = "pipeline.wiki.threads:main"
-novel-wiki-relationships = "pipeline.wiki.relationships:main"
+novel-wiki-character = "cli.character:main"
+novel-wiki-timeline = "cli.timeline:main"
+novel-wiki-threads = "cli.threads:main"
+novel-wiki-relationships = "cli.relationships:main"
 novel-webapp = "api.app:run"
 
 [tool.setuptools]

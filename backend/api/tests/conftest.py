@@ -31,6 +31,7 @@ class FakeDB:
         objects: list[dict[str, Any]] | None = None,
         factions: list[dict[str, Any]] | None = None,
         entities: list[dict[str, Any]] | None = None,
+        timeline: list[dict[str, Any]] | None = None,
     ) -> None:
         self.novels = novels or []
         self.chapters = chapters or []
@@ -46,6 +47,7 @@ class FakeDB:
         self.objects = objects or []
         self.factions = factions or []
         self.entities = entities or []
+        self.timeline = timeline or []
 
     def close(self) -> None:
         pass

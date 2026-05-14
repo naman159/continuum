@@ -80,7 +80,16 @@ export type ChapterSummary = {
   processed_at: string | null;
 };
 
-export type TimelineEvent = CharacterEventRow;
+export type TimelineEntry = {
+  id: string;
+  description: string;
+  story_date: string | null;
+  sort_order: number;
+  involved_characters: string[];
+  involved_locations: string[];
+  involved_objects: string[];
+  involved_factions: string[];
+};
 
 export type ThreadEventLink = {
   event_id: string;
@@ -123,7 +132,7 @@ export type LocationSummary = {
 
 export type LocationDetail = {
   identity: LocationSummary;
-  events: TimelineEvent[];
+  events: CharacterEventRow[];
   characters: string[];
 };
 
@@ -146,7 +155,7 @@ export type ObjectRelationship = {
 
 export type ObjectDetail = {
   identity: ObjectSummary;
-  events: TimelineEvent[];
+  events: CharacterEventRow[];
   characters: string[];
   relationships: ObjectRelationship[];
 };
@@ -160,7 +169,7 @@ export type FactionSummary = {
 
 export type FactionDetail = {
   identity: FactionSummary;
-  events: TimelineEvent[];
+  events: CharacterEventRow[];
   characters: string[];
 };
 
@@ -181,8 +190,8 @@ export const api = {
     fetchJson<CharacterDetail>(`/api/novels/${novelId}/characters/${characterId}${capParam(cap)}`),
   chapters: (id: string, cap: number | null) =>
     fetchJson<ChapterSummary[]>(`/api/novels/${id}/chapters${capParam(cap)}`),
-  timeline: (id: string, cap: number | null) =>
-    fetchJson<TimelineEvent[]>(`/api/novels/${id}/timeline${capParam(cap)}`),
+  timeline: (id: string) =>
+    fetchJson<TimelineEntry[]>(`/api/novels/${id}/timeline`),
   threads: (id: string, cap: number | null, status: string) => {
     const params = new URLSearchParams();
     if (cap != null) params.set("cap", String(cap));
