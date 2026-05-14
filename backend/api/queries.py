@@ -215,10 +215,13 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
         ]
         events.sort(key=lambda e: chapter_by_id[e["chapter_id"]]["number"])
         char_entity_id = char.get("entity_id")
+        char_entity_ids = {c["entity_id"] for c in db.characters if c.get("entity_id") is not None}
         rels = [
             r
             for r in db.relationships
-            if r["entity_a_id"] == char_entity_id or r["entity_b_id"] == char_entity_id
+            if (r["entity_a_id"] == char_entity_id or r["entity_b_id"] == char_entity_id)
+            and r["entity_a_id"] in char_entity_ids
+            and r["entity_b_id"] in char_entity_ids
         ]
         # Resolve names
         char_name = {c["id"]: c["name"] for c in db.characters}
@@ -276,7 +279,9 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             SELECT r.id, r.entity_a_id, r.entity_b_id, r.rel_type,
                    r.from_chapter, r.to_chapter, r.notes
             FROM relationships r
-            JOIN characters c ON c.entity_id = r.entity_a_id OR c.entity_id = r.entity_b_id
+            JOIN entities ea ON ea.id = r.entity_a_id AND ea.entity_type = 'character'
+            JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
+            JOIN characters c ON c.entity_id = ea.id OR c.entity_id = eb.id
             WHERE c.id = %s
               AND (r.from_chapter IS NULL OR r.from_chapter <= %s)
             """,
@@ -713,6 +718,8 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
             if r["char_a_id"] in character_id_set and r["char_b_id"] in character_id_set
         ]
 
+    edge_node_ids = {str(e["from"]) for e in edges} | {str(e["to"]) for e in edges}
+    nodes = [n for n in nodes if str(n["id"]) in edge_node_ids]
     return {"nodes": nodes, "edges": edges}
 
 
