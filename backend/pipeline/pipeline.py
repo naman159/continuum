@@ -488,59 +488,6 @@ def _persist_extraction(
             (chapter_id, description, flag.get("flag_type") or "other"),
         )
 
-    for entry in extracted.get("timeline_entries", []):
-        description = str(entry.get("description", "")).strip()
-        if not description:
-            continue
-
-        involved_characters = [
-            resolver.resolve_character(name).entity_id
-            for name in entry.get("involved_characters", [])
-            if str(name).strip()
-        ]
-        involved_locations = [
-            resolver.resolve_location(name).entity_id
-            for name in entry.get("involved_locations", [])
-            if str(name).strip()
-        ]
-        involved_objects = [
-            resolver.resolve_object(name).entity_id
-            for name in entry.get("involved_objects", [])
-            if str(name).strip()
-        ]
-        involved_factions = [
-            resolver.resolve_faction(name).entity_id
-            for name in entry.get("involved_factions", [])
-            if str(name).strip()
-        ]
-
-        try:
-            sort_order = int(entry.get("sort_order", 0))
-        except (TypeError, ValueError):
-            sort_order = 0
-
-        db.execute(
-            """
-            INSERT INTO timeline (
-                novel_id, description, story_date, sort_order,
-                involved_characters, involved_locations, involved_objects, involved_factions
-            )
-            VALUES (%s, %s, %s, %s, %s::uuid[], %s::uuid[], %s::uuid[], %s::uuid[])
-            ON CONFLICT DO NOTHING
-            """,
-            (
-                resolver.novel_id,
-                description,
-                entry.get("story_date") or None,
-                sort_order,
-                involved_characters,
-                involved_locations,
-                involved_objects,
-                involved_factions,
-            ),
-            commit=True,
-        )
-
     return inserted_events
 
 

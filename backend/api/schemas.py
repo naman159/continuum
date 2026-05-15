@@ -107,16 +107,6 @@ class ChapterEvent(BaseModel):
     involved_factions: list[str]
 
 
-class TimelineEntry(BaseModel):
-    id: UUID
-    description: str
-    story_date: str | None
-    sort_order: int
-    involved_characters: list[str]
-    involved_locations: list[str]
-    involved_objects: list[str]
-    involved_factions: list[str]
-
 
 class ThreadEventLink(BaseModel):
     event_id: UUID

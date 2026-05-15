@@ -13,7 +13,6 @@ PASS_ORDER = [
     "continuity_flags",
     "relationship_updates",
     "dynamics_updates",
-    "timeline_entries",
 ]
 
 
@@ -103,19 +102,6 @@ PASS_SCHEMAS = {
                 "entity_a": "string",
                 "entity_b": "string",
                 "description": "string",
-            }
-        ]
-    },
-    "timeline_entries": {
-        "timeline_entries": [
-            {
-                "description": "string — a significant story event worth recording in the story chronology",
-                "story_date": "string|null — in-world date or time reference if mentioned, otherwise null",
-                "sort_order": "integer — relative chronological position within the story world (not narrative order)",
-                "involved_characters": ["string"],
-                "involved_locations": ["string"],
-                "involved_objects": ["string"],
-                "involved_factions": ["string"],
             }
         ]
     },
