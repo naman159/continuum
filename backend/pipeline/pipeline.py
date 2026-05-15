@@ -289,9 +289,10 @@ def _persist_extraction(
                 goals,
                 knowledge,
                 physical_state,
+                appearance,
                 notes
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 character_id,
@@ -301,6 +302,7 @@ def _persist_extraction(
                 delta.get("goals"),
                 knowledge,
                 delta.get("physical_state"),
+                delta.get("appearance"),
                 delta.get("notes"),
             ),
         )

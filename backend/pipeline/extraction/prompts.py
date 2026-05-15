@@ -47,6 +47,7 @@ PASS_SCHEMAS = {
                 "goals": "string|null",
                 "knowledge": ["string"],
                 "physical_state": "string|null",
+                "appearance": "string|null — visible description (clothing, hair, distinguishing features) only when explicitly described",
                 "notes": "string|null",
             }
         ]

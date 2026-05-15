@@ -154,7 +154,7 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
                     "notes": None,
                 }
             existing = delta_index[key]
-            for field in ("location", "emotional_state", "goals", "physical_state", "notes"):
+            for field in ("location", "emotional_state", "goals", "physical_state", "appearance", "notes"):
                 value = delta.get(field)
                 if value:
                     existing[field] = value

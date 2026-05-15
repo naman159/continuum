@@ -22,6 +22,7 @@ export type CharacterStateRow = {
   goals: string | null;
   knowledge: string[];
   physical_state: string | null;
+  appearance: string | null;
   notes: string | null;
 };
 

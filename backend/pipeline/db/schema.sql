@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS character_states (
     goals TEXT,
     knowledge TEXT[] DEFAULT '{}',
     physical_state TEXT,
+    appearance TEXT,
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
