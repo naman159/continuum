@@ -34,7 +34,6 @@ def empty_extraction() -> dict[str, Any]:
         "continuity_flags": [],
         "relationship_updates": [],
         "dynamics_updates": [],
-        "timeline_entries": [],
     }
 
 
@@ -120,10 +119,6 @@ def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
     dynamics_updates = raw.get("dynamics_updates", [])
     if isinstance(dynamics_updates, list):
         output["dynamics_updates"] = [item for item in dynamics_updates if isinstance(item, dict)]
-
-    timeline_entries = raw.get("timeline_entries", [])
-    if isinstance(timeline_entries, list):
-        output["timeline_entries"] = [item for item in timeline_entries if isinstance(item, dict)]
 
     return output
 
@@ -236,18 +231,6 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
                 continue
             seen_dynamics.add(key)
             merged["dynamics_updates"].append(dyn)
-
-    seen_timeline: set[str] = set()
-    for extraction in extractions:
-        for entry in extraction.get("timeline_entries", []):
-            description = str(entry.get("description", "")).strip()
-            if not description:
-                continue
-            key = description.lower()
-            if key in seen_timeline:
-                continue
-            seen_timeline.add(key)
-            merged["timeline_entries"].append(entry)
 
     return merged
 

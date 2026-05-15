@@ -463,39 +463,46 @@ def list_chapters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     ]
 
 
-def list_timeline(novel_id: UUID) -> list[dict[str, Any]]:
+def list_timeline(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     db = _get_db()
-    if hasattr(db, "timeline"):
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    if hasattr(db, "chapters"):
+        chapter_by_id = {c["id"]: c for c in db.chapters if c["novel_id"] == novel_id}
         char_name = {c["id"]: c["name"] for c in db.characters}
         loc_name = {loc["id"]: loc["name"] for loc in db.locations}
         obj_name = {o["id"]: o["name"] for o in db.objects}
         faction_name = {f["id"]: f["name"] for f in db.factions}
-        rows = sorted(
-            [e for e in db.timeline if e["novel_id"] == novel_id],
-            key=lambda r: r["sort_order"],
-        )
-        return [
-            {
-                "id": e["id"],
-                "description": e["description"],
-                "story_date": e.get("story_date"),
-                "sort_order": e["sort_order"],
-                "involved_characters": [char_name.get(c, str(c)) for c in e.get("involved_characters") or []],
-                "involved_locations": [loc_name.get(l, str(l)) for l in e.get("involved_locations") or []],
-                "involved_objects": [obj_name.get(o, str(o)) for o in e.get("involved_objects") or []],
-                "involved_factions": [faction_name.get(fid, str(fid)) for fid in (e.get("involved_factions") or [])],
-            }
-            for e in rows
-        ]
+        rows: list[dict[str, Any]] = []
+        for e in db.events:
+            ch = chapter_by_id.get(e["chapter_id"])
+            if ch is None or ch["number"] > effective_cap:
+                continue
+            rows.append(
+                {
+                    "id": e["id"],
+                    "chapter_number": ch["number"],
+                    "description": e["description"],
+                    "event_type": e.get("event_type"),
+                    "impact_level": e.get("impact_level"),
+                    "involved_characters": [char_name.get(c, str(c)) for c in e.get("involved_characters") or []],
+                    "involved_locations": [loc_name.get(l, str(l)) for l in e.get("involved_locations") or []],
+                    "involved_objects": [obj_name.get(o, str(o)) for o in e.get("involved_objects") or []],
+                    "involved_factions": [faction_name.get(fid, str(fid)) for fid in (e.get("involved_factions") or [])],
+                }
+            )
+        rows.sort(key=lambda r: r["chapter_number"])
+        return rows
     raw = db.fetchall(
         """
-        SELECT t.id, t.description, t.story_date, t.sort_order,
-               t.involved_characters, t.involved_locations, t.involved_objects, t.involved_factions
-        FROM timeline t
-        WHERE t.novel_id = %s
-        ORDER BY t.sort_order, t.created_at
+        SELECT e.id, e.description, e.event_type, e.impact_level,
+               e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions,
+               ch.number AS chapter_number
+        FROM events e
+        JOIN chapters ch ON ch.id = e.chapter_id
+        WHERE ch.novel_id = %s AND ch.number <= %s
+        ORDER BY ch.number, e.created_at
         """,
-        (str(novel_id),),
+        (str(novel_id), effective_cap),
         dict_rows=True,
     )
     char_rows = db.fetchall("SELECT id, name FROM characters WHERE novel_id = %s", (str(novel_id),), dict_rows=True)
@@ -509,9 +516,10 @@ def list_timeline(novel_id: UUID) -> list[dict[str, Any]]:
     return [
         {
             "id": r["id"],
+            "chapter_number": r["chapter_number"],
             "description": r["description"],
-            "story_date": r.get("story_date"),
-            "sort_order": r["sort_order"],
+            "event_type": r.get("event_type"),
+            "impact_level": r.get("impact_level"),
             "involved_characters": [char_name.get(c, str(c)) for c in (r.get("involved_characters") or [])],
             "involved_locations": [loc_name.get(l, str(l)) for l in (r.get("involved_locations") or [])],
             "involved_objects": [obj_name.get(o, str(o)) for o in (r.get("involved_objects") or [])],
