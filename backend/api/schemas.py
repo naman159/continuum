@@ -37,6 +37,7 @@ class CharacterStateRow(BaseModel):
     goals: str | None
     knowledge: list[str]
     physical_state: str | None
+    appearance: str | None
     notes: str | None
 
 

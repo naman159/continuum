@@ -319,6 +319,7 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             "goals": state.get("goals"),
             "knowledge": list(state.get("knowledge") or []),
             "physical_state": state.get("physical_state"),
+            "appearance": state.get("appearance"),
             "notes": state.get("notes"),
         }
 

@@ -176,6 +176,7 @@ function StateBlock({ state }: { state: Detail["history"][number] }) {
         { label: "Goals", value: state.goals },
         { label: "Knowledge", value: renderArray(state.knowledge) },
         { label: "Physical state", value: state.physical_state },
+        { label: "Appearance", value: state.appearance },
         { label: "Notes", value: state.notes },
       ]}
     />
