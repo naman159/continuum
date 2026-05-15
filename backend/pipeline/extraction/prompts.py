@@ -134,6 +134,18 @@ def build_system_prompt(pass_name: str) -> str:
 
 
 PASS_TASK_INSTRUCTIONS: dict[str, str] = {
+    "relationship_updates": dedent(
+        """
+        Extract relationships between entities. Each row must have exactly one
+        relationship type — never combine multiple types with "/" or ",".
+        If two entities have more than one distinct relationship, emit a separate
+        row for each (e.g. one row for "mentor", another for "father").
+
+        Use lowercase, specific labels (e.g. "rival", "employer", "romantic_interest")
+        rather than vague or compound ones ("guide/subject", "friends/colleagues").
+        Return JSON only.
+        """
+    ).strip(),
     "continuity_flags": dedent(
         """
         Flag ONLY narrative elements that must pay off in a future chapter or would
