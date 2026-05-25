@@ -20,9 +20,12 @@ export default function Sidebar() {
     ? [
         ["Characters", `/novels/${novelId}/characters`],
         ["Chapters", `/novels/${novelId}/chapters`],
+        ["Scenes", `/novels/${novelId}/scenes`],
         ["Timeline", `/novels/${novelId}/timeline`],
         ["Threads", `/novels/${novelId}/threads`],
-        ["Relationships", `/novels/${novelId}/relationships`],
+        ["Commitments", `/novels/${novelId}/commitments`],
+        ["State & Knowledge", `/novels/${novelId}/knowledge`],
+        ["Canon Facts", `/novels/${novelId}/canon`],
         ["Locations", `/novels/${novelId}/locations`],
         ["Objects", `/novels/${novelId}/objects`],
         ["Factions", `/novels/${novelId}/factions`],
