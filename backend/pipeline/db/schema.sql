@@ -189,10 +189,235 @@ CREATE TABLE IF NOT EXISTS continuity_flags (
 );
 
 
-CREATE INDEX IF NOT EXISTS idx_chapters_embedding
-ON chapters USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 100);
+-- =====================================================================
+-- SOTA upgrade: bitemporal edges, knowledge graph, commitments, scenes
+-- Added on branch closing-the-gap-with-sota. See architecture-recommendations.html.
+-- All statements are idempotent (IF NOT EXISTS / ADD COLUMN IF NOT EXISTS).
+-- =====================================================================
 
-CREATE INDEX IF NOT EXISTS idx_events_embedding
-ON events USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 100);
+-- ---- Multi-granularity summaries on chapters ----
+-- `summary` (existing) stays as the medium-granularity (~150 word) summary.
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS summary_short TEXT;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS summary_long TEXT;
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS style_fingerprint JSONB;
+
+-- ---- Event log enhancements: SVO triples + story-time + scene linkage ----
+ALTER TABLE events ADD COLUMN IF NOT EXISTS subject_entity_id UUID REFERENCES entities(id);
+ALTER TABLE events ADD COLUMN IF NOT EXISTS verb TEXT;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS object_entity_id UUID REFERENCES entities(id);
+ALTER TABLE events ADD COLUMN IF NOT EXISTS story_time_ordinal INTEGER;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS narrative_order INTEGER;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS scene_id UUID;
+CREATE INDEX IF NOT EXISTS idx_events_story_time ON events(story_time_ordinal);
+
+-- ---- Relationships: invalidate-don't-delete + evidence ----
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFERENCES relationships(id);
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS evidence_event_ids UUID[] DEFAULT '{}';
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
+
+-- ---- Scene-level segmentation ----
+CREATE TABLE IF NOT EXISTS scenes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+    scene_index INTEGER NOT NULL,
+    pov_character_id UUID REFERENCES characters(id),
+    location_id UUID REFERENCES locations(id),
+    time_anchor TEXT,
+    story_time_ordinal INTEGER,
+    present_characters UUID[] DEFAULT '{}',
+    summary TEXT,
+    embedding VECTOR(__EMBEDDING_DIM__),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(chapter_id, scene_index)
+);
+CREATE INDEX IF NOT EXISTS idx_scenes_chapter ON scenes(chapter_id);
+
+-- Add scene_id FK on events (after scenes table exists)
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'events_scene_id_fkey'
+    ) THEN
+        ALTER TABLE events
+        ADD CONSTRAINT events_scene_id_fkey
+        FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
+-- ---- Canon facts (immutable, lockable) ----
+CREATE TABLE IF NOT EXISTS canon_facts (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    subject_entity_id UUID REFERENCES entities(id),
+    predicate TEXT NOT NULL,
+    value TEXT NOT NULL,
+    source_chapter INTEGER,
+    confidence FLOAT DEFAULT 1.0,
+    locked BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    UNIQUE(novel_id, subject_entity_id, predicate)
+);
+CREATE INDEX IF NOT EXISTS idx_canon_facts_subject ON canon_facts(subject_entity_id);
+CREATE INDEX IF NOT EXISTS idx_canon_facts_novel_locked ON canon_facts(novel_id, locked);
+
+-- ---- Knowledge graph: who-knows-what (theory of mind) ----
+CREATE TABLE IF NOT EXISTS knows_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    fact_id UUID REFERENCES canon_facts(id),
+    fact_description TEXT NOT NULL,
+    learned_chapter INTEGER NOT NULL,
+    source_event_id UUID REFERENCES events(id),
+    source_type TEXT CHECK (source_type IN (
+        'dialogue','observation','inference','witnessed','told','assumed'
+    )),
+    certainty FLOAT DEFAULT 1.0,
+    shared_with UUID[] DEFAULT '{}',
+    superseded_by_id UUID REFERENCES knows_edges(id),
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_knows_character ON knows_edges(character_id, learned_chapter);
+CREATE INDEX IF NOT EXISTS idx_knows_fact ON knows_edges(fact_id);
+CREATE INDEX IF NOT EXISTS idx_knows_active ON knows_edges(character_id) WHERE superseded_by_id IS NULL;
+
+-- ---- Bitemporal possession edges ----
+CREATE TABLE IF NOT EXISTS possesses_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
+    object_id UUID NOT NULL REFERENCES objects(id) ON DELETE CASCADE,
+    since_chapter INTEGER NOT NULL,
+    until_chapter INTEGER,
+    evidence_event_id UUID REFERENCES events(id),
+    certainty FLOAT DEFAULT 1.0,
+    superseded_by_id UUID REFERENCES possesses_edges(id),
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_possesses_character ON possesses_edges(character_id);
+CREATE INDEX IF NOT EXISTS idx_possesses_object ON possesses_edges(object_id);
+CREATE INDEX IF NOT EXISTS idx_possesses_active
+    ON possesses_edges(character_id, since_chapter)
+    WHERE until_chapter IS NULL;
+
+-- ---- Bitemporal location edges (entity_id can be character/object/etc.) ----
+CREATE TABLE IF NOT EXISTS located_in_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    entity_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    location_id UUID NOT NULL REFERENCES locations(id) ON DELETE CASCADE,
+    since_chapter INTEGER NOT NULL,
+    until_chapter INTEGER,
+    evidence_event_id UUID REFERENCES events(id),
+    certainty FLOAT DEFAULT 1.0,
+    superseded_by_id UUID REFERENCES located_in_edges(id),
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_located_in_entity ON located_in_edges(entity_id);
+CREATE INDEX IF NOT EXISTS idx_located_in_location ON located_in_edges(location_id);
+CREATE INDEX IF NOT EXISTS idx_located_in_active
+    ON located_in_edges(entity_id, since_chapter)
+    WHERE until_chapter IS NULL;
+
+-- ---- CFPG foreshadow / payoff commitments ----
+CREATE TABLE IF NOT EXISTS commitments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    foreshadow_text TEXT NOT NULL,
+    foreshadow_chapter INTEGER NOT NULL,
+    foreshadow_event_id UUID REFERENCES events(id),
+    trigger_predicate JSONB,
+    payoff_text TEXT,
+    payoff_chapter INTEGER,
+    payoff_event_id UUID REFERENCES events(id),
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','satisfied','broken','abandoned')),
+    weight FLOAT DEFAULT 1.0,
+    related_entity_ids UUID[] DEFAULT '{}',
+    embedding VECTOR(__EMBEDDING_DIM__),
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_commitments_novel_status ON commitments(novel_id, status);
+CREATE INDEX IF NOT EXISTS idx_commitments_pending
+    ON commitments(novel_id, foreshadow_chapter)
+    WHERE status = 'pending';
+
+-- ---- Temporal-constraint edges (for timeline consistency) ----
+CREATE TABLE IF NOT EXISTS temporal_constraints (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_a_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    event_b_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    relation TEXT NOT NULL CHECK (relation IN (
+        'before','after','simultaneous','caused_by','enables'
+    )),
+    certainty FLOAT DEFAULT 1.0,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CHECK (event_a_id <> event_b_id),
+    UNIQUE(event_a_id, event_b_id, relation)
+);
+CREATE INDEX IF NOT EXISTS idx_temporal_a ON temporal_constraints(event_a_id);
+CREATE INDEX IF NOT EXISTS idx_temporal_b ON temporal_constraints(event_b_id);
+
+-- ---- Materialized state runs (audit of derived projections) ----
+CREATE TABLE IF NOT EXISTS materialized_state_runs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    through_chapter INTEGER NOT NULL,
+    materialized_at TIMESTAMPTZ DEFAULT now(),
+    notes TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_materialized_state_novel
+    ON materialized_state_runs(novel_id, through_chapter DESC);
+
+-- ---- Full-text search (BM25 component of hybrid retrieval) ----
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS search_tsv tsvector;
+ALTER TABLE scenes   ADD COLUMN IF NOT EXISTS search_tsv tsvector;
+ALTER TABLE events   ADD COLUMN IF NOT EXISTS search_tsv tsvector;
+CREATE INDEX IF NOT EXISTS idx_chapters_tsv ON chapters USING GIN (search_tsv);
+CREATE INDEX IF NOT EXISTS idx_scenes_tsv   ON scenes   USING GIN (search_tsv);
+CREATE INDEX IF NOT EXISTS idx_events_tsv   ON events   USING GIN (search_tsv);
+
+CREATE OR REPLACE FUNCTION chapters_tsv_update() RETURNS trigger AS $$
+BEGIN
+  NEW.search_tsv :=
+    setweight(to_tsvector('english', coalesce(NEW.title, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(NEW.summary_short, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(NEW.summary, '')), 'B') ||
+    setweight(to_tsvector('english', coalesce(NEW.summary_long, '')), 'C') ||
+    setweight(to_tsvector('english', coalesce(NEW.raw_text, '')), 'D');
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS chapters_tsv_trigger ON chapters;
+CREATE TRIGGER chapters_tsv_trigger BEFORE INSERT OR UPDATE ON chapters
+FOR EACH ROW EXECUTE FUNCTION chapters_tsv_update();
+
+CREATE OR REPLACE FUNCTION scenes_tsv_update() RETURNS trigger AS $$
+BEGIN
+  NEW.search_tsv := setweight(to_tsvector('english', coalesce(NEW.summary, '')), 'A');
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS scenes_tsv_trigger ON scenes;
+CREATE TRIGGER scenes_tsv_trigger BEFORE INSERT OR UPDATE ON scenes
+FOR EACH ROW EXECUTE FUNCTION scenes_tsv_update();
+
+CREATE OR REPLACE FUNCTION events_tsv_update() RETURNS trigger AS $$
+BEGIN
+  NEW.search_tsv := setweight(to_tsvector('english', coalesce(NEW.description, '')), 'A');
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS events_tsv_trigger ON events;
+CREATE TRIGGER events_tsv_trigger BEFORE INSERT OR UPDATE ON events
+FOR EACH ROW EXECUTE FUNCTION events_tsv_update();
+
+-- ---- Switch IVFFlat -> HNSW (better recall at novel scale) ----
+DROP INDEX IF EXISTS idx_chapters_embedding;
+DROP INDEX IF EXISTS idx_events_embedding;
+CREATE INDEX IF NOT EXISTS idx_chapters_embedding_hnsw
+    ON chapters USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_events_embedding_hnsw
+    ON events USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_scenes_embedding_hnsw
+    ON scenes USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_commitments_embedding_hnsw
+    ON commitments USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_characters_embedding_hnsw
+    ON characters USING hnsw (embedding vector_cosine_ops);
