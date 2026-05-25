@@ -25,7 +25,13 @@ class EntityResolver:
         return self._resolve("character", name, metadata or {})
 
     def resolve_location(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
-        return self._resolve("location", name, metadata or {})
+        meta = metadata or {}
+        parent_name = str(meta.get("parent_location") or "").strip()
+        if parent_name:
+            # This is a sub-location — always resolve (or create) the parent instead.
+            parent_meta = {"description": meta.get("description")}
+            return self._resolve("location", parent_name, parent_meta)
+        return self._resolve("location", name, meta)
 
     def resolve_faction(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
         return self._resolve("faction", name, metadata or {})

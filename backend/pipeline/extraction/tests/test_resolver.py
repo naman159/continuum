@@ -166,3 +166,106 @@ def test_resolve_any_entity_falls_back_to_character():
     resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
     uid = resolver.resolve_any_entity("Frodo")
     assert uid == char_entity_id
+
+
+# ---------------------------------------------------------------------------
+# Parent-location folding
+# ---------------------------------------------------------------------------
+
+def test_resolve_location_folds_into_parent_when_parent_location_set():
+    """
+    When metadata contains parent_location and that parent exists in the DB,
+    resolve_location should return the parent's entity rather than creating a
+    new sub-location row.
+    """
+    import uuid
+
+    parent_loc_id = str(uuid.uuid4())
+    parent_entity_id = str(uuid.uuid4())
+
+    class ParentDB:
+        def __init__(self):
+            self.executed = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            # Exact name lookup for "Corporate Office" → return parent row
+            if "lower(name) = lower" in query and params and str(params[1]).lower() == "corporate office":
+                return (parent_loc_id, parent_entity_id)
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            return None
+
+        def execute(self, query, params=None):
+            self.executed.append((query, params))
+
+    db = ParentDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=5)
+    result = resolver.resolve_location(
+        "Corporate office (14th floor)",
+        {"parent_location": "Corporate Office", "description": "The 14th floor."},
+    )
+    assert result.entity_id == parent_loc_id
+    assert result.universal_id == parent_entity_id
+    assert result.created is False
+    # The sub-location name must NOT have been inserted
+    assert not any("14th floor" in str(params) for _, params in db.executed if params)
+
+
+def test_resolve_location_creates_parent_if_missing():
+    """
+    When metadata has parent_location but the parent doesn't exist yet,
+    resolve_location creates the parent (not the sub-location).
+    """
+    import uuid
+
+    class MissingParentDB:
+        def __init__(self):
+            self.inserted_names: list[str] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            return None  # nothing exists yet
+
+        def fetchval(self, query, params=None, *, commit=False):
+            new_id = uuid.uuid4()
+            if params and len(params) >= 3:
+                self.inserted_names.append(str(params[2]))  # name arg in INSERT INTO entities
+            return new_id
+
+        def execute(self, query, params=None):
+            pass
+
+    db = MissingParentDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    resolver.resolve_location(
+        "Elevator in corporate building",
+        {"parent_location": "Corporate Building", "description": "The elevator."},
+    )
+    # The entity created should be for "Corporate Building", not the elevator
+    assert "Corporate Building" in db.inserted_names
+    assert "Elevator in corporate building" not in db.inserted_names
+
+
+def test_resolve_location_without_parent_location_creates_exact_name():
+    """When no parent_location is in metadata, behaviour is unchanged."""
+    import uuid
+
+    class EmptyDB:
+        def __init__(self):
+            self.inserted_names: list[str] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            if params and len(params) >= 3:
+                self.inserted_names.append(str(params[2]))
+            return uuid.uuid4()
+
+        def execute(self, query, params=None):
+            pass
+
+    db = EmptyDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    resolver.resolve_location("Pemberley", {"description": "Grand estate."})
+    assert "Pemberley" in db.inserted_names
