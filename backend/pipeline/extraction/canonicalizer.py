@@ -67,12 +67,17 @@ class IntraExtractionDeduplicator:
             return result
 
         by_type = collect_names_by_type(extracted)
+        raw_entities_by_type = _collect_entities_by_type(extracted)
         rename_map: dict[str, dict[str, str]] = {}
 
         for entity_type, names in by_type.items():
             if len(names) < 2:
                 continue
-            groups = self._call_llm(entity_type=entity_type, names=sorted(names), chapter_text=chapter_text)
+            if entity_type == "object":
+                entities_input: list = raw_entities_by_type.get("object", [])
+            else:
+                entities_input = sorted(names)
+            groups = self._call_llm(entity_type=entity_type, entities=entities_input, chapter_text=chapter_text)
             type_map: dict[str, str] = {}
             for group in groups:
                 valid = [n for n in group if isinstance(n, str) and n.strip()]
@@ -86,11 +91,11 @@ class IntraExtractionDeduplicator:
 
         return _apply_rename_map(result, rename_map)
 
-    def _call_llm(self, *, entity_type: str, names: list[str], chapter_text: str) -> list[list[str]]:
+    def _call_llm(self, *, entity_type: str, entities: list, chapter_text: str) -> list[list[str]]:
         if self._completion is None:
             return []
         system_prompt = build_intra_dedup_system_prompt(entity_type)
-        user_prompt = build_intra_dedup_user_prompt(entity_type, names, chapter_text)
+        user_prompt = build_intra_dedup_user_prompt(entity_type, entities, chapter_text)
         try:
             response = self._completion(
                 model=LLM_CONFIG["model"],
@@ -149,13 +154,19 @@ def _apply_rename_map(
     ]
     for key, _ in type_map_pairs:
         items = new_entities.get(key) or []
-        seen: set[str] = set()
+        seen: set = set()
         deduped: list[Any] = []
         for item in items:
             if isinstance(item, dict):
                 n = item.get("name", "")
-                if n.lower() not in seen:
-                    seen.add(n.lower())
+                if key == "objects":
+                    # Objects with different owners are distinct even if names match
+                    owner = str(item.get("owner_name") or "").strip().lower()
+                    dedup_key = (n.lower(), owner)
+                else:
+                    dedup_key = n.lower()
+                if dedup_key not in seen:
+                    seen.add(dedup_key)
                     deduped.append(item)
         if key in new_entities:
             new_entities[key] = deduped
@@ -386,13 +397,29 @@ class EntityCanonicalizer:
             if not target_id or str(target_id) not in roster_by_id:
                 continue
             anchor = str(resolution.get("grammatical_anchor") or "").strip()
-            if not anchor or anchor not in chapter_text:
-                logger.info(
-                    "entity_canonicalizer: rejected merge (anchor missing or not in text): %s -> %s",
-                    candidate,
-                    target_id,
-                )
-                continue
+            reasoning = str(resolution.get("reasoning") or "").strip()
+
+            # Characters always require a verbatim anchor in the chapter text.
+            # Other types accept a non-empty reasoning string as sufficient evidence.
+            if entity_type == "character":
+                if not anchor or anchor not in chapter_text:
+                    logger.info(
+                        "entity_canonicalizer: rejected character merge (anchor missing or not in text): %s -> %s",
+                        candidate,
+                        target_id,
+                    )
+                    continue
+            else:
+                anchor_valid = bool(anchor) and anchor in chapter_text
+                has_reasoning = bool(reasoning)
+                if not anchor_valid and not has_reasoning:
+                    logger.info(
+                        "entity_canonicalizer: rejected %s merge (no anchor and no reasoning): %s -> %s",
+                        entity_type,
+                        candidate,
+                        target_id,
+                    )
+                    continue
             target = roster_by_id[str(target_id)]
             existing_aliases = [str(a) for a in (target.get("aliases") or [])]
             existing_aliases_lower = {a.lower() for a in existing_aliases}
@@ -413,6 +440,17 @@ class EntityCanonicalizer:
 
 # Backwards-compatibility alias — existing code that imports CharacterCanonicalizer still works
 CharacterCanonicalizer = EntityCanonicalizer
+
+
+def _collect_entities_by_type(extracted: dict[str, Any]) -> dict[str, list[dict]]:
+    """Return full entity dicts from new_entities, keyed by entity type."""
+    new_entities = extracted.get("new_entities", {}) or {}
+    return {
+        "character": [e for e in (new_entities.get("characters") or []) if isinstance(e, dict)],
+        "location": [e for e in (new_entities.get("locations") or []) if isinstance(e, dict)],
+        "faction": [e for e in (new_entities.get("factions") or []) if isinstance(e, dict)],
+        "object": [e for e in (new_entities.get("objects") or []) if isinstance(e, dict)],
+    }
 
 
 def collect_names_by_type(extracted: dict[str, Any]) -> dict[str, set[str]]:
