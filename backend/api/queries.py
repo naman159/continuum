@@ -172,6 +172,9 @@ def list_characters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
                 JOIN entities e ON e.id = c.entity_id AND e.entity_type = 'character'
                 WHERE c.novel_id = %s
                   AND (c.first_appearance_chapter IS NULL OR c.first_appearance_chapter <= %s)
+                  AND EXISTS (
+                      SELECT 1 FROM character_states cs WHERE cs.character_id = c.id
+                  )
                 ORDER BY c.name
                 """,
                 (str(novel_id), effective_cap),

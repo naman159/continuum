@@ -212,6 +212,11 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
           do NOT create a new entry.
 
         OBJECTS
+        - Extract physical items only: weapons, armor, tools, artifacts, equipment,
+          and named possessions with narrative significance.
+        - DO NOT extract skills, abilities, spells, character classes, stat windows,
+          or system notifications as objects — these are game mechanics with no
+          physical form.
         - Set owner_name to the character who owns, carries, or is specifically
           associated with this object. Two characters can each have "a black sedan" —
           they are DIFFERENT objects; give each one a distinct name that includes the
@@ -221,7 +226,17 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         - Generic props with no identity (a glass of water, a chair) should NOT be
           extracted as objects unless they recur or carry narrative significance.
 
-        CHARACTERS / FACTIONS
+        CHARACTERS
+        - Extract only sentient beings who act in the story: people, named NPCs,
+          monsters, and creatures that interact with the protagonist.
+        - DO NOT extract game-system elements as characters. This includes:
+          character classes (e.g. "Archer Class", "Mage Class"), skills, abilities,
+          spells, stat windows, tutorial screens, system notifications, or any
+          mechanic that is not a being. If it cannot think, speak, or act of its
+          own will, it is NOT a character.
+        - Only extract if not already in STORY CONTEXT.
+
+        FACTIONS
         - Standard rules: only extract if not already in STORY CONTEXT.
 
         Return JSON only.
