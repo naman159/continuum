@@ -166,11 +166,13 @@ def list_characters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             dict(r)
             for r in db.fetchall(
                 """
-                SELECT id, name, aliases, description, first_appearance_chapter
-                FROM characters
-                WHERE novel_id = %s
-                  AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)
-                ORDER BY name
+                SELECT c.id, c.name, c.aliases, c.description, c.first_appearance_chapter,
+                       e.entity_type
+                FROM characters c
+                JOIN entities e ON e.id = c.entity_id AND e.entity_type = 'character'
+                WHERE c.novel_id = %s
+                  AND (c.first_appearance_chapter IS NULL OR c.first_appearance_chapter <= %s)
+                ORDER BY c.name
                 """,
                 (str(novel_id), effective_cap),
                 dict_rows=True,
@@ -183,6 +185,7 @@ def list_characters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             "aliases": list(r.get("aliases") or []),
             "description": r.get("description"),
             "first_appearance_chapter": r.get("first_appearance_chapter"),
+            "entity_type": r.get("entity_type"),
         }
         for r in rows
     ]
@@ -446,7 +449,8 @@ def list_chapters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     else:
         rows = [
             dict(r) for r in db.fetchall(
-                "SELECT id, number, title, summary, processed_at FROM chapters WHERE novel_id = %s AND number <= %s ORDER BY number",
+                "SELECT id, number, title, summary, summary_short, summary_long, processed_at "
+                "FROM chapters WHERE novel_id = %s AND number <= %s ORDER BY number",
                 (str(novel_id), effective_cap),
                 dict_rows=True,
             )
@@ -458,6 +462,8 @@ def list_chapters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             "number": r["number"],
             "title": r.get("title"),
             "summary": r.get("summary"),
+            "summary_short": r.get("summary_short"),
+            "summary_long": r.get("summary_long"),
             "processed_at": r.get("processed_at"),
         }
         for r in rows
@@ -1296,4 +1302,292 @@ def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]
             "description": r.get("description"),
         }
         for r in raw
+    ]
+
+
+# ============================================================================
+# SOTA-upgrade queries: scenes, knows, commitments, canon, location/possession.
+# These use the real DB only (the in-memory fake DB used by some tests does not
+# know about these tables).
+# ============================================================================
+
+
+def list_scenes(
+    novel_id: UUID, cap: int | None, chapter_number: int | None
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["ch.novel_id = %s", "ch.number <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if chapter_number is not None:
+        where.append("ch.number = %s")
+        params.append(chapter_number)
+    rows = db.fetchall(
+        f"""
+        SELECT s.id, s.chapter_id, ch.number AS chapter_number, s.scene_index,
+               s.pov_character_id, pov.name AS pov_character_name,
+               s.location_id, loc.name AS location_name,
+               s.time_anchor, s.story_time_ordinal, s.summary,
+               s.present_characters
+          FROM scenes s
+          JOIN chapters ch ON ch.id = s.chapter_id
+          LEFT JOIN characters pov ON pov.id = s.pov_character_id
+          LEFT JOIN locations loc ON loc.id = s.location_id
+         WHERE {' AND '.join(where)}
+         ORDER BY ch.number, s.scene_index
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    if not rows:
+        return []
+    # Resolve present_characters UUID[] -> names via a single batch.
+    all_char_ids = sorted({str(cid) for r in rows for cid in (r["present_characters"] or [])})
+    name_by_id: dict[str, str] = {}
+    if all_char_ids:
+        chars = db.fetchall(
+            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
+            (all_char_ids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(c["id"]): c["name"] for c in chars}
+    return [
+        {
+            "id": r["id"],
+            "chapter_id": r["chapter_id"],
+            "chapter_number": r["chapter_number"],
+            "scene_index": r["scene_index"],
+            "pov_character_id": r["pov_character_id"],
+            "pov_character_name": r["pov_character_name"],
+            "location_id": r["location_id"],
+            "location_name": r["location_name"],
+            "time_anchor": r["time_anchor"],
+            "story_time_ordinal": r["story_time_ordinal"],
+            "summary": r["summary"],
+            "present_character_names": [
+                name_by_id.get(str(cid), str(cid))
+                for cid in (r["present_characters"] or [])
+            ],
+        }
+        for r in rows
+    ]
+
+
+def list_commitments(
+    novel_id: UUID,
+    cap: int | None,
+    status_filter: str,
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["novel_id = %s", "foreshadow_chapter <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if status_filter != "all":
+        where.append("status = %s")
+        params.append(status_filter)
+    rows = db.fetchall(
+        f"""
+        SELECT id, foreshadow_text, foreshadow_chapter, payoff_text, payoff_chapter,
+               trigger_predicate, status, weight, related_entity_ids
+          FROM commitments
+         WHERE {' AND '.join(where)}
+         ORDER BY status, foreshadow_chapter
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    # Resolve related entity names.
+    all_eids = sorted({str(eid) for r in rows for eid in (r["related_entity_ids"] or [])})
+    name_by_id: dict[str, str] = {}
+    if all_eids:
+        ents = db.fetchall(
+            "SELECT id, name FROM entities WHERE id = ANY(%s::uuid[])",
+            (all_eids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(e["id"]): e["name"] for e in ents}
+    return [
+        {
+            "id": r["id"],
+            "foreshadow_text": r["foreshadow_text"],
+            "foreshadow_chapter": r["foreshadow_chapter"],
+            "payoff_text": r["payoff_text"],
+            "payoff_chapter": r["payoff_chapter"],
+            "trigger_predicate": r["trigger_predicate"],
+            "status": r["status"],
+            "weight": float(r["weight"]) if r["weight"] is not None else None,
+            "related_entity_names": [
+                name_by_id.get(str(eid), str(eid))
+                for eid in (r["related_entity_ids"] or [])
+            ],
+            "age_chapters": effective_cap - r["foreshadow_chapter"]
+            if r["status"] == "pending"
+            else None,
+        }
+        for r in rows
+    ]
+
+
+def list_canon_facts(novel_id: UUID, locked_only: bool) -> list[dict[str, Any]]:
+    db = _get_db()
+    where = ["cf.novel_id = %s"]
+    params: list[Any] = [str(novel_id)]
+    if locked_only:
+        where.append("cf.locked = true")
+    rows = db.fetchall(
+        f"""
+        SELECT cf.id, cf.kind, cf.subject_entity_id, e.name AS subject_name,
+               cf.predicate, cf.value, cf.source_chapter, cf.confidence, cf.locked
+          FROM canon_facts cf
+          LEFT JOIN entities e ON e.id = cf.subject_entity_id
+         WHERE {' AND '.join(where)}
+         ORDER BY cf.locked DESC, e.name NULLS LAST, cf.predicate
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "kind": r["kind"],
+            "subject_entity_id": r["subject_entity_id"],
+            "subject_name": r["subject_name"],
+            "predicate": r["predicate"],
+            "value": r["value"],
+            "source_chapter": r["source_chapter"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "locked": bool(r["locked"]),
+        }
+        for r in rows
+    ]
+
+
+def list_knows_edges(
+    novel_id: UUID,
+    cap: int | None,
+    character_id: UUID | None,
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["c.novel_id = %s", "k.learned_chapter <= %s", "k.superseded_by_id IS NULL"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if character_id is not None:
+        where.append("k.character_id = %s")
+        params.append(str(character_id))
+    rows = db.fetchall(
+        f"""
+        SELECT k.id, k.character_id, c.name AS character_name,
+               k.fact_description, k.learned_chapter, k.source_type,
+               k.source_event_id, k.certainty, k.shared_with
+          FROM knows_edges k
+          JOIN characters c ON c.id = k.character_id
+         WHERE {' AND '.join(where)}
+         ORDER BY k.learned_chapter, c.name
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    all_shared_ids = sorted({str(cid) for r in rows for cid in (r["shared_with"] or [])})
+    name_by_id: dict[str, str] = {}
+    if all_shared_ids:
+        chars = db.fetchall(
+            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
+            (all_shared_ids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(c["id"]): c["name"] for c in chars}
+    return [
+        {
+            "id": r["id"],
+            "character_id": r["character_id"],
+            "character_name": r["character_name"],
+            "fact_description": r["fact_description"],
+            "learned_chapter": r["learned_chapter"],
+            "source_type": r["source_type"],
+            "source_event_id": r["source_event_id"],
+            "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
+            "shared_with_names": [
+                name_by_id.get(str(cid), str(cid)) for cid in (r["shared_with"] or [])
+            ],
+        }
+        for r in rows
+    ]
+
+
+def list_location_edges(
+    novel_id: UUID, cap: int | None, only_active: bool
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["e.novel_id = %s", "le.since_chapter <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if only_active:
+        where.append("(le.until_chapter IS NULL OR le.until_chapter >= %s)")
+        params.append(effective_cap)
+    rows = db.fetchall(
+        f"""
+        SELECT le.id, le.entity_id, e.name AS entity_name, e.entity_type,
+               le.location_id, loc.name AS location_name,
+               le.since_chapter, le.until_chapter, le.certainty
+          FROM located_in_edges le
+          JOIN entities e ON e.id = le.entity_id
+          LEFT JOIN locations loc ON loc.id = le.location_id
+         WHERE {' AND '.join(where)}
+         ORDER BY le.since_chapter, e.name
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "entity_id": r["entity_id"],
+            "entity_name": r["entity_name"],
+            "entity_type": r["entity_type"],
+            "location_id": r["location_id"],
+            "location_name": r["location_name"],
+            "since_chapter": r["since_chapter"],
+            "until_chapter": r["until_chapter"],
+            "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
+        }
+        for r in rows
+    ]
+
+
+def list_possession_edges(
+    novel_id: UUID, cap: int | None, only_active: bool
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["c.novel_id = %s", "pe.since_chapter <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if only_active:
+        where.append("(pe.until_chapter IS NULL OR pe.until_chapter >= %s)")
+        params.append(effective_cap)
+    rows = db.fetchall(
+        f"""
+        SELECT pe.id, pe.character_id, c.name AS character_name,
+               pe.object_id, o.name AS object_name,
+               pe.since_chapter, pe.until_chapter, pe.certainty
+          FROM possesses_edges pe
+          JOIN characters c ON c.id = pe.character_id
+          LEFT JOIN objects o ON o.id = pe.object_id
+         WHERE {' AND '.join(where)}
+         ORDER BY pe.since_chapter, c.name
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "character_id": r["character_id"],
+            "character_name": r["character_name"],
+            "object_id": r["object_id"],
+            "object_name": r["object_name"],
+            "since_chapter": r["since_chapter"],
+            "until_chapter": r["until_chapter"],
+            "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
+        }
+        for r in rows
     ]
