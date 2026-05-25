@@ -88,7 +88,7 @@ function CharacterPage({ data }: { data: Detail }) {
               </tr>
             </thead>
             <tbody>
-              {groupRelationships(data.relationships).map(({ key, direction, entity, entityType, rows }) =>
+              {groupRelationships(data.relationships).map(({ key, direction, entity, rows }) =>
                 rows.map((r, ri) => (
                   <tr key={`${key}-${ri}`}>
                     {ri === 0 && (

@@ -44,6 +44,10 @@ const PASS_LABELS: Record<string, string> = {
   continuity_flags: "Checking continuity",
   relationship_updates: "Mapping relationships",
   dynamics_updates: "Tracking dynamics",
+  scene_segmentation: "Segmenting scenes",
+  multi_granularity_summaries: "Generating summaries",
+  knowledge_state_deltas: "Tracking knowledge",
+  commitments: "Tracking commitments",
   intra_dedup: "Deduplicating entities",
   canonicalization: "Canonicalising names",
 };

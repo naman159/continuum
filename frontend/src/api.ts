@@ -13,6 +13,7 @@ export type CharacterSummary = {
   aliases: string[];
   description: string | null;
   first_appearance_chapter: number | null;
+  entity_type: string | null;
 };
 
 export type CharacterStateRow = {
@@ -78,7 +79,84 @@ export type ChapterSummary = {
   number: number;
   title: string | null;
   summary: string | null;
+  summary_short: string | null;
+  summary_long: string | null;
   processed_at: string | null;
+};
+
+export type SceneRow = {
+  id: string;
+  chapter_id: string;
+  chapter_number: number;
+  scene_index: number;
+  pov_character_id: string | null;
+  pov_character_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  time_anchor: string | null;
+  story_time_ordinal: number | null;
+  present_character_names: string[];
+  summary: string | null;
+};
+
+export type CommitmentRow = {
+  id: string;
+  foreshadow_text: string;
+  foreshadow_chapter: number;
+  payoff_text: string | null;
+  payoff_chapter: number | null;
+  trigger_predicate: Record<string, unknown> | null;
+  status: "pending" | "satisfied" | "broken" | "abandoned" | string;
+  weight: number | null;
+  related_entity_names: string[];
+  age_chapters: number | null;
+};
+
+export type CanonFactRow = {
+  id: string;
+  kind: string;
+  subject_entity_id: string | null;
+  subject_name: string | null;
+  predicate: string;
+  value: string;
+  source_chapter: number | null;
+  confidence: number | null;
+  locked: boolean;
+};
+
+export type KnowsEdgeRow = {
+  id: string;
+  character_id: string;
+  character_name: string;
+  fact_description: string;
+  learned_chapter: number;
+  source_type: string | null;
+  source_event_id: string | null;
+  certainty: number | null;
+  shared_with_names: string[];
+};
+
+export type LocationEdgeRow = {
+  id: string;
+  entity_id: string;
+  entity_name: string | null;
+  entity_type: string | null;
+  location_id: string;
+  location_name: string | null;
+  since_chapter: number;
+  until_chapter: number | null;
+  certainty: number | null;
+};
+
+export type PossessionEdgeRow = {
+  id: string;
+  character_id: string;
+  character_name: string | null;
+  object_id: string;
+  object_name: string | null;
+  since_chapter: number;
+  until_chapter: number | null;
+  certainty: number | null;
 };
 
 
@@ -211,4 +289,48 @@ export const api = {
     fetchJson<FactionSummary[]>(`/api/novels/${novelId}/factions`),
   faction: (novelId: string, factionId: string) =>
     fetchJson<FactionDetail>(`/api/novels/${novelId}/factions/${factionId}`),
+  scenes: (novelId: string, cap: number | null, chapter: number | null) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (chapter != null) params.set("chapter", String(chapter));
+    const qs = params.toString();
+    return fetchJson<SceneRow[]>(`/api/novels/${novelId}/scenes${qs ? `?${qs}` : ""}`);
+  },
+  commitments: (novelId: string, cap: number | null, status: string) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    params.set("status", status);
+    return fetchJson<CommitmentRow[]>(`/api/novels/${novelId}/commitments?${params}`);
+  },
+  canon: (novelId: string, lockedOnly: boolean) => {
+    const params = new URLSearchParams();
+    if (lockedOnly) params.set("locked_only", "true");
+    const qs = params.toString();
+    return fetchJson<CanonFactRow[]>(`/api/novels/${novelId}/canon${qs ? `?${qs}` : ""}`);
+  },
+  knows: (novelId: string, cap: number | null, characterId: string | null) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (characterId) params.set("character_id", characterId);
+    const qs = params.toString();
+    return fetchJson<KnowsEdgeRow[]>(`/api/novels/${novelId}/knows${qs ? `?${qs}` : ""}`);
+  },
+  locationsHistory: (novelId: string, cap: number | null, onlyActive: boolean) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (onlyActive) params.set("only_active", "true");
+    const qs = params.toString();
+    return fetchJson<LocationEdgeRow[]>(
+      `/api/novels/${novelId}/locations-history${qs ? `?${qs}` : ""}`
+    );
+  },
+  possessions: (novelId: string, cap: number | null, onlyActive: boolean) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (onlyActive) params.set("only_active", "true");
+    const qs = params.toString();
+    return fetchJson<PossessionEdgeRow[]>(
+      `/api/novels/${novelId}/possessions${qs ? `?${qs}` : ""}`
+    );
+  },
 };
