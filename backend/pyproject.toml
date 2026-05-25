@@ -23,6 +23,10 @@ novel-wiki-character = "cli.character:main"
 novel-wiki-timeline = "cli.timeline:main"
 novel-wiki-threads = "cli.threads:main"
 novel-wiki-relationships = "cli.relationships:main"
+novel-wiki-scenes = "cli.scenes:main"
+novel-wiki-commitments = "cli.commitments:main"
+novel-wiki-canon = "cli.canon:main"
+novel-wiki-knowledge = "cli.knowledge:main"
 novel-webapp = "api.app:run"
 
 [tool.setuptools]
