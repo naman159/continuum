@@ -166,16 +166,11 @@ def list_characters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             dict(r)
             for r in db.fetchall(
                 """
-                SELECT c.id, c.name, c.aliases, c.description, c.first_appearance_chapter,
-                       e.entity_type
-                FROM characters c
-                JOIN entities e ON e.id = c.entity_id AND e.entity_type = 'character'
-                WHERE c.novel_id = %s
-                  AND (c.first_appearance_chapter IS NULL OR c.first_appearance_chapter <= %s)
-                  AND EXISTS (
-                      SELECT 1 FROM character_states cs WHERE cs.character_id = c.id
-                  )
-                ORDER BY c.name
+                SELECT id, name, aliases, description, first_appearance_chapter
+                FROM characters
+                WHERE novel_id = %s
+                  AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)
+                ORDER BY name
                 """,
                 (str(novel_id), effective_cap),
                 dict_rows=True,
@@ -188,7 +183,6 @@ def list_characters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             "aliases": list(r.get("aliases") or []),
             "description": r.get("description"),
             "first_appearance_chapter": r.get("first_appearance_chapter"),
-            "entity_type": r.get("entity_type"),
         }
         for r in rows
     ]
