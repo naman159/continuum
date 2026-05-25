@@ -6,6 +6,10 @@ from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 load_dotenv()
+# Per-branch overrides: if scripts/branch_db.sh wrote a .env.branch (gitignored),
+# load it with override=true so this branch's DATABASE_URL takes precedence
+# without ever touching the user's .env file.
+load_dotenv(".env.branch", override=True)
 
 
 def _bool_env(name: str, default: bool = False) -> bool:
