@@ -1,0 +1,1315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Continuum — Architecture & Mental Model</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-faint: #484f58;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #f0883e;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #ff7b72;
+    --sidebar-w: 256px;
+    --header-h: 56px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 24px 0 40px;
+    z-index: 100;
+  }
+
+  .sidebar-logo {
+    padding: 0 20px 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+
+  .sidebar-logo .product {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+
+  .sidebar-logo .tagline {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .sidebar-section {
+    padding: 8px 20px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .sidebar a {
+    display: block;
+    padding: 5px 20px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    border-left: 2px solid transparent;
+    transition: all 0.12s;
+  }
+
+  .sidebar a:hover { color: var(--text); background: var(--surface2); }
+  .sidebar a.active { color: var(--accent); border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+
+  .sidebar-doc-link {
+    margin: 16px 20px 0;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .sidebar-doc-link a { padding: 0; display: inline; color: var(--accent); }
+
+  /* ── Main ── */
+  main {
+    margin-left: var(--sidebar-w);
+    max-width: 860px;
+    padding: 48px 56px 96px;
+    width: 100%;
+  }
+
+  /* ── Typography ── */
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; color: var(--text); margin-bottom: 8px; }
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); margin: 48px 0 16px; padding-top: 48px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; font-weight: 600; color: var(--text); margin: 28px 0 10px; }
+  h4 { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 8px; }
+  p { color: var(--text-muted); margin-bottom: 14px; }
+  strong { color: var(--text); font-weight: 600; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .lead {
+    font-size: 16px;
+    color: var(--text-muted);
+    line-height: 1.8;
+    margin-bottom: 32px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── Callout boxes ── */
+  .callout {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    border-left: 3px solid;
+    font-size: 14px;
+  }
+
+  .callout.info  { background: rgba(88,166,255,0.06); border-color: var(--accent);  color: var(--text-muted); }
+  .callout.warn  { background: rgba(210,153,34,0.08); border-color: var(--yellow); color: var(--text-muted); }
+  .callout.tip   { background: rgba(63,185,80,0.06);  border-color: var(--green);  color: var(--text-muted); }
+  .callout strong { color: var(--text); }
+
+  /* ── Code ── */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--orange);
+  }
+
+  pre {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    overflow-x: auto;
+    margin: 16px 0;
+  }
+
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .comment { color: var(--text-faint); }
+  .kw { color: var(--pink); }
+  .str { color: var(--green); }
+  .fn { color: var(--accent); }
+  .num { color: var(--purple); }
+
+  /* ── Diagrams ── */
+  .diagram-wrap {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 20px 0;
+    overflow-x: auto;
+  }
+
+  .mermaid {
+    display: flex;
+    justify-content: center;
+  }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13px;
+  }
+
+  th {
+    background: var(--surface2);
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+
+  td {
+    padding: 9px 14px;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    vertical-align: top;
+  }
+
+  td code { font-size: 12px; }
+  td strong { color: var(--text); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ── Tags / Badges ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  .badge.green  { background: rgba(63,185,80,0.15);  color: var(--green); }
+  .badge.blue   { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge.orange { background: rgba(240,136,62,0.15); color: var(--orange); }
+  .badge.purple { background: rgba(188,140,255,0.15);color: var(--purple); }
+  .badge.red    { background: rgba(248,81,73,0.15);  color: var(--red); }
+  .badge.yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+  /* ── Grid ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 16px 0; }
+
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  .card h4 { margin-top: 0; margin-bottom: 6px; color: var(--accent); font-size: 12px; }
+  .card p { margin-bottom: 0; font-size: 13px; }
+
+  /* ── Step list ── */
+  .steps { counter-reset: step; list-style: none; }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding: 12px 0 12px 44px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--text-muted);
+  }
+
+  .steps li:last-child { border-bottom: none; }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 12px;
+    width: 28px; height: 28px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+
+  .steps li strong { color: var(--text); }
+
+  /* ── Section anchor spacing ── */
+  section { scroll-margin-top: 24px; }
+  h2 { scroll-margin-top: 24px; }
+
+  /* ── Horizontal rule ── */
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  /* ── File tree ── */
+  .file-tree {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+    line-height: 1.9;
+    color: var(--text-muted);
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  .file-tree .dir  { color: var(--accent); font-weight: 600; }
+  .file-tree .key  { color: var(--orange); }
+  .file-tree .cmt  { color: var(--text-faint); font-style: italic; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     SIDEBAR
+══════════════════════════════════════════════════════════ -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="product">Continuum</div>
+    <div class="tagline">Novel Continuity Engine — Architecture Guide</div>
+  </div>
+
+  <div class="sidebar-section">Overview</div>
+  <a href="#what-is-this">What Is This?</a>
+  <a href="#mental-model">Mental Model</a>
+  <a href="#system-map">System Map</a>
+
+  <div class="sidebar-section">Core Pipeline</div>
+  <a href="#pipeline-overview">Pipeline Overview</a>
+  <a href="#extraction-passes">12 Extraction Passes</a>
+  <a href="#entity-resolution">Entity Resolution</a>
+  <a href="#chapter-cap">Chapter Cap</a>
+
+  <div class="sidebar-section">Data Layer</div>
+  <a href="#db-design">Database Design</a>
+  <a href="#core-tables">Core Tables</a>
+  <a href="#sota-tables">SOTA Tables</a>
+  <a href="#temporal-model">Temporal Model</a>
+
+  <div class="sidebar-section">API & Frontend</div>
+  <a href="#api-layer">API Layer</a>
+  <a href="#frontend-pages">Frontend Pages</a>
+
+  <div class="sidebar-section">Key Concepts</div>
+  <a href="#canon-facts">Canon Facts</a>
+  <a href="#commitments">Commitments</a>
+  <a href="#knows-edges">Theory of Mind</a>
+
+  <div class="sidebar-section">Codebase</div>
+  <a href="#file-map">Key File Map</a>
+  <a href="#current-branch">Current Branch</a>
+
+  <div class="sidebar-doc-link">
+    Also see: <a href="reference.html">API &amp; Schema Reference →</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════
+     MAIN CONTENT
+══════════════════════════════════════════════════════════ -->
+<main>
+
+  <!-- HERO -->
+  <section id="what-is-this">
+    <h1>Continuum</h1>
+    <p class="lead">
+      A <strong>novel continuity engine</strong> that reads raw chapter text, extracts structured knowledge
+      via LLM, and stores it in PostgreSQL so authors and readers can query anything —
+      "where was Asha in chapter 3?", "what commitments are still unresolved?",
+      "who knows the secret?". The result is a living wiki that grows chapter by chapter.
+    </p>
+
+    <div class="grid-3">
+      <div class="card">
+        <h4>Ingest</h4>
+        <p>Raw chapter text → chunked, sent to LLM with story context</p>
+      </div>
+      <div class="card">
+        <h4>Extract</h4>
+        <p>12-pass LLM extraction of entities, events, threads, flags, scenes, dynamics, knowledge, commitments</p>
+      </div>
+      <div class="card">
+        <h4>Query</h4>
+        <p>20 wiki-style views served by FastAPI, rendered in React</p>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>Active branch:</strong> <code>closing-the-gap-with-sota</code> — This PR adds SOTA narrative-tracking tables (scenes, commitments, canon_facts, knows_edges, bitemporal location/possession edges). Many files in the git diff are part of this work.
+    </div>
+  </section>
+
+
+  <!-- MENTAL MODEL -->
+  <section id="mental-model">
+    <h2>Mental Model</h2>
+    <p>
+      Think of Continuum as a <strong>ETL pipeline for fiction</strong>. It does for novels what a data warehouse
+      does for business events — continuously ingests raw narrative text and produces a structured,
+      queryable knowledge graph.
+    </p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>The Pipeline (Write Path)</h4>
+        <p>
+          Chapter text → LLM extracts facts → deduplication → entity resolution → PostgreSQL.
+          Everything flows in one direction. Nothing is updated retroactively.
+        </p>
+      </div>
+      <div class="card">
+        <h4>The API (Read Path)</h4>
+        <p>
+          React frontend asks FastAPI for wiki views. All queries are "as-of chapter N" (the chapter cap),
+          so you can time-travel without storing snapshots.
+        </p>
+      </div>
+    </div>
+
+    <h3>Three Layers of Abstraction</h3>
+    <table>
+      <thead>
+        <tr><th>Layer</th><th>What lives here</th><th>Key constraint</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Entities</strong></td>
+          <td>Characters, locations, factions, objects — the nouns of the story</td>
+          <td>Every entity gets a UUID in the <code>entities</code> table first</td>
+        </tr>
+        <tr>
+          <td><strong>Events</strong></td>
+          <td>Timestamped story events — the verbs</td>
+          <td>Always tied to a chapter; can reference any entity type via UUID arrays</td>
+        </tr>
+        <tr>
+          <td><strong>State</strong></td>
+          <td>Character state snapshots, scenes, relationships, knowledge edges</td>
+          <td>Every state row has a chapter reference → enables chapter-cap filtering</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout tip">
+      <strong>Key insight:</strong> There are no "current state" columns anywhere. State is always derived by querying up to a chapter cap. This is the design that enables spoiler-free browsing.
+    </div>
+  </section>
+
+
+  <!-- SYSTEM MAP -->
+  <section id="system-map">
+    <h2>System Map</h2>
+    <p>How the major modules connect:</p>
+
+    <div class="diagram-wrap">
+      <div class="mermaid">
+graph LR
+    A["📄 Chapter Text\n(raw file / stdin)"] --> B["ingest_chapter\n(ingestion/)"]
+    B --> C[(chapters\ntable)]
+    C --> D["load_story_context\n(pipeline.py)"]
+    D --> E["sliding_window_chunks\n(chunker.py)"]
+    E --> F["ChapterExtractor\n(extractor.py)"]
+    F -->|12 passes| G["LLM\n(LiteLLM)"]
+    G --> F
+    F --> H["IntraExtractionDeduplicator\n(canonicalizer.py)"]
+    H --> I["EntityResolver\n(resolver.py)"]
+    I --> J["_persist_extraction\n(pipeline.py)"]
+    J --> K[(PostgreSQL\nknowledge graph)]
+    K --> L["FastAPI\n(api/)"]
+    L --> M["React\n(frontend/)"]
+
+    style A fill:#21262d,stroke:#30363d,color:#e6edf3
+    style K fill:#1f6feb,stroke:#58a6ff,color:#e6edf3
+    style G fill:#3d2b1f,stroke:#f0883e,color:#e6edf3
+      </div>
+    </div>
+
+    <h3>Directory Structure</h3>
+    <div class="file-tree">
+<span class="dir">continuum/</span>
+├── <span class="dir">backend/</span>
+│   ├── <span class="dir">api/</span>
+│   │   ├── <span class="key">app.py</span>            <span class="cmt"># FastAPI app, mounts 17 routers</span>
+│   │   ├── <span class="key">queries.py</span>        <span class="cmt"># All SQL — 1,591 lines, every wiki view</span>
+│   │   ├── <span class="key">schemas.py</span>        <span class="cmt"># Pydantic response models (30+ types)</span>
+│   │   └── routes/           <span class="cmt"># One file per entity/feature domain</span>
+│   ├── <span class="dir">pipeline/</span>
+│   │   ├── <span class="key">pipeline.py</span>       <span class="cmt"># Master orchestration — start here</span>
+│   │   ├── <span class="key">config.py</span>         <span class="cmt"># All tuneable settings (frozen dataclass)</span>
+│   │   ├── <span class="dir">db/</span>
+│   │   │   ├── <span class="key">schema.sql</span>        <span class="cmt"># Source of truth for DB structure</span>
+│   │   │   └── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
+│   │   ├── <span class="dir">extraction/</span>
+│   │   │   ├── <span class="key">extractor.py</span>      <span class="cmt"># ChapterExtractor — drives 12 LLM passes</span>
+│   │   │   ├── <span class="key">prompts.py</span>        <span class="cmt"># All prompt templates + JSON schemas</span>
+│   │   │   ├── canonicalizer.py  <span class="cmt"># Intra-extraction name deduplication</span>
+│   │   │   ├── resolver.py       <span class="cmt"># Fuzzy entity → DB ID resolution</span>
+│   │   │   ├── chunker.py        <span class="cmt"># Sliding window tokenizer</span>
+│   │   │   └── persist_extras.py <span class="cmt"># Persist SOTA tables (scenes, knows, etc.)</span>
+│   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding + hash fallback</span>
+│   │   └── ingestion/ingest.py   <span class="cmt"># Raw chapter INSERT</span>
+│   ├── cli/                      <span class="cmt"># CLI entry points (query each domain)</span>
+│   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
+└── <span class="dir">frontend/src/</span>
+    ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 20 routes</span>
+    ├── <span class="key">api.ts</span>                <span class="cmt"># Type definitions + all fetch functions</span>
+    ├── components/
+    │   ├── <span class="key">Sidebar.tsx</span>       <span class="cmt"># Navigation + chapter cap slider</span>
+    │   └── Layout.tsx
+    └── routes/               <span class="cmt"># 20 page components</span>
+    </div>
+  </section>
+
+
+  <!-- PIPELINE -->
+  <section id="pipeline-overview">
+    <h2>Pipeline Overview</h2>
+    <p>
+      The pipeline lives in <code>backend/pipeline/pipeline.py</code>. The entry point for processing a
+      chapter is <code>process_chapter()</code>. Here's the full flow:
+    </p>
+
+    <ol class="steps">
+      <li>
+        <strong>Ingest raw text</strong> — <code>ingest_chapter()</code> inserts the raw chapter text into the <code>chapters</code> table. Duplicate (novel_id, chapter_number) is rejected.
+      </li>
+      <li>
+        <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, and recent events from the DB. This context is injected into every LLM prompt so the model knows what already exists.
+      </li>
+      <li>
+        <strong>Chunk the text</strong> — <code>sliding_window_chunks()</code> splits the chapter into 2,000-token windows with 200-token overlap using tiktoken (falls back to whitespace split). Each chunk is processed independently.
+      </li>
+      <li>
+        <strong>LLM extraction (12 passes per chunk)</strong> — <code>ChapterExtractor</code> runs 12 sequential LLM calls per chunk. See <a href="#extraction-passes">Extraction Passes</a> for details.
+      </li>
+      <li>
+        <strong>Merge across chunks</strong> — <code>merge_extractions()</code> deduplicates the results from all chunks by name/description (naïve string matching at this stage).
+      </li>
+      <li>
+        <strong>Intra-extraction deduplication</strong> — <code>IntraExtractionDeduplicator</code> calls the LLM once more to group name variants ("Jane", "Jane B", "Miss Bennet") and renames all to the longest canonical form.
+      </li>
+      <li>
+        <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (via exact match → alias → fuzzy → create new). Returns UUIDs.
+      </li>
+      <li>
+        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes everything: entities, character states, events, relationships, shared dynamics, plot threads, continuity flags.
+      </li>
+      <li>
+        <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for the chapter summary and each event description (enables semantic search later).
+      </li>
+      <li>
+        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code> fill the newer tables added in the SOTA branch.
+      </li>
+    </ol>
+
+    <div class="callout warn">
+      <strong>Note on idempotency:</strong> Processing the same chapter twice is not safe — ingest rejects duplicate chapter numbers, but the later persistence steps don't check for duplicates. Don't call <code>process_chapter()</code> twice on the same chapter.
+    </div>
+  </section>
+
+
+  <!-- EXTRACTION PASSES -->
+  <section id="extraction-passes">
+    <h2>12 Extraction Passes</h2>
+    <p>
+      Each pass is a separate LLM call. The schema for what each pass returns is in
+      <code>prompts.py → PASS_SCHEMAS</code>. The order matters — later passes can reference entities
+      found in earlier ones via the merged context.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Pass Name</th>
+          <th>What It Extracts</th>
+          <th>DB Target</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="badge blue">1</span></td>
+          <td><code>chapter_summary</code></td>
+          <td>One-sentence chapter summary</td>
+          <td><code>chapters.summary</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">2</span></td>
+          <td><code>new_entities</code></td>
+          <td>New characters, locations (with <code>parent_location</code>), factions, objects (with <code>owner_name</code> + <code>distinguishing_properties</code>)</td>
+          <td><code>characters</code>, <code>locations</code>, <code>factions</code>, <code>objects</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">3</span></td>
+          <td><code>entity_deltas</code></td>
+          <td>Character state changes: location, emotional state, goals, knowledge</td>
+          <td><code>character_states</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">4</span></td>
+          <td><code>events</code></td>
+          <td>Narrative events with type, impact level, involved entities</td>
+          <td><code>events</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">5</span></td>
+          <td><code>thread_updates</code></td>
+          <td>Plot thread open/progress/close with linked events</td>
+          <td><code>plot_threads</code>, <code>thread_events</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">6</span></td>
+          <td><code>continuity_flags</code></td>
+          <td>Foreshadowing, setups, callbacks, planted details</td>
+          <td><code>continuity_flags</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">7</span></td>
+          <td><code>relationship_updates</code></td>
+          <td>Entity-to-entity relationship arcs with type, direction, chapter range</td>
+          <td><code>relationships</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">8</span></td>
+          <td><code>dynamics_updates</code></td>
+          <td>Chapter-level snapshots of how two entities interact (tone, tension)</td>
+          <td><code>shared_dynamics</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">9</span></td>
+          <td><code>scene_segmentation</code></td>
+          <td>Scene boundaries with POV character, location, time anchor, present characters</td>
+          <td><code>scenes</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">10</span></td>
+          <td><code>multi_granularity_summaries</code></td>
+          <td>Summary at three granularities: short (tweet), medium (paragraph), long (recap)</td>
+          <td><code>chapters.summary_short</code>, <code>summary_medium</code>, <code>summary_long</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">11</span></td>
+          <td><code>knowledge_state_deltas</code></td>
+          <td>Who learns what, certainty, how it was learned, who it was shared with</td>
+          <td><code>knows_edges</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">12</span></td>
+          <td><code>commitments</code></td>
+          <td>Foreshadow → payoff pairs (Chekhov's guns), trigger predicates, weight</td>
+          <td><code>commitments</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <strong>Persistence via persist_extras.py:</strong> Passes 9–12 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers in <code>persist_extras.py</code> (<code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_multi_summaries()</code>), which handle the extra logic needed for those tables (embedding, entity linking, deduplication).
+    </div>
+
+    <h3>Mock Mode</h3>
+    <p>
+      Set <code>USE_MOCK_LLM=true</code> (or use <code>--mock</code> CLI flag) to run without an API key.
+      The mock extractor uses regex + sentence splitting instead of LLM calls.
+      Embeddings fall back to a deterministic SHA-256 hash. Good for local testing and CI.
+    </p>
+  </section>
+
+
+  <!-- ENTITY RESOLUTION -->
+  <section id="entity-resolution">
+    <h2>Entity Resolution</h2>
+    <p>
+      Entity resolution is the process of mapping an extracted name ("Jane", "Miss Bennet", "Jane B.")
+      to a stable UUID in the database. This prevents duplicate entity rows for the same person.
+    </p>
+
+    <p>The resolver (<code>resolver.py</code>) uses a 5-step cascade:</p>
+
+    <div class="diagram-wrap">
+      <div class="mermaid">
+flowchart TD
+    A["Extracted name\ne.g. 'Jane B'"] --> B{Exact match\nin DB?}
+    B -->|yes| Z[Return UUID]
+    B -->|no| C{Alias match\nin aliases[] array?}
+    C -->|yes| Z
+    C -->|no| D{Partial match?\ne.g. 'Jane' matches\n'Jane Bennet'}
+    D -->|yes| E["Add shorter form as alias\nReturn existing UUID"]
+    D -->|no| F{Fuzzy match\n≥85% similarity?}
+    F -->|yes| Z
+    F -->|no| G["Create new entity\nReturn new UUID"]
+
+    style Z fill:#1f6feb,stroke:#58a6ff,color:#e6edf3
+    style G fill:#3d2b1f,stroke:#f0883e,color:#e6edf3
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>Intra-extraction dedup runs first</strong> — before entity resolution, the <code>IntraExtractionDeduplicator</code> uses an LLM call to group all name variants within a single extraction and renames them to the longest canonical form. This means the resolver sees cleaner input. The deduplicator uses the rule: <em>longest form wins</em> (e.g., "Jane Bennet" beats "Jane").
+    </div>
+
+    <p>
+      The resolver maintains an <strong>in-memory cache per pipeline run</strong> — so the second time
+      "Jane Bennet" appears in the same chapter, it skips the DB lookup.
+    </p>
+  </section>
+
+
+  <!-- CHAPTER CAP -->
+  <section id="chapter-cap">
+    <h2>Chapter Cap (Spoiler Mode)</h2>
+    <p>
+      Every query in <code>queries.py</code> accepts an optional <code>cap: int | None</code> parameter.
+      When set, it filters results to "as of chapter N" — you only see characters, events, and
+      facts that existed up to that chapter number.
+    </p>
+
+    <pre><code><span class="comment"># Example from queries.py</span>
+<span class="kw">def</span> <span class="fn">list_characters</span>(conn, novel_id, cap=<span class="kw">None</span>):
+    where = <span class="str">"WHERE c.novel_id = %s"</span>
+    <span class="kw">if</span> cap <span class="kw">is not None</span>:
+        where += <span class="str">" AND c.first_appearance_chapter <= %s"</span>
+    ...</code></pre>
+
+    <p>
+      The <strong>frontend chapter cap slider</strong> lives in <code>Sidebar.tsx</code>. It writes the
+      cap value to the URL as a query param (<code>?cap=5</code>). Every page reads this param via
+      <code>useChapterCap()</code> hook and passes it to the API call.
+    </p>
+
+    <div class="callout tip">
+      <strong>No state snapshots needed.</strong> Because every table row has a chapter reference, the DB doesn't store separate "snapshots" per chapter. The chapter cap is a pure query-time filter. This is why the schema has columns like <code>first_appearance_chapter</code>, <code>opened_chapter</code>, <code>since_chapter</code>, <code>foreshadow_chapter</code>, etc.
+    </div>
+  </section>
+
+
+  <!-- DATABASE DESIGN -->
+  <section id="db-design">
+    <h2>Database Design</h2>
+    <p>
+      The schema is at <code>backend/pipeline/db/schema.sql</code> — that file is the authoritative
+      source of truth. <code>init_db()</code> in <code>pipeline.py</code> executes it on startup
+      (it replaces the <code>__EMBEDDING_DIM__</code> placeholder with the configured dimension first).
+    </p>
+
+    <h3>Design Principles</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>UUIDs everywhere</h4>
+        <p>All primary keys are UUIDs generated by pgcrypto's <code>gen_random_uuid()</code>. No auto-increment integers.</p>
+      </div>
+      <div class="card">
+        <h4>Polymorphic entities</h4>
+        <p>All characters, locations, factions, and objects share the <code>entities</code> table for cross-entity relationships. Entity-type tables are subsets.</p>
+      </div>
+      <div class="card">
+        <h4>Array columns for involvement</h4>
+        <p>Events store <code>involved_characters[]</code>, <code>involved_locations[]</code>, etc. as UUID arrays instead of junction tables. Faster to write; GIN-indexed for queries.</p>
+      </div>
+      <div class="card">
+        <h4>Pgvector embeddings</h4>
+        <p>Chapters, events, scenes, commitments, and characters store vector embeddings. HNSW indexes enable fast ANN (approximate nearest neighbor) search.</p>
+      </div>
+    </div>
+  </section>
+
+
+  <!-- CORE TABLES -->
+  <section id="core-tables">
+    <h2>Core Tables</h2>
+    <p>These tables exist from the beginning of the project and support the 6 base extraction passes.</p>
+
+    <table>
+      <thead>
+        <tr><th>Table</th><th>Purpose</th><th>Key Columns</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>novels</code></td>
+          <td>Top-level container for a story</td>
+          <td><code>id, title, author, language</code></td>
+        </tr>
+        <tr>
+          <td><code>chapters</code></td>
+          <td>One row per chapter. Stores raw text and embeddings.</td>
+          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, embedding</code></td>
+        </tr>
+        <tr>
+          <td><code>entities</code></td>
+          <td>Universal polymorphic entity table. All characters/locations/etc. get an entry here first.</td>
+          <td><code>novel_id, entity_type ('character'|'location'|'faction'|'object'), name</code></td>
+        </tr>
+        <tr>
+          <td><code>characters</code></td>
+          <td>Character-specific data, links to <code>entities</code></td>
+          <td><code>entity_id (FK), name, aliases[], first_appearance_chapter, description, embedding</code></td>
+        </tr>
+        <tr>
+          <td><code>locations</code></td>
+          <td>Locations with optional parent (nested locations)</td>
+          <td><code>entity_id (FK), name, aliases[], parent_location_id, first_appearance_chapter</code></td>
+        </tr>
+        <tr>
+          <td><code>factions</code></td>
+          <td>Groups, organizations, factions</td>
+          <td><code>entity_id (FK), name, aliases[], description</code></td>
+        </tr>
+        <tr>
+          <td><code>objects</code></td>
+          <td>Significant objects/items</td>
+          <td><code>entity_id (FK), name, aliases[], significance, first_appearance_chapter</code></td>
+        </tr>
+        <tr>
+          <td><code>character_states</code></td>
+          <td>Snapshot of a character's state at a given chapter</td>
+          <td><code>character_id, chapter_id, location_id, emotional_state, goals, knowledge[], physical_state</code></td>
+        </tr>
+        <tr>
+          <td><code>events</code></td>
+          <td>Narrative events — the story's verbs</td>
+          <td><code>chapter_id, description, event_type, impact_level, involved_characters[], involved_locations[], involved_factions[], involved_objects[]</code></td>
+        </tr>
+        <tr>
+          <td><code>relationships</code></td>
+          <td>Pairwise entity relationships with type and chapter range</td>
+          <td><code>entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes</code></td>
+        </tr>
+        <tr>
+          <td><code>shared_dynamics</code></td>
+          <td>Free-text description of how two entities interact in a chapter</td>
+          <td><code>entity_a_id, entity_b_id, chapter_id, description</code></td>
+        </tr>
+        <tr>
+          <td><code>plot_threads</code></td>
+          <td>Open/closed narrative arcs (mysteries, quests, subplots)</td>
+          <td><code>novel_id, title, status, opened_chapter, closed_chapter, thread_type</code></td>
+        </tr>
+        <tr>
+          <td><code>thread_events</code></td>
+          <td>Junction: which events belong to which plot thread</td>
+          <td><code>thread_id, event_id, impact</code></td>
+        </tr>
+        <tr>
+          <td><code>continuity_flags</code></td>
+          <td>Foreshadowing, setups, callbacks, planted details</td>
+          <td><code>chapter_id, description, flag_type, resolved, resolved_chapter_id</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- SOTA TABLES -->
+  <section id="sota-tables">
+    <h2>SOTA Tables <span class="badge orange">New in this branch</span></h2>
+    <p>
+      These tables were added on the <code>closing-the-gap-with-sota</code> branch to bring the
+      extraction quality closer to state-of-the-art narrative understanding systems.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Table</th><th>What It Tracks</th><th>Key Columns</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>scenes</code></td>
+          <td>Individual scenes within a chapter: who's present, where, when, what POV</td>
+          <td><code>chapter_id, scene_index, pov_character_id, location_id, time_anchor, present_characters[], summary, embedding</code></td>
+        </tr>
+        <tr>
+          <td><code>canon_facts</code></td>
+          <td>Immutable facts about the world. Can be "locked" so violations are hard errors.</td>
+          <td><code>novel_id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked</code></td>
+        </tr>
+        <tr>
+          <td><code>knows_edges</code></td>
+          <td>"Theory of mind" — who knows what fact, when they learned it, how certain they are</td>
+          <td><code>character_id, fact_description, learned_chapter, source_event_id, source_type, certainty, shared_with[]</code></td>
+        </tr>
+        <tr>
+          <td><code>possesses_edges</code></td>
+          <td>Bitemporal object possession: character owns object from chapter X to Y</td>
+          <td><code>character_id, object_id, since_chapter, until_chapter, evidence_event_id, certainty</code></td>
+        </tr>
+        <tr>
+          <td><code>located_in_edges</code></td>
+          <td>Bitemporal entity location: entity was at location from chapter X to Y</td>
+          <td><code>entity_id, location_id, since_chapter, until_chapter, evidence_event_id, certainty</code></td>
+        </tr>
+        <tr>
+          <td><code>commitments</code></td>
+          <td>Foreshadow/payoff pairs: a story promise and its resolution (or lack thereof)</td>
+          <td><code>foreshadow_text, foreshadow_chapter, trigger_predicate (JSONB), payoff_text, payoff_chapter, status, weight</code></td>
+        </tr>
+        <tr>
+          <td><code>temporal_constraints</code></td>
+          <td>Ordering constraints between events (A before B, A causes B)</td>
+          <td><code>event_a_id, event_b_id, relation, certainty</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <strong>Bitemporal edges</strong> (<code>since_chapter</code>, <code>until_chapter</code>) allow tracking "Asha had the sword from chapter 2 to chapter 7, then Kira had it from chapter 7 onward" — without storing multiple snapshots. A <code>NULL until_chapter</code> means "still true."
+    </div>
+  </section>
+
+
+  <!-- TEMPORAL MODEL -->
+  <section id="temporal-model">
+    <h2>Temporal Model</h2>
+    <p>
+      All temporal data in Continuum uses <strong>chapter numbers as the time axis</strong>,
+      not wall-clock time. There's no story calendar system built in — that's intentional.
+    </p>
+
+    <h3>How Chapter Cap Works on Each Table Type</h3>
+    <table>
+      <thead>
+        <tr><th>Table Type</th><th>Cap Filter Pattern</th><th>Example</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Point-in-time</td>
+          <td><code>WHERE chapter_number &lt;= cap</code></td>
+          <td><code>events</code>, <code>character_states</code></td>
+        </tr>
+        <tr>
+          <td>First appearance</td>
+          <td><code>WHERE first_appearance_chapter &lt;= cap</code></td>
+          <td><code>characters</code>, <code>objects</code>, <code>locations</code></td>
+        </tr>
+        <tr>
+          <td>Opened/closed arcs</td>
+          <td><code>WHERE opened_chapter &lt;= cap</code></td>
+          <td><code>plot_threads</code></td>
+        </tr>
+        <tr>
+          <td>Bitemporal edges</td>
+          <td><code>WHERE since_chapter &lt;= cap</code></td>
+          <td><code>located_in_edges</code>, <code>possesses_edges</code></td>
+        </tr>
+        <tr>
+          <td>Commitments</td>
+          <td><code>WHERE foreshadow_chapter &lt;= cap</code></td>
+          <td><code>commitments</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- API LAYER -->
+  <section id="api-layer">
+    <h2>API Layer</h2>
+    <p>
+      FastAPI app at <code>backend/api/app.py</code>. All endpoints are under
+      <code>/api/novels/{novel_id}/...</code>. The app also serves the React build as static files,
+      with an SPA catch-all fallback.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Route File</th><th>Path</th><th>What It Returns</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>novels.py</code></td><td><code>/api/novels</code></td><td>List + create novels</td></tr>
+        <tr><td><code>characters.py</code></td><td><code>/.../characters</code></td><td>Character list; detail with state history, events, relationships</td></tr>
+        <tr><td><code>chapters.py</code></td><td><code>/.../chapters</code></td><td>Chapter list with short/long summaries</td></tr>
+        <tr><td><code>timeline.py</code></td><td><code>/.../timeline</code></td><td>Events grouped by chapter, cap-filtered</td></tr>
+        <tr><td><code>threads.py</code></td><td><code>/.../threads</code></td><td>Plot threads with linked events</td></tr>
+        <tr><td><code>continuity.py</code></td><td><code>/.../continuity</code></td><td>Foreshadowing/setup/callback flags with resolved status</td></tr>
+        <tr><td><code>relationships.py</code></td><td><code>/.../relationships</code></td><td>Node + edge graph for vis.js visualization</td></tr>
+        <tr><td><code>dynamics.py</code></td><td><code>/.../dynamics</code></td><td>Pairwise entity dynamics descriptions</td></tr>
+        <tr><td><code>locations.py</code></td><td><code>/.../locations</code></td><td>Location list; detail with events, characters</td></tr>
+        <tr><td><code>objects.py</code></td><td><code>/.../objects</code></td><td>Object list; detail with history</td></tr>
+        <tr><td><code>factions.py</code></td><td><code>/.../factions</code></td><td>Faction list; detail</td></tr>
+        <tr><td><code>scenes.py</code></td><td><code>/.../scenes</code></td><td><span class="badge orange">SOTA</span> Scene segmentation with POV + present characters</td></tr>
+        <tr><td><code>commitments.py</code></td><td><code>/.../commitments</code></td><td><span class="badge orange">SOTA</span> Foreshadow/payoff tracking with status filter</td></tr>
+        <tr><td><code>canon.py</code></td><td><code>/.../canon</code></td><td><span class="badge orange">SOTA</span> Immutable world facts, grouped by subject entity</td></tr>
+        <tr><td><code>knowledge.py</code></td><td><code>/.../knowledge</code></td><td><span class="badge orange">SOTA</span> knows_edges, location_history, possession_history</td></tr>
+        <tr><td><code>process.py</code></td><td><code>/.../process</code></td><td>Submit chapter for async processing</td></tr>
+        <tr><td><code>jobs.py</code></td><td><code>/.../jobs/{id}</code></td><td>Job status polling (in-memory)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>Job tracking is in-memory only</strong> — the <code>jobs.py</code> route stores job status in a dict. This doesn't survive server restarts and doesn't scale horizontally. It's a known MVP limitation.
+    </div>
+  </section>
+
+
+  <!-- FRONTEND PAGES -->
+  <section id="frontend-pages">
+    <h2>Frontend Pages</h2>
+    <p>
+      React 19 + React Router v7. State managed by <code>@tanstack/react-query</code> (30s staleTime).
+      No global state store — all server state is in React Query caches.
+    </p>
+
+    <h3>Route Structure</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Core Wiki Views</h4>
+        <p>
+          <code>/novels</code> → Novel picker<br/>
+          <code>/.../characters</code> → Character list<br/>
+          <code>/.../characters/:id</code> → Character detail (state history, relationships, events)<br/>
+          <code>/.../chapters</code> → Chapter summaries<br/>
+          <code>/.../timeline</code> → Events by chapter<br/>
+          <code>/.../threads</code> → Plot thread tracker<br/>
+          <code>/.../continuity</code> → Foreshadowing flags<br/>
+          <code>/.../relationships</code> → vis.js relationship graph
+        </p>
+      </div>
+      <div class="card">
+        <h4>Entity Detail Views</h4>
+        <p>
+          <code>/.../locations</code> + <code>/:id</code><br/>
+          <code>/.../objects</code> + <code>/:id</code><br/>
+          <code>/.../factions</code> + <code>/:id</code><br/>
+          <code>/.../dynamics</code> → Shared dynamics
+        </p>
+      </div>
+      <div class="card">
+        <h4>SOTA Views (New)</h4>
+        <p>
+          <code>/.../scenes</code> → Scene segmentation<br/>
+          <code>/.../commitments</code> → Foreshadow/payoff<br/>
+          <code>/.../canon</code> → Immutable facts<br/>
+          <code>/.../knowledge</code> → Knows/location/possession tabs
+        </p>
+      </div>
+      <div class="card">
+        <h4>Processing</h4>
+        <p>
+          <code>/.../process</code> → Upload chapter text, monitor live job status via polling
+        </p>
+      </div>
+    </div>
+
+    <h3>Key Frontend Files</h3>
+    <table>
+      <thead>
+        <tr><th>File</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>frontend/src/api.ts</code></td>
+          <td>All TypeScript type definitions + every <code>fetch()</code> call. Single source of truth for what the API returns. Add new API calls here first.</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/App.tsx</code></td>
+          <td>Router setup and QueryClient configuration. Add new routes here.</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/components/Sidebar.tsx</code></td>
+          <td>Navigation links + the chapter cap slider. When you add a new route, add the nav link here.</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/hooks/useChapterCap.ts</code></td>
+          <td>Returns current chapter cap from URL params. Use in every page component that needs spoiler-filtering.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- CANON FACTS -->
+  <section id="canon-facts">
+    <h2>Canon Facts</h2>
+    <p>
+      Canon facts are <strong>immutable statements about the story world</strong> — things that are
+      established as ground truth (e.g., "Kira is the firstborn heir", "The sword is cursed").
+      They live in the <code>canon_facts</code> table.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Column</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>kind</code></td><td>Category: <code>identity</code>, <code>world_rule</code>, <code>relationship</code>, <code>object_property</code>, etc.</td></tr>
+        <tr><td><code>subject_entity_id</code></td><td>The entity this fact is about</td></tr>
+        <tr><td><code>predicate</code></td><td>The property or relationship (e.g., "is_heir", "has_curse")</td></tr>
+        <tr><td><code>value</code></td><td>The fact value (e.g., "true", "Ironwood Throne")</td></tr>
+        <tr><td><code>confidence</code></td><td>0.0–1.0 confidence from the extractor</td></tr>
+        <tr><td><code>locked</code></td><td>If true, future chapters violating this fact trigger a hard error (critic mode). If false, it's a warning.</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      The critic system (planned in <code>backend/pipeline/critic/</code>) uses canon facts to validate
+      that new chapter extractions don't contradict established world rules.
+    </p>
+  </section>
+
+
+  <!-- COMMITMENTS -->
+  <section id="commitments">
+    <h2>Commitments (Foreshadow → Payoff)</h2>
+    <p>
+      A commitment is a <strong>story promise</strong> — something set up in one chapter that should
+      pay off later. Think Chekhov's gun. The <code>commitments</code> table tracks these pairs.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="badge yellow">pending</span></td><td>Foreshadowed but not yet resolved</td></tr>
+        <tr><td><span class="badge green">satisfied</span></td><td>The payoff happened as promised</td></tr>
+        <tr><td><span class="badge red">broken</span></td><td>The story contradicted the setup</td></tr>
+        <tr><td><span class="badge purple">abandoned</span></td><td>The setup was dropped without resolution</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      The <code>trigger_predicate</code> column is a JSONB object describing the condition under which
+      this commitment is considered resolved (e.g., <code>{"character": "Kira", "action": "claims_throne"}</code>).
+      This is structured to allow future automated matching against events.
+    </p>
+  </section>
+
+
+  <!-- THEORY OF MIND -->
+  <section id="knows-edges">
+    <h2>Theory of Mind (knows_edges)</h2>
+    <p>
+      The <code>knows_edges</code> table tracks <strong>who knows what</strong> — a "theory of mind"
+      model for the story. This is important for dramatic irony: the reader might know a secret,
+      but which characters know it?
+    </p>
+
+    <pre><code><span class="comment">-- Example knows_edge row</span>
+character_id    → Asha's UUID
+fact_description → "The king is not her biological father"
+learned_chapter → 7
+source_type     → "overheard"   <span class="comment">-- or: told, witnessed, deduced, read</span>
+certainty       → 0.9
+shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told</span></code></pre>
+
+    <p>
+      The frontend's <strong>Knowledge page</strong> (<code>/.../knowledge</code>) shows three tabs:
+      who-knows-what, character location history, and character possession history — all from the
+      three bitemporal edge tables.
+    </p>
+  </section>
+
+
+  <!-- FILE MAP -->
+  <section id="file-map">
+    <h2>Key File Map</h2>
+    <p>When you're reviewing a PR, these are the files that matter most:</p>
+
+    <table>
+      <thead>
+        <tr><th>File</th><th>Lines</th><th>Why it matters</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>backend/pipeline/db/schema.sql</code></td>
+          <td>424</td>
+          <td><strong>Source of truth for DB structure.</strong> Any new feature starts here. Watch for missing indexes, wrong types, missing chapter-cap columns.</td>
+        </tr>
+        <tr>
+          <td><code>backend/api/queries.py</code></td>
+          <td>1,591</td>
+          <td><strong>All SQL queries.</strong> Every wiki view is assembled here. Watch for N+1 queries, missing cap filters, wrong JOIN direction.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/pipeline.py</code></td>
+          <td>625</td>
+          <td><strong>Pipeline orchestration.</strong> Process order matters — resolvers run before persistence, extras run after core persist. Watch for missing steps when adding new tables.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/extraction/extractor.py</code></td>
+          <td>200+</td>
+          <td><strong>LLM orchestration.</strong> Pass order, merge logic, mock behavior. Changes here affect extraction quality.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/extraction/prompts.py</code></td>
+          <td>300+</td>
+          <td><strong>All prompt templates + JSON schemas.</strong> Changing prompts directly changes extraction quality. Schema changes here must match DB schema.</td>
+        </tr>
+        <tr>
+          <td><code>backend/api/schemas.py</code></td>
+          <td>200+</td>
+          <td><strong>Pydantic response types.</strong> Frontend's <code>api.ts</code> mirrors these. Keep in sync when adding fields.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/extraction/persist_extras.py</code></td>
+          <td>200+</td>
+          <td><strong>SOTA table persistence.</strong> New in this branch — scenes, knows_edges, commitments. Watch for missing novel_id scoping, missing cap columns.</td>
+        </tr>
+        <tr>
+          <td><code>frontend/src/api.ts</code></td>
+          <td>150+</td>
+          <td><strong>Frontend type definitions.</strong> Must stay in sync with <code>schemas.py</code>. The TypeScript type and the Pydantic model should match field for field.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- CURRENT BRANCH -->
+  <section id="current-branch">
+    <h2>Current Branch Context</h2>
+    <p>
+      The active branch is <code>closing-the-gap-with-sota</code>. Here's what's changed:
+    </p>
+
+    <h3>New Files (untracked)</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Backend</h4>
+        <p>
+          <code>api/routes/canon.py</code><br/>
+          <code>api/routes/commitments.py</code><br/>
+          <code>api/routes/knowledge.py</code><br/>
+          <code>api/routes/scenes.py</code><br/>
+          <code>pipeline/extraction/persist_extras.py</code><br/>
+          <code>pipeline/critic/</code> (directory)<br/>
+          <code>pipeline/planner/</code> (directory)<br/>
+          <code>pipeline/retrieval/</code> (directory)<br/>
+          <code>pipeline/state/</code> (directory)
+        </p>
+      </div>
+      <div class="card">
+        <h4>Frontend</h4>
+        <p>
+          <code>routes/Canon.tsx</code><br/>
+          <code>routes/Commitments.tsx</code><br/>
+          <code>routes/Knowledge.tsx</code><br/>
+          <code>routes/Scenes.tsx</code>
+        </p>
+      </div>
+    </div>
+
+    <h3>Modified Files</h3>
+    <table>
+      <thead>
+        <tr><th>File</th><th>What Changed</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>db/schema.sql</code></td><td>Added SOTA tables: scenes, canon_facts, knows_edges, possesses_edges, located_in_edges, commitments, temporal_constraints</td></tr>
+        <tr><td><code>pipeline.py</code></td><td>Added calls to persist_extras functions at the end of <code>process_chapter()</code></td></tr>
+        <tr><td><code>extractor.py</code></td><td>Added extraction passes for scenes, knows, commitments</td></tr>
+        <tr><td><code>prompts.py</code></td><td>Added prompt templates and JSON schemas for SOTA passes</td></tr>
+        <tr><td><code>api/app.py</code></td><td>Registered 4 new route routers (scenes, commitments, canon, knowledge)</td></tr>
+        <tr><td><code>api/queries.py</code></td><td>Added query functions for all SOTA tables</td></tr>
+        <tr><td><code>api/schemas.py</code></td><td>Added Pydantic models for all SOTA table rows</td></tr>
+        <tr><td><code>frontend/App.tsx</code></td><td>Added 4 new routes</td></tr>
+        <tr><td><code>frontend/Sidebar.tsx</code></td><td>Added nav links for 4 new pages</td></tr>
+        <tr><td><code>frontend/api.ts</code></td><td>Added TypeScript types and fetch functions for SOTA endpoints</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <strong>What to look for when reviewing this PR:</strong>
+      <br/>• Do the new SOTA table queries have correct <code>cap</code> filtering?
+      <br/>• Does <code>persist_extras.py</code> correctly scope to <code>novel_id</code> (to avoid cross-novel contamination)?
+      <br/>• Are the new Pydantic schemas in <code>schemas.py</code> aligned with the TS types in <code>api.ts</code>?
+      <br/>• Do the new frontend pages use <code>useChapterCap()</code> and pass the cap to the API?
+      <br/>• Are the new DB indexes appropriate (HNSW for vectors, GIN for arrays)?
+    </div>
+  </section>
+
+</main>
+
+<script>
+// Active sidebar link tracking
+const sections = document.querySelectorAll('section[id], h2[id]');
+const links = document.querySelectorAll('.sidebar a[href^="#"]');
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      links.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+      });
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+
+sections.forEach(s => observer.observe(s));
+
+// Init mermaid
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    background: '#21262d',
+    primaryColor: '#1f6feb',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#58a6ff',
+    lineColor: '#58a6ff',
+    secondaryColor: '#21262d',
+    tertiaryColor: '#21262d',
+    edgeLabelBackground: '#21262d',
+    fontFamily: 'Inter, system-ui, sans-serif'
+  }
+});
+</script>
+
+</body>
+</html>
