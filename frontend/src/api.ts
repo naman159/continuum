@@ -13,7 +13,6 @@ export type CharacterSummary = {
   aliases: string[];
   description: string | null;
   first_appearance_chapter: number | null;
-  entity_type: string | null;
 };
 
 export type CharacterStateRow = {

@@ -28,7 +28,6 @@ class CharacterSummary(BaseModel):
     aliases: list[str]
     description: str | None
     first_appearance_chapter: int | None
-    entity_type: str | None = None
 
 
 class CharacterStateRow(BaseModel):
