@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Continuum — Developer Reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-faint: #484f58;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #f0883e;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #ff7b72;
+    --sidebar-w: 256px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 24px 0 40px;
+    z-index: 100;
+  }
+
+  .sidebar-logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .sidebar-logo .product { font-size: 18px; font-weight: 700; color: var(--text); }
+  .sidebar-logo .tagline { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .sidebar-section { padding: 8px 20px 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+  .sidebar a { display: block; padding: 5px 20px; color: var(--text-muted); text-decoration: none; font-size: 13px; border-left: 2px solid transparent; transition: all 0.12s; }
+  .sidebar a:hover { color: var(--text); background: var(--surface2); }
+  .sidebar a.active { color: var(--accent); border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+  .sidebar-doc-link { margin: 16px 20px 0; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-muted); }
+  .sidebar-doc-link a { padding: 0; display: inline; color: var(--accent); }
+
+  main { margin-left: var(--sidebar-w); max-width: 920px; padding: 48px 56px 96px; width: 100%; }
+
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; color: var(--text); margin-bottom: 8px; }
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); margin: 48px 0 16px; padding-top: 48px; border-top: 1px solid var(--border); scroll-margin-top: 24px; }
+  h3 { font-size: 16px; font-weight: 600; color: var(--text); margin: 28px 0 10px; scroll-margin-top: 24px; }
+  h4 { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 8px; }
+  p { color: var(--text-muted); margin-bottom: 14px; }
+  strong { color: var(--text); font-weight: 600; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .lead { font-size: 16px; color: var(--text-muted); line-height: 1.8; margin-bottom: 32px; padding-bottom: 32px; border-bottom: 1px solid var(--border); }
+
+  .callout { border-radius: 8px; padding: 14px 18px; margin: 16px 0; border-left: 3px solid; font-size: 14px; }
+  .callout.info  { background: rgba(88,166,255,0.06); border-color: var(--accent);  color: var(--text-muted); }
+  .callout.warn  { background: rgba(210,153,34,0.08); border-color: var(--yellow); color: var(--text-muted); }
+  .callout.tip   { background: rgba(63,185,80,0.06);  border-color: var(--green);  color: var(--text-muted); }
+  .callout strong { color: var(--text); }
+
+  code { font-family: 'JetBrains Mono', monospace; font-size: 13px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--orange); }
+  pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; margin: 16px 0; }
+  pre code { background: none; border: none; padding: 0; font-size: 13px; color: var(--text); line-height: 1.65; }
+  .cmt { color: var(--text-faint); } .kw { color: var(--pink); } .str { color: var(--green); } .fn { color: var(--accent); } .num { color: var(--purple); } .type { color: var(--yellow); }
+
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  th { background: var(--surface2); color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; border: 1px solid var(--border); text-align: left; }
+  td { padding: 9px 14px; border: 1px solid var(--border); color: var(--text-muted); vertical-align: top; }
+  td code { font-size: 12px; }
+  td strong { color: var(--text); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+  .badge.green  { background: rgba(63,185,80,0.15);  color: var(--green); }
+  .badge.blue   { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge.orange { background: rgba(240,136,62,0.15); color: var(--orange); }
+  .badge.purple { background: rgba(188,140,255,0.15);color: var(--purple); }
+  .badge.red    { background: rgba(248,81,73,0.15);  color: var(--red); }
+  .badge.yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h4 { margin-top: 0; margin-bottom: 6px; color: var(--accent); font-size: 12px; }
+  .card p { margin-bottom: 0; font-size: 13px; }
+
+  section { scroll-margin-top: 24px; }
+
+  /* SQL block with line highlights */
+  .sql-block { position: relative; }
+  .sql-block pre { margin: 0; }
+  .sql-comment { color: var(--text-faint); }
+  .sql-kw { color: var(--pink); font-weight: 500; }
+  .sql-type { color: var(--yellow); }
+  .sql-constraint { color: var(--purple); }
+  .sql-val { color: var(--green); }
+
+  /* Method signature boxes */
+  .method-sig {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 12px 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .method-sig .fn-name { color: var(--accent); }
+  .method-sig .param { color: var(--orange); }
+  .method-sig .ptype { color: var(--text-muted); }
+  .method-sig .ret { color: var(--green); }
+
+  /* Param table inside method doc */
+  .param-table { margin: 8px 0 16px; }
+  .param-table td:first-child { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--orange); width: 160px; }
+  .param-table td:nth-child(2) { color: var(--purple); font-family: 'JetBrains Mono', monospace; font-size: 12px; width: 120px; }
+  .param-table td:nth-child(3) { color: var(--text-muted); font-size: 13px; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  .env-table td:first-child { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--orange); }
+  .env-table td:nth-child(2) { color: var(--green); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="product">Continuum</div>
+    <div class="tagline">Developer Reference</div>
+  </div>
+
+  <div class="sidebar-section">Setup</div>
+  <a href="#setup">Getting Started</a>
+  <a href="#config">Configuration</a>
+  <a href="#scripts">CLI Scripts</a>
+
+  <div class="sidebar-section">Pipeline API</div>
+  <a href="#process-chapter">process_chapter()</a>
+  <a href="#extractor">ChapterExtractor</a>
+  <a href="#canonicalizer">Deduplicator</a>
+  <a href="#resolver">EntityResolver</a>
+  <a href="#embeddings">EmbeddingService</a>
+  <a href="#persist-extras">persist_extras</a>
+
+  <div class="sidebar-section">Database Schema</div>
+  <a href="#schema-novels">novels</a>
+  <a href="#schema-chapters">chapters</a>
+  <a href="#schema-entities">entities</a>
+  <a href="#schema-characters">characters</a>
+  <a href="#schema-events">events</a>
+  <a href="#schema-relationships">relationships</a>
+  <a href="#schema-scenes">scenes (SOTA)</a>
+  <a href="#schema-canon">canon_facts (SOTA)</a>
+  <a href="#schema-knows">knows_edges (SOTA)</a>
+  <a href="#schema-commitments">commitments (SOTA)</a>
+  <a href="#schema-bitemp">bitemporal edges (SOTA)</a>
+
+  <div class="sidebar-section">API Endpoints</div>
+  <a href="#api-novels">Novels</a>
+  <a href="#api-characters">Characters</a>
+  <a href="#api-timeline">Timeline / Events</a>
+  <a href="#api-threads">Plot Threads</a>
+  <a href="#api-relationships">Relationships</a>
+  <a href="#api-sota">SOTA Endpoints</a>
+  <a href="#api-process">Processing</a>
+
+  <div class="sidebar-section">Frontend</div>
+  <a href="#fe-types">TypeScript Types</a>
+  <a href="#fe-query-pattern">Query Pattern</a>
+  <a href="#fe-new-page">Adding a New Page</a>
+
+  <div class="sidebar-doc-link">
+    ← <a href="architecture.html">Architecture Overview</a>
+  </div>
+</nav>
+
+<main>
+
+  <section id="top">
+    <h1>Developer Reference</h1>
+    <p class="lead">
+      Detailed reference for the pipeline functions, database schema, API endpoints, and frontend patterns.
+      Use this alongside the <a href="architecture.html">Architecture Overview</a>, which explains the
+      mental model and data flow.
+    </p>
+  </section>
+
+
+  <!-- ══════════ SETUP ══════════ -->
+  <section id="setup">
+    <h2>Getting Started</h2>
+
+    <h3>Prerequisites</h3>
+    <ul style="color: var(--text-muted); padding-left: 20px; margin-bottom: 16px;">
+      <li>Python 3.11+</li>
+      <li>PostgreSQL 15+ with <code>pgvector</code> extension</li>
+      <li>Node 20+ (for frontend)</li>
+      <li>An OpenAI API key (or set <code>USE_MOCK_LLM=true</code> to skip)</li>
+    </ul>
+
+    <h3>Backend Setup</h3>
+    <pre><code><span class="cmt"># Install dependencies</span>
+cd backend
+pip install -e .
+
+<span class="cmt"># Create and initialize the database</span>
+createdb novel_wiki
+python -m pipeline --init-db
+
+<span class="cmt"># Or with a custom DB URL</span>
+DATABASE_URL=postgresql://user:pass@host/mydb python -m pipeline --init-db</code></pre>
+
+    <h3>Run the API server</h3>
+    <pre><code>cd backend
+uvicorn api.app:app --reload --port 8000</code></pre>
+
+    <h3>Frontend Setup</h3>
+    <pre><code>cd frontend
+npm install
+npm run dev        <span class="cmt"># dev server on :5173</span>
+npm run build      <span class="cmt"># builds to frontend/dist/ (served by FastAPI)</span></code></pre>
+
+    <h3>Process a chapter</h3>
+    <pre><code><span class="cmt"># Via CLI</span>
+cd backend
+python -m pipeline process \
+  --novel-id &lt;uuid&gt; \
+  --chapter-number 1 \
+  --title "Chapter 1: The Beginning" \
+  --file chapter1.txt
+
+<span class="cmt"># Via API (multipart form)</span>
+curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
+  -F "chapter_number=1" \
+  -F "title=Chapter 1" \
+  -F "text=@chapter1.txt"</code></pre>
+  </section>
+
+
+  <!-- ══════════ CONFIG ══════════ -->
+  <section id="config">
+    <h2>Configuration</h2>
+    <p>
+      All settings live in <code>backend/pipeline/config.py</code> as a frozen dataclass.
+      Values are read from environment variables (via <code>python-dotenv</code>).
+    </p>
+
+    <table class="env-table">
+      <thead>
+        <tr><th>Environment Variable</th><th>Default</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>DATABASE_URL</code></td>
+          <td><code>postgresql://localhost/novel_wiki</code></td>
+          <td>PostgreSQL connection string (psycopg3 format)</td>
+        </tr>
+        <tr>
+          <td><code>OPENAI_API_KEY</code></td>
+          <td>—</td>
+          <td>OpenAI key (used by LiteLLM). Required unless USE_MOCK_LLM=true</td>
+        </tr>
+        <tr>
+          <td><code>DEFAULT_MODEL</code></td>
+          <td><code>gpt-4o-mini</code></td>
+          <td>LiteLLM model string for all extraction passes</td>
+        </tr>
+        <tr>
+          <td><code>EMBEDDING_MODEL</code></td>
+          <td><code>text-embedding-3-small</code></td>
+          <td>LiteLLM embedding model</td>
+        </tr>
+        <tr>
+          <td><code>EMBEDDING_DIMENSIONS</code></td>
+          <td><code>1536</code></td>
+          <td>Vector dimensions. Must match what pgvector HNSW index was created with.</td>
+        </tr>
+        <tr>
+          <td><code>LLM_TEMPERATURE</code></td>
+          <td><code>0.1</code></td>
+          <td>Temperature for all extraction LLM calls. Low = deterministic.</td>
+        </tr>
+        <tr>
+          <td><code>CHUNK_SIZE</code></td>
+          <td><code>2000</code></td>
+          <td>Tokens per chunk in sliding window</td>
+        </tr>
+        <tr>
+          <td><code>CHUNK_OVERLAP</code></td>
+          <td><code>200</code></td>
+          <td>Overlap tokens between adjacent chunks</td>
+        </tr>
+        <tr>
+          <td><code>USE_MOCK_LLM</code></td>
+          <td><code>false</code></td>
+          <td>Use regex mock instead of real LLM. Good for testing without API keys.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>EMBEDDING_DIMENSIONS must be set before init-db.</strong> The schema.sql uses a
+      <code>__EMBEDDING_DIM__</code> placeholder that gets replaced at init time. If you change
+      the dimension later, you need to drop and recreate the DB or rebuild the vector indexes.
+    </div>
+  </section>
+
+
+  <!-- ══════════ SCRIPTS ══════════ -->
+  <section id="scripts">
+    <h2>CLI Scripts</h2>
+    <p>
+      Entry points are defined in <code>pyproject.toml</code>. Each script maps to a
+      <code>backend/cli/</code> module.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Script</th><th>Command</th><th>Description</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>novel-pipeline</code></td><td><code>python -m pipeline</code></td><td>Main pipeline CLI: init-db, create-novel, process</td></tr>
+        <tr><td><code>list-characters</code></td><td><code>python -m cli.character</code></td><td>Query characters for a novel</td></tr>
+        <tr><td><code>list-timeline</code></td><td><code>python -m cli.timeline</code></td><td>Query events / timeline</td></tr>
+        <tr><td><code>list-threads</code></td><td><code>python -m cli.threads</code></td><td>Query plot threads</td></tr>
+        <tr><td><code>list-scenes</code></td><td><code>python -m cli.scenes</code></td><td>Query scenes</td></tr>
+        <tr><td><code>list-commitments</code></td><td><code>python -m cli.commitments</code></td><td>Query commitments</td></tr>
+        <tr><td><code>list-canon</code></td><td><code>python -m cli.canon</code></td><td>Query canon facts</td></tr>
+        <tr><td><code>list-knowledge</code></td><td><code>python -m cli.knowledge</code></td><td>Query knows_edges</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+
+  <!-- ══════════ PROCESS_CHAPTER ══════════ -->
+  <section id="process-chapter">
+    <h2>process_chapter()</h2>
+    <p>Main pipeline orchestration function in <code>backend/pipeline/pipeline.py</code>.</p>
+
+    <div class="method-sig">
+      <span class="kw">async def</span> <span class="fn-name">process_chapter</span>(
+        <span class="param">db</span>: <span class="ptype">DBClient</span>,
+        <span class="param">novel_id</span>: <span class="ptype">UUID</span>,
+        <span class="param">chapter_number</span>: <span class="ptype">int</span>,
+        <span class="param">title</span>: <span class="ptype">str</span>,
+        <span class="param">text</span>: <span class="ptype">str</span>,
+        <span class="param">settings</span>: <span class="ptype">Settings</span>
+      ) <span class="ret">→ None</span>
+    </div>
+
+    <table class="param-table">
+      <tbody>
+        <tr><td>db</td><td>DBClient</td><td>Database connection pool wrapper</td></tr>
+        <tr><td>novel_id</td><td>UUID</td><td>The novel to process this chapter under</td></tr>
+        <tr><td>chapter_number</td><td>int</td><td>Chapter number (1-indexed). Must be unique per novel.</td></tr>
+        <tr><td>title</td><td>str</td><td>Display title for this chapter</td></tr>
+        <tr><td>text</td><td>str</td><td>Full raw chapter text</td></tr>
+        <tr><td>settings</td><td>Settings</td><td>Configuration (model, chunk size, etc.)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>Not idempotent.</strong> Calling this twice on the same chapter_number will fail at the
+      ingest step (duplicate constraint), but if the ingest is somehow skipped, later steps will
+      insert duplicate data. Always check before calling.
+    </div>
+
+    <h3>load_story_context()</h3>
+    <p>
+      Called at the start of <code>process_chapter()</code> to build the context string injected into
+      every LLM prompt. Fetches:
+    </p>
+    <ul style="color: var(--text-muted); padding-left: 20px;">
+      <li>All existing character names (for entity recognition)</li>
+      <li>All existing location names</li>
+      <li>Open plot threads (title + description)</li>
+      <li>Last 20 events (descriptions)</li>
+    </ul>
+
+    <h3>_persist_extraction()</h3>
+    <p>
+      Writes a fully resolved extraction result to the DB. Called once per chapter.
+      Transaction-safe: uses a single connection context.
+    </p>
+    <p>
+      Writes to (in order): <code>characters</code>, <code>locations</code>, <code>factions</code>,
+      <code>objects</code>, <code>character_states</code>, <code>events</code>,
+      <code>relationships</code>, <code>shared_dynamics</code>, <code>plot_threads</code>,
+      <code>thread_events</code>, <code>continuity_flags</code>.
+    </p>
+  </section>
+
+
+  <!-- ══════════ EXTRACTOR ══════════ -->
+  <section id="extractor">
+    <h2>ChapterExtractor</h2>
+    <p>Lives in <code>backend/pipeline/extraction/extractor.py</code>.</p>
+
+    <div class="method-sig">
+      <span class="kw">class</span> <span class="fn-name">ChapterExtractor</span>:<br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">extract_chapter</span>(
+        <span class="param">chunks</span>: <span class="ptype">list[str]</span>,
+        <span class="param">context</span>: <span class="ptype">str</span>,
+        <span class="param">settings</span>: <span class="ptype">Settings</span>
+      ) <span class="ret">→ ExtractionResult</span>
+    </div>
+
+    <p>
+      Runs 12 LLM passes per chunk (see <a href="architecture.html#extraction-passes">Extraction Passes</a>),
+      then merges across chunks with <code>merge_extractions()</code>.
+    </p>
+
+    <h3>ExtractionResult shape</h3>
+    <pre><code>{
+  <span class="str">"summary"</span>: <span class="str">"..."</span>,
+  <span class="str">"summary_short"</span>: <span class="str">"..."</span>,
+  <span class="str">"summary_long"</span>: <span class="str">"..."</span>,
+  <span class="str">"new_characters"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ..., <span class="str">"aliases"</span>: [...] }],
+  <span class="str">"new_locations"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ... }],
+  <span class="str">"new_factions"</span>: [...],
+  <span class="str">"new_objects"</span>: [...],
+  <span class="str">"entity_deltas"</span>: [{
+    <span class="str">"character"</span>: ..., <span class="str">"location"</span>: ..., <span class="str">"emotional_state"</span>: ...,
+    <span class="str">"goals"</span>: [...], <span class="str">"knowledge"</span>: [...], <span class="str">"physical_state"</span>: ...
+  }],
+  <span class="str">"events"</span>: [{
+    <span class="str">"description"</span>: ..., <span class="str">"event_type"</span>: ..., <span class="str">"impact_level"</span>: ...,
+    <span class="str">"involved_characters"</span>: [...], <span class="str">"involved_locations"</span>: [...],
+    <span class="str">"involved_factions"</span>: [...], <span class="str">"involved_objects"</span>: [...]
+  }],
+  <span class="str">"thread_updates"</span>: [{
+    <span class="str">"action"</span>: <span class="str">"open"</span>|<span class="str">"progress"</span>|<span class="str">"close"</span>, <span class="str">"title"</span>: ..., <span class="str">"description"</span>: ...,
+    <span class="str">"thread_type"</span>: ..., <span class="str">"linked_events"</span>: [...]
+  }],
+  <span class="str">"continuity_flags"</span>: [{
+    <span class="str">"description"</span>: ..., <span class="str">"flag_type"</span>: <span class="str">"foreshadow"</span>|<span class="str">"setup"</span>|<span class="str">"callback"</span>|<span class="str">"planted_detail"</span>
+  }]
+}</code></pre>
+
+    <h3>Mock Extractor</h3>
+    <p>
+      When <code>settings.use_mock_llm=True</code>, the extractor uses regex-based entity detection
+      (capitalized words) and sentence splitting instead of LLM calls.
+      Output follows the same schema but is low-quality — fine for integration testing.
+    </p>
+  </section>
+
+
+  <!-- ══════════ CANONICALIZER ══════════ -->
+  <section id="canonicalizer">
+    <h2>IntraExtractionDeduplicator</h2>
+    <p>Lives in <code>backend/pipeline/extraction/canonicalizer.py</code>.</p>
+
+    <p>
+      Runs after <code>merge_extractions()</code> and before entity resolution.
+      Uses a single LLM call to group name variants within the current extraction
+      and rename all occurrences to the longest canonical form.
+    </p>
+
+    <div class="method-sig">
+      <span class="kw">class</span> <span class="fn-name">IntraExtractionDeduplicator</span>:<br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">deduplicate</span>(
+        <span class="param">extraction</span>: <span class="ptype">dict</span>,
+        <span class="param">settings</span>: <span class="ptype">Settings</span>
+      ) <span class="ret">→ dict</span>
+    </div>
+
+    <p><strong>Rule:</strong> longest form wins. <code>"Jane" + "Jane Bennet" → "Jane Bennet"</code> everywhere in the extraction dict.</p>
+
+    <div class="callout tip">
+      <strong>Why longest wins?</strong> A longer form is almost always more specific and less ambiguous.
+      "Miss Bennet" could be any Bennet sister; "Elizabeth Bennet" is unambiguous. The LLM groups
+      the variants, Python picks the longest from each group.
+    </div>
+  </section>
+
+
+  <!-- ══════════ RESOLVER ══════════ -->
+  <section id="resolver">
+    <h2>EntityResolver</h2>
+    <p>Lives in <code>backend/pipeline/extraction/resolver.py</code>.</p>
+
+    <div class="method-sig">
+      <span class="kw">class</span> <span class="fn-name">EntityResolver</span>:<br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_character</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_location</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_faction</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_object</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_any_entity</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span>
+    </div>
+
+    <p>
+      All resolve methods return a UUID — either an existing entity's UUID or a newly created one.
+      They never return <code>None</code>. The resolver maintains an in-memory cache per instance
+      (one instance per pipeline run).
+    </p>
+    <p>
+      <code>resolve_location</code> folds sub-locations into their parent when <code>parent_location</code>
+      is set in entity metadata. If <code>metadata["parent_location"]</code> is non-empty, the parent name
+      is resolved (or created) instead of the sub-location, preventing floor/corridor/room entries from
+      polluting the locations table.
+    </p>
+
+    <h4>Resolution cascade</h4>
+    <table>
+      <thead><tr><th>Step</th><th>Method</th><th>Creates new?</th></tr></thead>
+      <tbody>
+        <tr><td>1. Exact name</td><td>Case-insensitive string match on <code>name</code></td><td>No</td></tr>
+        <tr><td>2. Alias lookup</td><td>Check if name is in <code>aliases[]</code></td><td>No</td></tr>
+        <tr><td>3. Partial match</td><td>Characters only: "Jane" matches "Jane Bennet", adds "Jane" as alias</td><td>No</td></tr>
+        <tr><td>4. Fuzzy match</td><td>rapidfuzz token_sort_ratio ≥ 85%</td><td>No</td></tr>
+        <tr><td>5. Create new</td><td>INSERT into entities + specific table</td><td><strong>Yes</strong></td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>Fuzzy threshold is 85%.</strong> This is aggressive — it means "Jane" and "Joan" won't merge (72%), but "Dumbledore" and "Dumbledore " (trailing space) will (99%). If you see false merges, increase the threshold in <code>resolver.py</code>.
+    </div>
+  </section>
+
+
+  <!-- ══════════ EMBEDDINGS ══════════ -->
+  <section id="embeddings">
+    <h2>EmbeddingService</h2>
+    <p>Lives in <code>backend/pipeline/embeddings.py</code>.</p>
+
+    <div class="method-sig">
+      <span class="kw">class</span> <span class="fn-name">EmbeddingService</span>:<br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">embed_text</span>(<span class="param">text</span>: <span class="ptype">str</span>) <span class="ret">→ list[float]</span><br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">_hash_embedding</span>(<span class="param">text</span>: <span class="ptype">str</span>) <span class="ret">→ list[float]</span>
+    </div>
+
+    <p>
+      <code>embed_text()</code> calls LiteLLM's embedding endpoint. If the call fails or
+      <code>use_mock_llm=True</code>, it falls back to <code>_hash_embedding()</code>, which
+      generates a deterministic pseudo-random vector from the SHA-256 hash of the text.
+      Hash embeddings are meaningless for semantic search but let the pipeline complete
+      without an API key.
+    </p>
+
+    <h3>embed_chapter_and_events()</h3>
+    <p>
+      Batch-embeds the chapter summary and all event descriptions for a processed chapter.
+      Updates <code>chapters.embedding</code> and <code>events.embedding</code> in the DB.
+      Called after <code>_persist_extraction()</code>.
+    </p>
+  </section>
+
+
+  <!-- ══════════ PERSIST_EXTRAS ══════════ -->
+  <section id="persist-extras">
+    <h2>persist_extras (SOTA)</h2>
+    <p>
+      Lives in <code>backend/pipeline/extraction/persist_extras.py</code>.
+      New in the <code>closing-the-gap-with-sota</code> branch.
+    </p>
+
+    <h3>persist_scenes()</h3>
+    <div class="method-sig">
+      <span class="fn-name">persist_scenes</span>(<span class="param">db</span>, <span class="param">chapter_id</span>, <span class="param">scenes</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>: <span class="ptype">EntityResolver</span>)
+    </div>
+    <p>
+      Inserts scene rows. Each scene dict has: <code>pov_character</code> (name), <code>location</code> (name),
+      <code>time_anchor</code> (free text), <code>present_characters</code> (name list), <code>summary</code>.
+      The resolver converts names to UUIDs.
+    </p>
+
+    <h3>persist_knows_edges()</h3>
+    <div class="method-sig">
+      <span class="fn-name">persist_knows_edges</span>(<span class="param">db</span>, <span class="param">chapter_number</span>, <span class="param">edges</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>)
+    </div>
+    <p>
+      Inserts who-knows-what edges. Each edge dict: <code>character</code>, <code>fact_description</code>,
+      <code>source_type</code> (<code>told | witnessed | deduced | read | overheard</code>),
+      <code>certainty</code> (0.0–1.0), <code>shared_with</code> (list of character names).
+    </p>
+
+    <h3>persist_commitments()</h3>
+    <div class="method-sig">
+      <span class="fn-name">persist_commitments</span>(<span class="param">db</span>, <span class="param">novel_id</span>, <span class="param">chapter_number</span>, <span class="param">commitments</span>: <span class="ptype">list[dict]</span>)
+    </div>
+    <p>
+      Inserts foreshadow/payoff pairs. Status is always <code>pending</code> at insert time —
+      the critic system (future) will update it to <code>satisfied</code>, <code>broken</code>, or <code>abandoned</code>.
+    </p>
+
+    <h3>persist_multi_summaries()</h3>
+    <p>Updates <code>chapters.summary_short</code> and <code>chapters.summary_long</code> from the extraction result.</p>
+  </section>
+
+
+  <!-- ══════════ SCHEMA TABLES ══════════ -->
+
+  <section id="schema-novels">
+    <h2>Schema: novels</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> novels (
+  id          <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  title       <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,
+  author      <span class="sql-type">TEXT</span>,
+  language    <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'en'</span>,
+  created_at  <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">NOT NULL DEFAULT</span> now()
+);</code></pre>
+    <p>Top-level container. Every other table scopes to a <code>novel_id</code>. A novel is just a name — the text lives in chapters.</p>
+  </section>
+
+  <section id="schema-chapters">
+    <h2>Schema: chapters</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> chapters (
+  id              <span class="sql-type">UUID</span>         <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id        <span class="sql-type">UUID</span>         <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
+  number          <span class="sql-type">INT</span>          <span class="sql-constraint">NOT NULL</span>,                    <span class="sql-comment">-- 1-indexed</span>
+  title           <span class="sql-type">TEXT</span>,
+  raw_text        <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL</span>,
+  summary         <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- medium summary</span>
+  summary_short   <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- 1-2 sentence</span>
+  summary_long    <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- detailed</span>
+  style_fingerprint <span class="sql-type">TEXT</span>,                                     <span class="sql-comment">-- author's voice notes</span>
+  embedding       <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,                    <span class="sql-comment">-- pgvector</span>
+  processed_at    <span class="sql-type">TIMESTAMPTZ</span>,
+  created_at      <span class="sql-type">TIMESTAMPTZ</span>  <span class="sql-constraint">NOT NULL DEFAULT</span> now(),
+  <span class="sql-constraint">UNIQUE</span>(novel_id, number)
+);</code></pre>
+    <p>
+      The <code>__EMBEDDING_DIM__</code> placeholder is replaced with <code>EMBEDDING_DIMENSIONS</code>
+      from config at init-db time.
+      The <code>summary</code> / <code>summary_short</code> / <code>summary_long</code> fields support
+      three different granularities for different UI use cases.
+    </p>
+  </section>
+
+  <section id="schema-entities">
+    <h2>Schema: entities</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> entities (
+  id          <span class="sql-type">UUID</span>     <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id    <span class="sql-type">UUID</span>     <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
+  entity_type <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL CHECK</span>(entity_type <span class="sql-kw">IN</span> (
+                <span class="sql-val">'character'</span>, <span class="sql-val">'location'</span>, <span class="sql-val">'faction'</span>, <span class="sql-val">'object'</span>)),
+  name        <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>
+);</code></pre>
+    <p>
+      The universal entity table. Every character, location, faction, and object gets a row here first,
+      then a row in the specific table. This enables cross-entity relationships —
+      the <code>relationships</code> table references <code>entities(id)</code>, not
+      <code>characters(id)</code>, so a character-to-faction relationship is just as easy
+      as a character-to-character relationship.
+    </p>
+  </section>
+
+  <section id="schema-characters">
+    <h2>Schema: characters</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> characters (
+  id                      <span class="sql-type">UUID</span>         <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id                <span class="sql-type">UUID</span>         <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
+  entity_id               <span class="sql-type">UUID</span>         <span class="sql-constraint">NOT NULL REFERENCES</span> entities,
+  name                    <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL</span>,
+  aliases                 <span class="sql-type">TEXT[]</span>       <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'{}'</span>,
+  first_appearance_chapter <span class="sql-type">INT</span>,
+  description             <span class="sql-type">TEXT</span>,
+  embedding               <span class="sql-type">vector(__EMBEDDING_DIM__)</span>
+);
+
+<span class="sql-comment">-- State snapshot per chapter</span>
+<span class="sql-kw">CREATE TABLE</span> character_states (
+  id              <span class="sql-type">UUID</span>   <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  character_id    <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> characters,
+  chapter_id      <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> chapters,
+  location_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> locations,
+  emotional_state <span class="sql-type">TEXT</span>,
+  goals           <span class="sql-type">TEXT[]</span>,
+  knowledge       <span class="sql-type">TEXT[]</span>,
+  physical_state  <span class="sql-type">TEXT</span>,
+  appearance      <span class="sql-type">TEXT</span>,
+  notes           <span class="sql-type">TEXT</span>,
+  created_at      <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      One <code>character_states</code> row per chapter the character appears in.
+      To get "current" state, query the latest row by chapter number ≤ cap.
+      The character detail view shows all state rows as a history.
+    </p>
+  </section>
+
+  <section id="schema-events">
+    <h2>Schema: events</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> events (
+  id                  <span class="sql-type">UUID</span>     <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  chapter_id          <span class="sql-type">UUID</span>     <span class="sql-constraint">NOT NULL REFERENCES</span> chapters,
+  description         <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
+  event_type          <span class="sql-type">TEXT</span>,    <span class="sql-comment">-- 'action', 'revelation', 'conflict', 'dialogue', etc.</span>
+  impact_level        <span class="sql-type">TEXT</span>,    <span class="sql-comment">-- 'low', 'medium', 'high', 'critical'</span>
+  involved_characters <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references characters(id)</span>
+  involved_locations  <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references locations(id)</span>
+  involved_objects    <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references objects(id)</span>
+  involved_factions   <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references factions(id)</span>
+  subject_entity_id   <span class="sql-type">UUID</span>,    <span class="sql-comment">-- SOTA: primary subject</span>
+  verb                <span class="sql-type">TEXT</span>,    <span class="sql-comment">-- SOTA: action verb (e.g., "betrayed")</span>
+  object_entity_id    <span class="sql-type">UUID</span>,    <span class="sql-comment">-- SOTA: primary object</span>
+  story_time_ordinal  <span class="sql-type">INT</span>,     <span class="sql-comment">-- SOTA: story-time ordering (not narrative order)</span>
+  narrative_order     <span class="sql-type">INT</span>,     <span class="sql-comment">-- SOTA: order in which event appears in text</span>
+  scene_id            <span class="sql-type">UUID</span>,    <span class="sql-comment">-- SOTA: which scene this event belongs to</span>
+  embedding           <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,
+  created_at          <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      Events are the backbone of the timeline view. The <code>involved_*</code> UUID arrays allow
+      querying "all events involving character X" via <code>= ANY(involved_characters)</code>.
+      These are GIN-indexed for fast containment queries.
+    </p>
+    <div class="callout info">
+      <strong>story_time_ordinal vs narrative_order:</strong> Stories can tell events out of order (flashbacks, reveals).
+      <code>story_time_ordinal</code> is when it <em>happened</em> in the story world.
+      <code>narrative_order</code> is when the reader encountered it.
+    </div>
+  </section>
+
+  <section id="schema-relationships">
+    <h2>Schema: relationships</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> relationships (
+  id              <span class="sql-type">UUID</span>   <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  entity_a_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> entities,
+  entity_b_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> entities,
+  rel_type        <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>,  <span class="sql-comment">-- SINGLE value enforced: 'ally', 'enemy', 'mentor', etc.</span>
+  from_chapter    <span class="sql-type">INT</span>,
+  to_chapter      <span class="sql-type">INT</span>,
+  notes           <span class="sql-type">TEXT</span>,
+  sentiment       <span class="sql-type">FLOAT</span>,           <span class="sql-comment">-- SOTA: -1.0 to 1.0</span>
+  evidence_event_ids <span class="sql-type">UUID[]</span>,        <span class="sql-comment">-- SOTA: events that established this</span>
+  superseded_by_id   <span class="sql-type">UUID</span>,          <span class="sql-comment">-- SOTA: points to newer relationship row</span>
+  created_at      <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      Note: <code>rel_type</code> is a single text value per row — not an array. The extractor is
+      constrained to output one rel_type per relationship (enforced in extraction prompts after
+      commit <code>1af7156</code>).
+    </p>
+    <p>
+      When a relationship changes (e.g., allies become enemies), a <em>new row</em> is inserted
+      with <code>superseded_by_id</code> pointing from the old row to the new one.
+      This creates a linked-list history of relationship evolution.
+    </p>
+  </section>
+
+  <section id="schema-scenes">
+    <h2>Schema: scenes <span class="badge orange">SOTA</span></h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> scenes (
+  id                 <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  chapter_id         <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> chapters,
+  scene_index        <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- 0-indexed within chapter</span>
+  pov_character_id   <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> characters,
+  location_id        <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> locations,
+  time_anchor        <span class="sql-type">TEXT</span>,                       <span class="sql-comment">-- e.g. "dawn", "three days later"</span>
+  story_time_ordinal <span class="sql-type">INT</span>,                       <span class="sql-comment">-- ordering in story world</span>
+  present_characters <span class="sql-type">UUID[]</span>,                    <span class="sql-comment">-- all characters in scene</span>
+  summary            <span class="sql-type">TEXT</span>,
+  embedding          <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,
+  created_at         <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      Scenes subdivide chapters into narrative units. One chapter might have 2–5 scenes.
+      The <code>present_characters</code> array enables queries like "which scenes does Kira appear in?"
+    </p>
+  </section>
+
+  <section id="schema-canon">
+    <h2>Schema: canon_facts <span class="badge orange">SOTA</span></h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> canon_facts (
+  id               <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id         <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
+  kind             <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- 'identity', 'world_rule', 'relationship', 'object_property'</span>
+  subject_entity_id <span class="sql-type">UUID</span>       <span class="sql-constraint">REFERENCES</span> entities,
+  predicate        <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- e.g. "is_heir", "has_curse"</span>
+  value            <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- e.g. "true", "Ironwood Throne"</span>
+  source_chapter   <span class="sql-type">INT</span>,
+  confidence       <span class="sql-type">FLOAT</span>       <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
+  locked           <span class="sql-type">BOOLEAN</span>     <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">false</span>,
+  created_at       <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      When <code>locked=true</code>, the planned critic system will raise a hard error if a future
+      extraction contradicts this fact. When <code>locked=false</code>, it's a warning only.
+      The frontend Canon page shows these grouped by <code>subject_entity_id</code>.
+    </p>
+  </section>
+
+  <section id="schema-knows">
+    <h2>Schema: knows_edges <span class="badge orange">SOTA</span></h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> knows_edges (
+  id               <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  character_id     <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> characters,
+  fact_id          <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> canon_facts,
+  fact_description <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,
+  learned_chapter  <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
+  source_event_id  <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> events,
+  source_type      <span class="sql-type">TEXT</span>,        <span class="sql-comment">-- 'told', 'witnessed', 'deduced', 'read', 'overheard'</span>
+  certainty        <span class="sql-type">FLOAT</span>       <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
+  shared_with      <span class="sql-type">UUID[]</span>,     <span class="sql-comment">-- character_ids this character has told</span>
+  superseded_by_id <span class="sql-type">UUID</span>,
+  created_at       <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      Enables querying: "Which characters know that X is a spy?" or "What does Asha know and not know?"
+      The <code>certainty</code> field handles cases where a character suspects but isn't sure.
+    </p>
+  </section>
+
+  <section id="schema-commitments">
+    <h2>Schema: commitments <span class="badge orange">SOTA</span></h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> commitments (
+  id                  <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id            <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
+  foreshadow_text     <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,
+  foreshadow_chapter  <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
+  foreshadow_event_id <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> events,
+  trigger_predicate   <span class="sql-type">JSONB</span>,      <span class="sql-comment">-- structured condition for resolution</span>
+  payoff_text         <span class="sql-type">TEXT</span>,
+  payoff_chapter      <span class="sql-type">INT</span>,
+  payoff_event_id     <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> events,
+  status              <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'pending'</span>,
+                       <span class="sql-comment">-- CHECK status IN ('pending', 'satisfied', 'broken', 'abandoned')</span>
+  weight              <span class="sql-type">FLOAT</span>       <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
+  related_entity_ids  <span class="sql-type">UUID[]</span>,
+  embedding           <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,
+  created_at          <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now(),
+  updated_at          <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+    <p>
+      The <code>weight</code> field represents story importance — a Chekhov's gun that fires is
+      weight 1.0; a background detail that's never referenced is weight 0.1.
+      The <code>trigger_predicate</code> JSONB is future-facing: it describes the conditions under
+      which this commitment resolves, in a structure the critic can evaluate.
+    </p>
+  </section>
+
+  <section id="schema-bitemp">
+    <h2>Schema: Bitemporal Edges <span class="badge orange">SOTA</span></h2>
+    <p>Two tables tracking "who was where" and "who had what" over time.</p>
+
+    <pre><code><span class="sql-kw">CREATE TABLE</span> located_in_edges (
+  id               <span class="sql-type">UUID</span>    <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  entity_id        <span class="sql-type">UUID</span>    <span class="sql-constraint">NOT NULL REFERENCES</span> entities,
+  location_id      <span class="sql-type">UUID</span>    <span class="sql-constraint">NOT NULL REFERENCES</span> locations,
+  since_chapter    <span class="sql-type">INT</span>     <span class="sql-constraint">NOT NULL</span>,
+  until_chapter    <span class="sql-type">INT</span>,     <span class="sql-comment">-- NULL = still there</span>
+  evidence_event_id <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> events,
+  certainty        <span class="sql-type">FLOAT</span>   <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
+  superseded_by_id <span class="sql-type">UUID</span>
+);
+
+<span class="sql-kw">CREATE TABLE</span> possesses_edges (
+  id               <span class="sql-type">UUID</span>    <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  character_id     <span class="sql-type">UUID</span>    <span class="sql-constraint">NOT NULL REFERENCES</span> characters,
+  object_id        <span class="sql-type">UUID</span>    <span class="sql-constraint">NOT NULL REFERENCES</span> objects,
+  since_chapter    <span class="sql-type">INT</span>     <span class="sql-constraint">NOT NULL</span>,
+  until_chapter    <span class="sql-type">INT</span>,
+  evidence_event_id <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> events,
+  certainty        <span class="sql-type">FLOAT</span>   <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
+  superseded_by_id <span class="sql-type">UUID</span>
+);</code></pre>
+
+    <p>
+      To find where entity X is "right now" (at cap chapter N):
+    </p>
+    <pre><code><span class="sql-kw">SELECT</span> * <span class="sql-kw">FROM</span> located_in_edges
+<span class="sql-kw">WHERE</span> entity_id = X
+  <span class="sql-kw">AND</span> since_chapter &lt;= N
+  <span class="sql-kw">AND</span> (until_chapter <span class="sql-kw">IS NULL OR</span> until_chapter > N)
+<span class="sql-kw">ORDER BY</span> since_chapter <span class="sql-kw">DESC LIMIT</span> <span class="num">1</span>;</code></pre>
+  </section>
+
+
+  <!-- ══════════ API ENDPOINTS ══════════ -->
+
+  <section id="api-novels">
+    <h2>API: Novels</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels</code></td>
+          <td>List all novels. Returns <code>NovelSummary[]</code> — id, title, author, chapter_count</td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">POST</span></td>
+          <td><code>/api/novels</code></td>
+          <td>Create novel. Body: <code>{"title": "...", "author": "..."}</code>. Returns <code>NovelSummary</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{novel_id}</code></td>
+          <td>Get single novel detail</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="api-characters">
+    <h2>API: Characters</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query Params</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/characters</code></td>
+          <td><code>?cap=N</code></td>
+          <td>List characters. Each has <code>first_appearance_chapter</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/characters/{char_id}</code></td>
+          <td><code>?cap=N</code></td>
+          <td>Character detail: state history, events, relationships, dynamics</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>CharacterDetail shape</h3>
+    <pre><code>{
+  id, name, aliases, description, first_appearance_chapter,
+  state_history: [{ chapter_number, location_name, emotional_state, goals, knowledge, ... }],
+  events: [{ chapter_number, description, event_type, impact_level }],
+  relationships: [{ other_entity_name, rel_type, from_chapter, to_chapter, notes }],
+  dynamics: [{ other_entity_name, chapter_number, description }]
+}</code></pre>
+  </section>
+
+  <section id="api-timeline">
+    <h2>API: Timeline / Events</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query Params</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/timeline</code></td>
+          <td><code>?cap=N</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Returns events grouped by chapter: <code>ChapterEvent[]</code> with chapter_number, chapter_title, and the event fields.</p>
+  </section>
+
+  <section id="api-threads">
+    <h2>API: Plot Threads</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query Params</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/threads</code></td>
+          <td><code>?cap=N&amp;status=open|closed|all</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Returns <code>PlotThread[]</code> each with a <code>thread_events: ThreadEventLink[]</code> array.</p>
+  </section>
+
+  <section id="api-relationships">
+    <h2>API: Relationships Graph</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query Params</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/relationships</code></td>
+          <td><code>?cap=N</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Returns <code>RelationshipGraph</code>: <code>{"nodes": GraphNode[], "edges": GraphEdge[]}</code>.</p>
+    <p>The frontend renders this with <strong>vis-network</strong>. Nodes are entity names; edges are labeled with <code>rel_type</code>.</p>
+  </section>
+
+  <section id="api-sota">
+    <h2>API: SOTA Endpoints <span class="badge orange">New in this branch</span></h2>
+
+    <table>
+      <thead><tr><th>Path</th><th>Params</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>/api/novels/{id}/scenes</code></td>
+          <td><code>?cap=N</code></td>
+          <td><code>SceneRow[]</code> — pov_character_name, location_name, time_anchor, present_character_names[], summary</td>
+        </tr>
+        <tr>
+          <td><code>/api/novels/{id}/commitments</code></td>
+          <td><code>?cap=N&amp;status=pending|satisfied|broken|abandoned</code></td>
+          <td><code>CommitmentRow[]</code> — foreshadow_text, foreshadow_chapter, payoff_text, payoff_chapter, status, weight</td>
+        </tr>
+        <tr>
+          <td><code>/api/novels/{id}/canon</code></td>
+          <td><code>?cap=N&amp;locked=true|false</code></td>
+          <td><code>CanonFactRow[]</code> — grouped by subject entity in frontend</td>
+        </tr>
+        <tr>
+          <td><code>/api/novels/{id}/knowledge/knows</code></td>
+          <td><code>?cap=N&amp;character_id=UUID</code></td>
+          <td><code>KnowsEdgeRow[]</code> — character_name, fact_description, learned_chapter, source_type, certainty, shared_with[]</td>
+        </tr>
+        <tr>
+          <td><code>/api/novels/{id}/knowledge/locations</code></td>
+          <td><code>?cap=N&amp;active=true</code></td>
+          <td><code>LocationEdgeRow[]</code> — entity_name, location_name, since_chapter, until_chapter</td>
+        </tr>
+        <tr>
+          <td><code>/api/novels/{id}/knowledge/possessions</code></td>
+          <td><code>?cap=N&amp;active=true</code></td>
+          <td><code>PossessionEdgeRow[]</code> — character_name, object_name, since_chapter, until_chapter</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="api-process">
+    <h2>API: Chapter Processing</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge blue">POST</span></td>
+          <td><code>/api/novels/{id}/process</code></td>
+          <td>Submit chapter for async processing. Returns <code>{"job_id": "..."}</code></td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/jobs/{job_id}</code></td>
+          <td>Poll job status. Returns <code>{"status": "running|done|error", "error": "..."}</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>In-memory job tracking.</strong> Jobs are stored in a module-level dict in <code>jobs.py</code>.
+      Restarting the API server loses all pending job statuses. The frontend polls this every 2 seconds
+      while a job is running.
+    </div>
+  </section>
+
+
+  <!-- ══════════ FRONTEND ══════════ -->
+
+  <section id="fe-types">
+    <h2>Frontend: TypeScript Types</h2>
+    <p>
+      All types are in <code>frontend/src/api.ts</code>. They must mirror the Pydantic schemas in
+      <code>backend/api/schemas.py</code>. When you add a field to a Pydantic model,
+      add it to the corresponding TypeScript interface too.
+    </p>
+
+    <pre><code><span class="cmt">// Example from api.ts</span>
+<span class="kw">export interface</span> <span class="type">SceneRow</span> {
+  id: <span class="type">string</span>;
+  chapter_number: <span class="type">number</span>;
+  scene_index: <span class="type">number</span>;
+  pov_character_name: <span class="type">string</span> | <span class="kw">null</span>;
+  location_name: <span class="type">string</span> | <span class="kw">null</span>;
+  time_anchor: <span class="type">string</span> | <span class="kw">null</span>;
+  present_character_names: <span class="type">string</span>[];
+  summary: <span class="type">string</span> | <span class="kw">null</span>;
+}
+
+<span class="kw">export const</span> api = {
+  scenes: (novelId: <span class="type">string</span>, cap?: <span class="type">number</span>) =>
+    fetch(<span class="str">`/api/novels/${novelId}/scenes${cap ? `?cap=${cap}` : ''}`</span>)
+      .then(r => r.json() <span class="kw">as</span> <span class="type">Promise</span>&lt;<span class="type">SceneRow</span>[]&gt;),
+  ...
+};</code></pre>
+  </section>
+
+  <section id="fe-query-pattern">
+    <h2>Frontend: Query Pattern</h2>
+    <p>
+      All server data fetching uses <code>@tanstack/react-query</code>. The pattern is consistent
+      across all 20 pages:
+    </p>
+
+    <pre><code><span class="kw">import</span> { useQuery } <span class="kw">from</span> <span class="str">'@tanstack/react-query'</span>;
+<span class="kw">import</span> { useParams } <span class="kw">from</span> <span class="str">'react-router-dom'</span>;
+<span class="kw">import</span> { useChapterCap } <span class="kw">from</span> <span class="str">'../hooks/useChapterCap'</span>;
+<span class="kw">import</span> { api } <span class="kw">from</span> <span class="str">'../api'</span>;
+
+<span class="kw">export function</span> <span class="fn">Scenes</span>() {
+  <span class="kw">const</span> { novelId } = useParams();
+  <span class="kw">const</span> cap = useChapterCap();
+
+  <span class="kw">const</span> { data, isLoading, error } = useQuery({
+    queryKey: [<span class="str">'scenes'</span>, novelId, cap],
+    queryFn: () => api.scenes(novelId!, cap),
+    enabled: !!novelId,
+  });
+
+  <span class="kw">if</span> (isLoading) <span class="kw">return</span> &lt;p&gt;Loading...&lt;/p&gt;;
+  <span class="kw">if</span> (error) <span class="kw">return</span> &lt;p&gt;Error loading scenes.&lt;/p&gt;;
+  <span class="kw">return</span> &lt;SceneTable scenes={data ?? []} /&gt;;
+}</code></pre>
+
+    <p>
+      The <code>queryKey</code> array includes <code>cap</code> so React Query refetches automatically
+      when the chapter cap slider changes.
+    </p>
+  </section>
+
+  <section id="fe-new-page">
+    <h2>Frontend: Adding a New Page</h2>
+    <p>Checklist for adding a new wiki page:</p>
+    <ol style="color: var(--text-muted); padding-left: 20px; line-height: 2;">
+      <li>Add the API function to <code>api.ts</code> (fetch + TypeScript type)</li>
+      <li>Create the route component in <code>src/routes/MyPage.tsx</code></li>
+      <li>Add the route to <code>App.tsx</code> under the novel layout</li>
+      <li>Add the nav link to <code>Sidebar.tsx</code></li>
+      <li>Use <code>useChapterCap()</code> and pass <code>cap</code> to the API call</li>
+      <li>Add <code>cap</code> to the React Query <code>queryKey</code></li>
+    </ol>
+    <div class="callout tip">
+      <strong>Pattern to copy:</strong> <code>Scenes.tsx</code> is the cleanest example of a new SOTA page.
+      It follows all the conventions above and was written specifically for this branch.
+    </div>
+  </section>
+
+</main>
+
+<script>
+const sections = document.querySelectorAll('section[id], h2[id], h3[id]');
+const links = document.querySelectorAll('.sidebar a[href^="#"]');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      links.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+      });
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>
