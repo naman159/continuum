@@ -82,12 +82,13 @@ def get_job(job_id: str) -> JobRecord | None:
 def submit_job(*, novel_id: str, chapter_number: int, text: str) -> str:
     from pipeline.config import settings
     from pipeline.extraction.chunker import sliding_window_chunks
+    from pipeline.extraction.prompts import PASS_ORDER
     from pipeline.pipeline import process_chapter
 
     chunks = sliding_window_chunks(
         text, chunk_size=settings.chunk_size, overlap=settings.chunk_overlap
     )
-    total_passes = len(chunks) * 6 + 1  # 6 extraction passes per chunk + 1 canonicalization
+    total_passes = len(chunks) * len(PASS_ORDER) + 2  # PASS_ORDER passes per chunk + intra_dedup + canonicalization
 
     job_id = _job_store.create(total_passes=total_passes)
     tracker = ProgressTracker(job_id=job_id, store=_job_store)

@@ -16,6 +16,12 @@ from pipeline.extraction.canonicalizer import (
 )
 from pipeline.extraction.chunker import sliding_window_chunks
 from pipeline.extraction.extractor import ChapterExtractor
+from pipeline.extraction.persist_extras import (
+    persist_commitments,
+    persist_knows_edges,
+    persist_multi_summaries,
+    persist_scenes,
+)
 from pipeline.extraction.resolver import EntityResolver
 from pipeline.ingestion.ingest import ingest_chapter
 
@@ -215,6 +221,40 @@ def process_chapter(
             WHERE id = %s
             """,
             (extracted.get("summary", ""), chapter_id),
+        )
+
+        persist_multi_summaries(
+            db,
+            chapter_id=chapter_id,
+            summary_short=extracted.get("summary_short", ""),
+            summary_medium=extracted.get("summary_medium", ""),
+            summary_long=extracted.get("summary_long", ""),
+            embedder=embedding_service,
+        )
+
+        persist_scenes(
+            db,
+            chapter_id=chapter_id,
+            scenes_data=extracted.get("scenes", []),
+            resolver=resolver,
+            embedder=embedding_service,
+        )
+
+        persist_knows_edges(
+            db,
+            chapter_number=chapter_number,
+            learnings=extracted.get("learnings", []),
+            resolver=resolver,
+        )
+
+        persist_commitments(
+            db,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            foreshadows=extracted.get("foreshadows_introduced", []),
+            payoffs=extracted.get("payoffs_delivered", []),
+            resolver=resolver,
+            embedder=embedding_service,
         )
 
         return {
