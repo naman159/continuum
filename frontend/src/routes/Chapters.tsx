@@ -24,7 +24,7 @@ export default function Chapters() {
             <tr key={c.id}>
               <td>{c.number}</td>
               <td>{c.title ?? "—"}</td>
-              <td>{c.summary ?? "—"}</td>
+              <td>{c.summary_short ?? c.summary ?? "—"}</td>
               <td>{c.processed_at ?? "—"}</td>
             </tr>
           ))}
