@@ -168,6 +168,7 @@
   <a href="#schema-novels">novels</a>
   <a href="#schema-chapters">chapters</a>
   <a href="#schema-entities">entities</a>
+  <a href="#schema-entity-types">novel_entity_types</a>
   <a href="#schema-characters">characters</a>
   <a href="#schema-events">events</a>
   <a href="#schema-relationships">relationships</a>
@@ -179,6 +180,7 @@
 
   <div class="sidebar-section">API Endpoints</div>
   <a href="#api-novels">Novels</a>
+  <a href="#api-entity-types">Entity Types</a>
   <a href="#api-characters">Characters</a>
   <a href="#api-timeline">Timeline / Events</a>
   <a href="#api-threads">Plot Threads</a>
@@ -655,16 +657,42 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <pre><code><span class="sql-kw">CREATE TABLE</span> entities (
   id          <span class="sql-type">UUID</span>     <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   novel_id    <span class="sql-type">UUID</span>     <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
-  entity_type <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL CHECK</span>(entity_type <span class="sql-kw">IN</span> (
-                <span class="sql-val">'character'</span>, <span class="sql-val">'location'</span>, <span class="sql-val">'faction'</span>, <span class="sql-val">'object'</span>)),
-  name        <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>
+  entity_type <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
+  name        <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
+  <span class="sql-constraint">UNIQUE</span>(novel_id, entity_type, name)
 );</code></pre>
     <p>
-      The universal entity table. Every character, location, faction, and object gets a row here first,
-      then a row in the specific table. This enables cross-entity relationships —
-      the <code>relationships</code> table references <code>entities(id)</code>, not
-      <code>characters(id)</code>, so a character-to-faction relationship is just as easy
-      as a character-to-character relationship.
+      The universal entity table. Every character, location, faction, object, and user-defined custom entity
+      gets a row here first. The 4 hardcoded types (<code>character</code>, <code>location</code>,
+      <code>faction</code>, <code>object</code>) also get a row in their dedicated table.
+      User-defined types (e.g. <code>realm</code>, <code>deity</code>) live <em>only</em> in this table —
+      no dedicated table. The <code>CHECK</code> constraint on <code>entity_type</code> was removed to allow
+      arbitrary type values from <code>novel_entity_types</code>.
+    </p>
+    <p>
+      The <code>relationships</code> table references <code>entities(id)</code> so cross-type relationships
+      (character→realm, character→faction) all work with the same join.
+    </p>
+  </section>
+
+  <section id="schema-entity-types">
+    <h2>Schema: novel_entity_types</h2>
+    <pre><code><span class="sql-kw">CREATE TABLE</span> novel_entity_types (
+  id          <span class="sql-type">UUID</span>     <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id    <span class="sql-type">UUID</span>     <span class="sql-constraint">NOT NULL REFERENCES</span> novels <span class="sql-constraint">ON DELETE CASCADE</span>,
+  name        <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
+  description <span class="sql-type">TEXT</span>,
+  <span class="sql-constraint">UNIQUE</span>(novel_id, name)
+);</code></pre>
+    <p>
+      Stores user-defined entity type definitions per novel. Created at novel-creation time via the
+      genre-preset picker or manual entry. The pipeline reads these at extraction time to inject the
+      custom type schema into the LLM prompt.
+    </p>
+    <p>
+      Genre presets (LitRPG, High Fantasy, Xianxia, Sci-Fi, Contemporary) seed the picker with
+      recommended types for each genre. Each preset provides <code>name</code> and
+      <code>description</code> for the LLM to understand what to extract.
     </p>
   </section>
 
@@ -906,12 +934,42 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels</code></td>
-          <td>Create novel. Body: <code>{"title": "...", "author": "..."}</code>. Returns <code>NovelSummary</code></td>
+          <td>Create novel. Body: <code>{"title": "...", "author": "...", "custom_entity_types": [{"name": "realm", "description": "..."}]}</code>. Returns <code>NovelSummary</code>. The <code>custom_entity_types</code> array is optional (defaults to empty).</td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{novel_id}</code></td>
           <td>Get single novel detail</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="api-entity-types">
+    <h2>API: Entity Types</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/genres</code></td>
+          <td>List genre presets. Returns <code>[{id, label, types: [{name, description}]}]</code>. Used to seed the novel-creation form.</td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{novel_id}/entity-types</code></td>
+          <td>List all user-defined entity types for the novel. Returns <code>NovelEntityType[]</code> — id, novel_id, name, description.</td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{novel_id}/entity-types/{type_name}/entities</code></td>
+          <td>List custom entities of a given type. Returns <code>CustomEntitySummary[]</code> — id, name, entity_type, description.</td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{novel_id}/custom-entities/{entity_id}</code></td>
+          <td>Get detail for a single custom entity. Returns <code>CustomEntityDetail</code> — id, name, entity_type, description, relationships[].</td>
         </tr>
       </tbody>
     </table>
