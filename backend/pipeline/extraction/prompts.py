@@ -176,8 +176,17 @@ def build_context_block(context: dict) -> str:
     ).strip()
 
 
-def build_system_prompt(pass_name: str) -> str:
+def build_system_prompt(pass_name: str, custom_entity_types: list[dict] | None = None) -> str:
     schema = PASS_SCHEMAS[pass_name]
+    if pass_name == "new_entities" and custom_entity_types:
+        schema = dict(schema)
+        schema["custom_entities"] = [
+            {
+                "name": "string",
+                "type": " | ".join(t["name"] for t in custom_entity_types),
+                "description": "string",
+            }
+        ]
     return dedent(
         f"""
         You are an extraction engine for a novel continuity pipeline.
@@ -361,11 +370,32 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
 }
 
 
-def build_user_prompt(pass_name: str, chunk: str, context: dict) -> str:
+def build_user_prompt(pass_name: str, chunk: str, context: dict, custom_entity_types: list[dict] | None = None) -> str:
     context_block = build_context_block(context)
     task = PASS_TASK_INSTRUCTIONS.get(
         pass_name, f"Execute the {pass_name} pass and return JSON only."
     )
+    custom_block = ""
+    if pass_name == "new_entities" and custom_entity_types:
+        type_lines = "\n".join(
+            f"  - {t['name']}: {t.get('description', '')}"
+            for t in custom_entity_types
+        )
+        existing_custom = context.get("custom_entities", {})
+        existing_lines = ""
+        for type_name, items in existing_custom.items():
+            if items:
+                names = ", ".join(i["name"] for i in items)
+                existing_lines += f"\n  {type_name} (already known): {names}"
+        custom_block = dedent(f"""
+        CUSTOM ENTITY TYPES FOR THIS NOVEL
+        Extract entities of these types into the custom_entities array:
+        {type_lines}
+
+        Only extract if genuinely new and not already in STORY CONTEXT.
+        Each item: {{name, type (one of the types above), description}}.
+        {existing_lines}
+        """).strip()
     return dedent(
         f"""
         {context_block}
@@ -375,6 +405,7 @@ def build_user_prompt(pass_name: str, chunk: str, context: dict) -> str:
 
         TASK
         {task}
+        {custom_block}
         Return JSON only.
         """
     ).strip()
