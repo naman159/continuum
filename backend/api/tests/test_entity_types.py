@@ -50,3 +50,66 @@ def test_list_entity_types(fake_db_factory, client):
     body = response.json()
     names = {t["name"] for t in body}
     assert names == {"realm", "power_system"}
+
+
+def test_list_custom_entities(fake_db_factory, client):
+    novel = make_novel()
+    entity_id = uuid4()
+    fake_db_factory(
+        novels=[novel],
+        chapters=[make_chapter(novel["id"], 1)],
+        novel_entity_types=[
+            {"id": uuid4(), "novel_id": novel["id"], "name": "realm", "description": "A dimension."},
+        ],
+        entities=[
+            {"id": entity_id, "novel_id": novel["id"], "entity_type": "realm", "name": "The 93rd Universe"},
+        ],
+    )
+    response = client.get(f"/api/novels/{novel['id']}/entity-types/realm/entities")
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["name"] == "The 93rd Universe"
+    assert body[0]["entity_type"] == "realm"
+
+
+def test_get_custom_entity_detail(fake_db_factory, client):
+    novel = make_novel()
+    entity_id = uuid4()
+    other_entity_id = uuid4()
+    fake_db_factory(
+        novels=[novel],
+        chapters=[make_chapter(novel["id"], 1)],
+        novel_entity_types=[
+            {"id": uuid4(), "novel_id": novel["id"], "name": "realm", "description": "A dimension."},
+        ],
+        entities=[
+            {"id": entity_id, "novel_id": novel["id"], "entity_type": "realm", "name": "The 93rd Universe"},
+            {"id": other_entity_id, "novel_id": novel["id"], "entity_type": "character", "name": "Jake"},
+        ],
+        relationships=[
+            {
+                "id": uuid4(),
+                "entity_a_id": other_entity_id,
+                "entity_b_id": entity_id,
+                "rel_type": "inhabits",
+                "from_chapter": 1,
+                "to_chapter": None,
+                "notes": None,
+            }
+        ],
+    )
+    response = client.get(f"/api/novels/{novel['id']}/custom-entities/{entity_id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "The 93rd Universe"
+    assert body["entity_type"] == "realm"
+    assert len(body["relationships"]) == 1
+    assert body["relationships"][0]["rel_type"] == "inhabits"
+
+
+def test_get_custom_entity_detail_404(fake_db_factory, client):
+    novel = make_novel()
+    fake_db_factory(novels=[novel], chapters=[], entities=[])
+    response = client.get(f"/api/novels/{novel['id']}/custom-entities/00000000-0000-0000-0000-000000000001")
+    assert response.status_code == 404

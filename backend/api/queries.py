@@ -1641,8 +1641,113 @@ def list_entity_types(novel_id: UUID) -> list[dict[str, Any]]:
 
 
 def list_custom_entities(novel_id: UUID, entity_type: str) -> list[dict[str, Any]]:
-    return []
+    db = _get_db()
+    if hasattr(db, "entities"):
+        return [
+            {
+                "id": str(e["id"]),
+                "name": e["name"],
+                "entity_type": e["entity_type"],
+                "description": e.get("description"),
+            }
+            for e in db.entities
+            if e.get("novel_id") == novel_id and e.get("entity_type") == entity_type
+        ]
+    rows = db.fetchall(
+        """
+        SELECT id, name, entity_type, NULL AS description
+        FROM entities
+        WHERE novel_id = %s AND entity_type = %s
+        ORDER BY name
+        """,
+        (str(novel_id), entity_type),
+        dict_rows=True,
+    )
+    return [
+        {"id": str(r["id"]), "name": r["name"], "entity_type": r["entity_type"], "description": r.get("description")}
+        for r in rows
+    ]
 
 
 def get_custom_entity_detail(novel_id: UUID, entity_id: UUID) -> dict[str, Any] | None:
-    return None
+    db = _get_db()
+    if hasattr(db, "entities"):
+        entity = next(
+            (e for e in db.entities if e["id"] == entity_id and e.get("novel_id") == novel_id),
+            None,
+        )
+        if entity is None:
+            return None
+        entity_id_str = str(entity_id)
+        rels = [
+            r for r in db.relationships
+            if str(r["entity_a_id"]) == entity_id_str or str(r["entity_b_id"]) == entity_id_str
+        ]
+        entity_by_id = {str(e["id"]): e for e in db.entities}
+        relationships = []
+        for r in rels:
+            if str(r["entity_a_id"]) == entity_id_str:
+                other_id = str(r["entity_b_id"])
+                direction = "from"
+            else:
+                other_id = str(r["entity_a_id"])
+                direction = "to"
+            other = entity_by_id.get(other_id, {})
+            relationships.append({
+                "other_entity_name": other.get("name", other_id),
+                "other_entity_type": other.get("entity_type", "unknown"),
+                "direction": direction,
+                "rel_type": r.get("rel_type"),
+                "from_chapter": r.get("from_chapter"),
+                "to_chapter": r.get("to_chapter"),
+                "notes": r.get("notes"),
+            })
+        return {
+            "id": entity_id_str,
+            "name": entity["name"],
+            "entity_type": entity["entity_type"],
+            "description": entity.get("description"),
+            "relationships": relationships,
+        }
+    row = db.fetchone(
+        "SELECT id, name, entity_type FROM entities WHERE id = %s AND novel_id = %s",
+        (str(entity_id), str(novel_id)),
+        dict_rows=True,
+    )
+    if row is None:
+        return None
+    rels_rows = db.fetchall(
+        """
+        SELECT r.entity_a_id, r.entity_b_id, r.rel_type, r.from_chapter, r.to_chapter, r.notes,
+               ea.name AS name_a, ea.entity_type AS type_a,
+               eb.name AS name_b, eb.entity_type AS type_b
+        FROM relationships r
+        JOIN entities ea ON ea.id = r.entity_a_id
+        JOIN entities eb ON eb.id = r.entity_b_id
+        WHERE r.entity_a_id = %s OR r.entity_b_id = %s
+        """,
+        (str(entity_id), str(entity_id)),
+        dict_rows=True,
+    )
+    relationships = []
+    for r in rels_rows:
+        if str(r["entity_a_id"]) == str(entity_id):
+            other_name, other_type, direction = r["name_b"], r["type_b"], "from"
+        else:
+            other_name, other_type, direction = r["name_a"], r["type_a"], "to"
+        relationships.append({
+            "other_entity_name": other_name,
+            "other_entity_type": other_type,
+            "direction": direction,
+            "rel_type": r.get("rel_type"),
+            "from_chapter": r.get("from_chapter"),
+            "to_chapter": r.get("to_chapter"),
+            "notes": r.get("notes"),
+        })
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "entity_type": row["entity_type"],
+        "description": None,
+        "relationships": relationships,
+    }
