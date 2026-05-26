@@ -1885,6 +1885,33 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
                 "description": sd.get("description"),
             })
 
+        char_by_id = {c["id"]: c for c in db.characters}
+        loc_by_id = {l["id"]: l for l in db.locations}
+
+        for ev in db.events:
+            chap = chapter_by_id.get(ev.get("chapter_id"))
+            if chap is None or chap.get("novel_id") != novel_id:
+                continue
+            if chap["number"] > effective_cap:
+                continue
+            desc = ev.get("description") or ""
+            char_eids = [
+                char_by_id[cid]["entity_id"]
+                for cid in (ev.get("involved_characters") or [])
+                if cid in char_by_id and char_by_id[cid]["entity_id"] in entity_id_set
+            ]
+            loc_eids = [
+                loc_by_id[lid]["entity_id"]
+                for lid in (ev.get("involved_locations") or [])
+                if lid in loc_by_id and loc_by_id[lid]["entity_id"] in entity_id_set
+            ]
+            for i, eid_a in enumerate(char_eids):
+                for eid_b in char_eids[i + 1:]:
+                    raw_story.append({"from": str(eid_a), "to": str(eid_b), "edge_kind": "event", "description": desc})
+            for eid_c in char_eids:
+                for eid_l in loc_eids:
+                    raw_story.append({"from": str(eid_c), "to": str(eid_l), "edge_kind": "event", "description": desc})
+
         return {"nodes": nodes, "edges": edges}
 
     # Real DB path
@@ -1949,5 +1976,43 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         dict_rows=True,
     )
     raw_story.extend(dict(r) for r in dyn_rows)
+
+    ev_char_rows = db.fetchall(
+        """
+        SELECT ca.entity_id::text AS "from",
+               cb.entity_id::text AS "to",
+               'event'            AS edge_kind,
+               e.description      AS description
+        FROM events e
+        JOIN chapters ch ON ch.id = e.chapter_id
+        JOIN characters ca ON ca.id = ANY(e.involved_characters)
+        JOIN characters cb ON cb.id = ANY(e.involved_characters) AND cb.id > ca.id
+        JOIN entities ea ON ea.id = ca.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = cb.entity_id AND eb.novel_id = %s
+        WHERE ch.number <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in ev_char_rows)
+
+    ev_loc_rows = db.fetchall(
+        """
+        SELECT c.entity_id::text AS "from",
+               l.entity_id::text AS "to",
+               'event'           AS edge_kind,
+               e.description     AS description
+        FROM events e
+        JOIN chapters ch ON ch.id = e.chapter_id
+        JOIN characters c ON c.id = ANY(e.involved_characters)
+        JOIN locations  l ON l.id = ANY(e.involved_locations)
+        JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = l.entity_id AND eb.novel_id = %s
+        WHERE ch.number <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in ev_loc_rows)
 
     return {"nodes": nodes_list, "edges": edges_list}
