@@ -1895,16 +1895,16 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
             if chap["number"] > effective_cap:
                 continue
             desc = ev.get("description") or ""
-            char_eids = [
+            char_eids = sorted(set(
                 char_by_id[cid]["entity_id"]
                 for cid in (ev.get("involved_characters") or [])
                 if cid in char_by_id and char_by_id[cid]["entity_id"] in entity_id_set
-            ]
-            loc_eids = [
+            ))
+            loc_eids = sorted(set(
                 loc_by_id[lid]["entity_id"]
                 for lid in (ev.get("involved_locations") or [])
                 if lid in loc_by_id and loc_by_id[lid]["entity_id"] in entity_id_set
-            ]
+            ))
             for i, eid_a in enumerate(char_eids):
                 for eid_b in char_eids[i + 1:]:
                     raw_story.append({"from": str(eid_a), "to": str(eid_b), "edge_kind": "event", "description": desc})
