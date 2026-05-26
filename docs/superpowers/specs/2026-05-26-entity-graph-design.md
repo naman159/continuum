@@ -5,6 +5,8 @@
 
 ## Overview
 
+> **Extended:** See `2026-05-26-entity-graph-rich-edges-design.md` for the follow-up that adds shared_dynamics, events co-occurrence, possesses, and located_in edges.
+
 A new "Entity Graph" page and nav item that renders a force-directed graph of all entity types in a novel — characters, locations, objects, factions, and custom entities — connected by their relationships. The existing Relationships page (character-only) is unchanged.
 
 ## Scope
