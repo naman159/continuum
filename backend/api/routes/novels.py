@@ -19,7 +19,8 @@ def list_novels() -> list[NovelSummary]:
 def create_novel(body: NovelCreate) -> NovelSummary:
     if not body.title or not body.title.strip():
         raise HTTPException(status_code=422, detail="title must not be blank")
-    row = queries.create_novel(body.title.strip(), body.author, body.language)
+    custom_types = [{"name": t.name, "description": t.description} for t in body.custom_entity_types]
+    row = queries.create_novel(body.title.strip(), body.author, body.language, custom_types)
     return NovelSummary(**row)
 
 
