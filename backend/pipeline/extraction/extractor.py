@@ -41,6 +41,7 @@ def empty_extraction() -> dict[str, Any]:
         "learnings": [],
         "foreshadows_introduced": [],
         "payoffs_delivered": [],
+        "custom_entities": [],
     }
 
 
@@ -147,6 +148,13 @@ def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
     payoffs = raw.get("payoffs_delivered", [])
     if isinstance(payoffs, list):
         output["payoffs_delivered"] = [item for item in payoffs if isinstance(item, dict)]
+
+    custom_entities = raw.get("custom_entities", [])
+    if isinstance(custom_entities, list):
+        output["custom_entities"] = [
+            item for item in custom_entities
+            if isinstance(item, dict) and item.get("name") and item.get("type")
+        ]
 
     return output
 
@@ -333,6 +341,18 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             seen_payoffs.add(text)
             merged["payoffs_delivered"].append(payoff)
 
+    # Custom entities: dedupe by (name.lower(), type).
+    seen_custom: set[tuple[str, str]] = set()
+    for extraction in extractions:
+        for ce in extraction.get("custom_entities", []):
+            if not isinstance(ce, dict):
+                continue
+            key = (str(ce.get("name", "")).strip().lower(), str(ce.get("type", "")).strip().lower())
+            if not key[0] or not key[1] or key in seen_custom:
+                continue
+            seen_custom.add(key)
+            merged["custom_entities"].append(ce)
+
     return merged
 
 
@@ -345,16 +365,26 @@ class ChapterExtractor:
             self.use_mock = use_mock
 
     def extract_chapter(
-        self, chunks: list[str], context: dict[str, Any], progress: Any | None = None
+        self,
+        chunks: list[str],
+        context: dict[str, Any],
+        progress: Any | None = None,
+        custom_entity_types: list[dict] | None = None,
     ) -> dict[str, Any]:
         if not chunks:
             return empty_extraction()
-
-        results = [self.extract_chunk(chunk, context, progress=progress) for chunk in chunks]
+        results = [
+            self.extract_chunk(chunk, context, progress=progress, custom_entity_types=custom_entity_types)
+            for chunk in chunks
+        ]
         return merge_extractions(results)
 
     def extract_chunk(
-        self, chunk: str, context: dict[str, Any], progress: Any | None = None
+        self,
+        chunk: str,
+        context: dict[str, Any],
+        progress: Any | None = None,
+        custom_entity_types: list[dict] | None = None,
     ) -> dict[str, Any]:
         if self.use_mock:
             return self._mock_extract(chunk, context)
@@ -363,7 +393,7 @@ class ChapterExtractor:
         for pass_name in PASS_ORDER:
             if progress is not None:
                 progress.on_pass_start(pass_name)
-            payload = self._run_llm_pass(pass_name, chunk, context)
+            payload = self._run_llm_pass(pass_name, chunk, context, custom_entity_types=custom_entity_types)
             if progress is not None:
                 progress.on_pass_done(pass_name)
             pass_payload[pass_name] = payload
@@ -371,13 +401,19 @@ class ChapterExtractor:
         normalized = self._compose_from_pass_payload(pass_payload)
         return _normalize_extraction(normalized)
 
-    def _run_llm_pass(self, pass_name: str, chunk: str, context: dict[str, Any]) -> dict[str, Any]:
+    def _run_llm_pass(
+        self,
+        pass_name: str,
+        chunk: str,
+        context: dict[str, Any],
+        custom_entity_types: list[dict] | None = None,
+    ) -> dict[str, Any]:
         completion = _load_completion()
         if completion is None:
             return {}
 
-        system_prompt = build_system_prompt(pass_name)
-        user_prompt = build_user_prompt(pass_name, chunk, context)
+        system_prompt = build_system_prompt(pass_name, custom_entity_types=custom_entity_types)
+        user_prompt = build_user_prompt(pass_name, chunk, context, custom_entity_types=custom_entity_types)
 
         try:
             response = completion(
@@ -428,6 +464,7 @@ class ChapterExtractor:
             "learnings": knowledge_state.get("learnings", []),
             "foreshadows_introduced": commitments.get("foreshadows_introduced", []),
             "payoffs_delivered": commitments.get("payoffs_delivered", []),
+            "custom_entities": new_entities.get("custom_entities", []),
         }
 
     def _mock_extract(self, chunk: str, context: dict[str, Any]) -> dict[str, Any]:

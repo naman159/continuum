@@ -80,7 +80,12 @@ def list_novels() -> list[dict[str, Any]]:
         return [dict(row) for row in rows]
 
 
-def load_story_context(db: DBClient, novel_id: str, chapter_number: int) -> dict[str, Any]:
+def load_story_context(
+    db: DBClient,
+    novel_id: str,
+    chapter_number: int,
+    custom_entity_types: list[dict] | None = None,
+) -> dict[str, Any]:
     characters = db.fetchall(
         """
         SELECT c.id, c.name, c.aliases,
@@ -145,11 +150,22 @@ def load_story_context(db: DBClient, novel_id: str, chapter_number: int) -> dict
         dict_rows=True,
     )
 
+    custom_entities: dict[str, list[dict]] = {}
+    for et in (custom_entity_types or []):
+        type_name = et["name"]
+        rows = db.fetchall(
+            "SELECT name FROM entities WHERE novel_id = %s AND entity_type = %s ORDER BY name",
+            (novel_id, type_name),
+            dict_rows=True,
+        )
+        custom_entities[type_name] = [{"name": r["name"]} for r in rows]
+
     return {
         "characters": [dict(row) for row in characters],
         "locations": [dict(row) for row in locations],
         "open_threads": [dict(row) for row in open_threads],
         "recent_events": [dict(row) for row in recent_events],
+        "custom_entities": custom_entities,
     }
 
 
@@ -173,10 +189,24 @@ def process_chapter(
             raw_text=raw_text,
         )
 
-        context = load_story_context(db, novel_id, chapter_number)
+        custom_entity_types = [
+            dict(r)
+            for r in db.fetchall(
+                "SELECT name, description FROM novel_entity_types WHERE novel_id = %s ORDER BY name",
+                (novel_id,),
+                dict_rows=True,
+            )
+        ]
+
+        context = load_story_context(db, novel_id, chapter_number, custom_entity_types=custom_entity_types)
         chunks = sliding_window_chunks(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
         extractor = ChapterExtractor(use_mock=use_mock_llm)
-        extracted = extractor.extract_chapter(chunks=chunks, context=context, progress=progress)
+        extracted = extractor.extract_chapter(
+            chunks=chunks,
+            context=context,
+            progress=progress,
+            custom_entity_types=custom_entity_types or None,
+        )
 
         if progress is not None:
             progress.on_pass_start("intra_dedup")
