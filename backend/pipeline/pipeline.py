@@ -333,6 +333,13 @@ def _persist_extraction(
             continue
         resolver.resolve_object(name, obj)
 
+    for custom_entity in extracted.get("custom_entities", []):
+        name = str(custom_entity.get("name", "")).strip()
+        entity_type = str(custom_entity.get("type", "")).strip()
+        if not name or not entity_type:
+            continue
+        resolver.resolve_custom_entity(name, entity_type, custom_entity)
+
     for delta in extracted.get("entity_deltas", []):
         character_name = str(delta.get("character_name", "")).strip()
         if not character_name:
