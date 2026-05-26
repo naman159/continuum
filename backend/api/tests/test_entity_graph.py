@@ -263,10 +263,15 @@ def test_entity_graph_event_cooccurrence_char_char(fake_db_factory, client):
     )
     resp = client.get(f"/api/novels/{novel['id']}/entity-graph")
     assert resp.status_code == 200
-    edges = resp.json()["edges"]
+    body = resp.json()
+    edges = body["edges"]
     assert len(edges) == 1
     assert edges[0]["edge_kind"] == "event"
+    assert edges[0]["label"] == "Alice and Bob entered the room."
     assert "Alice and Bob entered the room." in edges[0]["tooltip"]
+    node_ids = {n["id"] for n in body["nodes"]}
+    assert edges[0]["from"] in node_ids
+    assert edges[0]["to"] in node_ids
 
 
 def test_entity_graph_event_char_location_edge(fake_db_factory, client):
@@ -296,6 +301,7 @@ def test_entity_graph_event_char_location_edge(fake_db_factory, client):
     edges = body["edges"]
     assert len(edges) == 1
     assert edges[0]["edge_kind"] == "event"
+    assert edges[0]["label"] == "Alice explored the cave."
     node_ids = {n["id"] for n in body["nodes"]}
     assert edges[0]["from"] in node_ids
     assert edges[0]["to"] in node_ids
