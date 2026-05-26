@@ -14,6 +14,7 @@ from api.routes import (
     commitments,
     continuity,
     dynamics,
+    entity_graph,
     entity_types,
     factions,
     knowledge,
@@ -38,6 +39,7 @@ app.include_router(timeline.router)
 app.include_router(threads.router)
 app.include_router(continuity.router)
 app.include_router(relationships.router)
+app.include_router(entity_graph.router)
 app.include_router(dynamics.router)
 app.include_router(process.router)
 # SOTA-upgrade routes
