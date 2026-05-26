@@ -75,8 +75,14 @@ export default function EntityGraph() {
         id: e.id,
         from: e.from,
         to: e.to,
-        label: e.label ?? undefined,
-        arrows: "to",
+        label: e.edge_kind === "relationship" ? (e.label ?? undefined) : undefined,
+        title: e.tooltip ?? undefined,
+        arrows: e.edge_kind === "relationship" ? "to" : undefined,
+        dashes: e.edge_kind !== "relationship",
+        color: e.edge_kind === "relationship"
+          ? { color: "#4e9af1", opacity: 1 }
+          : { color: "#666", opacity: 0.7 },
+        width: e.edge_kind === "relationship" ? 2 : 1,
       }))
     );
 
