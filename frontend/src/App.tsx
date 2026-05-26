@@ -7,6 +7,8 @@ import CharacterList from "./routes/CharacterList";
 import Chapters from "./routes/Chapters";
 import Commitments from "./routes/Commitments";
 import Continuity from "./routes/Continuity";
+import CustomEntityDetail from "./routes/CustomEntityDetail";
+import CustomEntityList from "./routes/CustomEntityList";
 import FactionDetail from "./routes/FactionDetail";
 import Factions from "./routes/Factions";
 import Knowledge from "./routes/Knowledge";
@@ -52,6 +54,8 @@ export default function App() {
           <Route path="/novels/:novelId/canon" element={<Layout><Canon /></Layout>} />
           <Route path="/novels/:novelId/knowledge" element={<Layout><Knowledge /></Layout>} />
           <Route path="/novels/:novelId/process" element={<Layout><Process /></Layout>} />
+          <Route path="/novels/:novelId/entity-types/:typeName/entities" element={<Layout><CustomEntityList /></Layout>} />
+          <Route path="/novels/:novelId/custom-entities/:entityId" element={<Layout><CustomEntityDetail /></Layout>} />
         </Routes>
       </Router>
     </QueryClientProvider>
