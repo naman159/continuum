@@ -9,6 +9,7 @@ import Commitments from "./routes/Commitments";
 import Continuity from "./routes/Continuity";
 import CustomEntityDetail from "./routes/CustomEntityDetail";
 import CustomEntityList from "./routes/CustomEntityList";
+import EntityGraph from "./routes/EntityGraph";
 import FactionDetail from "./routes/FactionDetail";
 import Factions from "./routes/Factions";
 import Knowledge from "./routes/Knowledge";
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="/novels/:novelId/continuity" element={<Layout><Continuity /></Layout>} />
           <Route path="/novels/:novelId/relationships" element={<Layout><Relationships /></Layout>} />
           <Route path="/novels/:novelId/dynamics" element={<Layout><SharedDynamics /></Layout>} />
+          <Route path="/novels/:novelId/entity-graph" element={<Layout><EntityGraph /></Layout>} />
           <Route path="/novels/:novelId/locations" element={<Layout><Locations /></Layout>} />
           <Route path="/novels/:novelId/locations/:locationId" element={<Layout><LocationDetail /></Layout>} />
           <Route path="/novels/:novelId/objects" element={<Layout><Objects /></Layout>} />
