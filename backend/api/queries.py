@@ -1912,7 +1912,48 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
                 for eid_l in loc_eids:
                     raw_story.append({"from": str(eid_c), "to": str(eid_l), "edge_kind": "event", "description": desc})
 
-        return {"nodes": nodes, "edges": edges}
+        obj_by_id = {o["id"]: o for o in db.objects}
+
+        for pe in getattr(db, "possesses_edges", []):
+            char = char_by_id.get(pe.get("character_id"))
+            obj = obj_by_id.get(pe.get("object_id"))
+            if not char or not obj:
+                continue
+            if char["entity_id"] not in entity_id_set or obj["entity_id"] not in entity_id_set:
+                continue
+            since = pe.get("since_chapter")
+            until = pe.get("until_chapter")
+            if since is not None and since > effective_cap:
+                continue
+            if until is not None and until <= effective_cap:
+                continue
+            raw_story.append({
+                "from": str(char["entity_id"]),
+                "to": str(obj["entity_id"]),
+                "edge_kind": "possession",
+                "description": None,
+            })
+
+        for lie in getattr(db, "located_in_edges", []):
+            eid = lie.get("entity_id")
+            loc = loc_by_id.get(lie.get("location_id"))
+            if not loc or eid not in entity_id_set or loc["entity_id"] not in entity_id_set:
+                continue
+            since = lie.get("since_chapter")
+            until = lie.get("until_chapter")
+            if since is not None and since > effective_cap:
+                continue
+            if until is not None and until <= effective_cap:
+                continue
+            raw_story.append({
+                "from": str(eid),
+                "to": str(loc["entity_id"]),
+                "edge_kind": "location",
+                "description": None,
+            })
+
+        story_edges = _merge_story_edges(raw_story)
+        return {"nodes": nodes, "edges": edges + story_edges}
 
     # Real DB path
     node_rows = db.fetchall(
@@ -2015,4 +2056,42 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
     )
     raw_story.extend(dict(r) for r in ev_loc_rows)
 
-    return {"nodes": nodes_list, "edges": edges_list}
+    poss_rows = db.fetchall(
+        """
+        SELECT c.entity_id::text AS "from",
+               o.entity_id::text AS "to",
+               'possession'      AS edge_kind,
+               NULL::text        AS description
+        FROM possesses_edges pe
+        JOIN characters c ON c.id = pe.character_id
+        JOIN objects    o ON o.id = pe.object_id
+        JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = o.entity_id AND eb.novel_id = %s
+        WHERE (pe.since_chapter IS NULL OR pe.since_chapter <= %s)
+          AND (pe.until_chapter IS NULL OR pe.until_chapter > %s)
+        """,
+        (str(novel_id), str(novel_id), effective_cap, effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in poss_rows)
+
+    loc_in_rows = db.fetchall(
+        """
+        SELECT lie.entity_id::text AS "from",
+               l.entity_id::text   AS "to",
+               'location'          AS edge_kind,
+               NULL::text          AS description
+        FROM located_in_edges lie
+        JOIN locations l ON l.id = lie.location_id
+        JOIN entities ea ON ea.id = lie.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = l.entity_id   AND eb.novel_id = %s
+        WHERE (lie.since_chapter IS NULL OR lie.since_chapter <= %s)
+          AND (lie.until_chapter IS NULL OR lie.until_chapter > %s)
+        """,
+        (str(novel_id), str(novel_id), effective_cap, effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in loc_in_rows)
+
+    story_edges = _merge_story_edges(raw_story)
+    return {"nodes": nodes_list, "edges": edges_list + story_edges}
