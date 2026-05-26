@@ -15,7 +15,8 @@ export default function CustomEntityList() {
   if (error) return <p>Error: {String(error instanceof Error ? error.message : error)}</p>;
 
   const label = typeName ? typeName.replace(/_/g, " ") : "";
-  const displayLabel = label.charAt(0).toUpperCase() + label.slice(1) + "s";
+  const capitalized = label.charAt(0).toUpperCase() + label.slice(1);
+  const displayLabel = capitalized.endsWith("s") ? capitalized : capitalized + "s";
 
   return (
     <div>

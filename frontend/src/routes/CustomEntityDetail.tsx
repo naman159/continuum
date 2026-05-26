@@ -38,7 +38,7 @@ export default function CustomEntityDetail() {
             </thead>
             <tbody>
               {data.relationships.map((r, i) => (
-                <tr key={i}>
+                <tr key={`${r.other_entity_name}-${r.direction}-${r.rel_type ?? ""}-${r.from_chapter ?? ""}-${i}`}>
                   <td>{r.other_entity_name}</td>
                   <td style={{ textTransform: "capitalize" }}>{r.other_entity_type.replace(/_/g, " ")}</td>
                   <td>{r.rel_type ?? "—"}</td>

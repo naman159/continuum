@@ -42,11 +42,14 @@ export default function Sidebar() {
       ]
     : [];
 
-  const customLinks: [string, string][] = (entityTypesQuery.data ?? []).map((et) => {
-    const label = et.name.replace(/_/g, " ");
-    const displayLabel = label.charAt(0).toUpperCase() + label.slice(1) + "s";
-    return [displayLabel, `/novels/${novelId}/entity-types/${et.name}/entities`];
-  });
+  const customLinks: [string, string][] = novelId
+    ? (entityTypesQuery.data ?? []).map((et) => {
+        const label = et.name.replace(/_/g, " ");
+        const capitalized = label.charAt(0).toUpperCase() + label.slice(1);
+        const displayLabel = capitalized.endsWith("s") ? capitalized : capitalized + "s";
+        return [displayLabel, `/novels/${novelId}/entity-types/${et.name}/entities`];
+      })
+    : [];
 
   const allLinks = [...staticLinks, ...customLinks];
 
@@ -81,7 +84,7 @@ export default function Sidebar() {
             value={effective}
             onChange={(e) => setCap(Number(e.target.value))}
           />
-          <button onClick={() => setCap(null)}>Show all</button>
+          <button onClick={() => setCap(null)} aria-label="Show all chapters">Show all</button>
         </div>
       )}
     </aside>
