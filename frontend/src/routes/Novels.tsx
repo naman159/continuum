@@ -75,7 +75,7 @@ export default function Novels() {
   }
 
   if (isLoading) return <p>Loading…</p>;
-  if (error) return <p>Error: {(error as Error).message}</p>;
+  if (error) return <p>Error: {String(error instanceof Error ? error.message : error)}</p>;
 
   return (
     <div>
@@ -133,7 +133,7 @@ export default function Novels() {
                     <code>{t.name}</code>
                     {t.description && <span style={{ color: "#666", fontSize: 13 }}> — {t.description}</span>}
                     {" "}
-                    <button type="button" onClick={() => removeType(t.name)} style={{ fontSize: 11 }}>✕</button>
+                    <button type="button" aria-label={`Remove ${t.name}`} onClick={() => removeType(t.name)} style={{ fontSize: 11 }}>✕</button>
                   </li>
                 ))}
               </ul>
@@ -153,9 +153,9 @@ export default function Novels() {
           </div>
 
           {mutation.isError && (
-            <p style={{ color: "red" }}>Error: {(mutation.error as Error).message}</p>
+            <p style={{ color: "red" }}>Error: {String(mutation.error instanceof Error ? mutation.error.message : mutation.error)}</p>
           )}
-          <button onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+          <button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
             {mutation.isPending ? "Creating…" : "Create Novel"}
           </button>
           {" "}
