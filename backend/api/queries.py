@@ -1751,3 +1751,108 @@ def get_custom_entity_detail(novel_id: UUID, entity_id: UUID) -> dict[str, Any] 
         "description": None,
         "relationships": relationships,
     }
+
+
+def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+
+    if hasattr(db, "entities"):
+        # In-memory (FakeDB) path
+        char_by_entity_id = {c["entity_id"]: c for c in db.characters}
+        loc_by_entity_id  = {l["entity_id"]: l for l in db.locations}
+        obj_by_entity_id  = {o["entity_id"]: o for o in db.objects}
+        fac_by_entity_id  = {f["entity_id"]: f for f in db.factions}
+
+        def _native_id(entity_id: Any, entity_type: str) -> str:
+            if entity_type == "character" and entity_id in char_by_entity_id:
+                return str(char_by_entity_id[entity_id]["id"])
+            if entity_type == "location" and entity_id in loc_by_entity_id:
+                return str(loc_by_entity_id[entity_id]["id"])
+            if entity_type == "object" and entity_id in obj_by_entity_id:
+                return str(obj_by_entity_id[entity_id]["id"])
+            if entity_type == "faction" and entity_id in fac_by_entity_id:
+                return str(fac_by_entity_id[entity_id]["id"])
+            return str(entity_id)
+
+        nodes = []
+        entity_id_set: set[Any] = set()
+        for e in db.entities:
+            if e.get("novel_id") != novel_id:
+                continue
+            if e.get("entity_type") == "character":
+                char = char_by_entity_id.get(e["id"])
+                if (
+                    char
+                    and char.get("first_appearance_chapter") is not None
+                    and char["first_appearance_chapter"] > effective_cap
+                ):
+                    continue
+            nodes.append({
+                "id": str(e["id"]),
+                "label": e["name"],
+                "entity_type": e["entity_type"],
+                "native_id": _native_id(e["id"], e["entity_type"]),
+                "description": e.get("description"),
+            })
+            entity_id_set.add(e["id"])
+
+        edges = [
+            {
+                "id": str(r["id"]),
+                "from": str(r["entity_a_id"]),
+                "to": str(r["entity_b_id"]),
+                "label": r.get("rel_type"),
+                "chapter_number": r.get("from_chapter"),
+            }
+            for r in db.relationships
+            if r["entity_a_id"] in entity_id_set
+            and r["entity_b_id"] in entity_id_set
+            and (r.get("from_chapter") is None or r["from_chapter"] <= effective_cap)
+        ]
+        return {"nodes": nodes, "edges": edges}
+
+    # Real DB path
+    node_rows = db.fetchall(
+        """
+        SELECT e.id::text AS id,
+               e.name,
+               e.entity_type,
+               COALESCE(c.id, l.id, o.id, f.id, e.id)::text AS native_id,
+               NULL::text AS description
+        FROM entities e
+        LEFT JOIN characters c ON c.entity_id = e.id
+        LEFT JOIN locations  l ON l.entity_id = e.id
+        LEFT JOIN objects    o ON o.entity_id = e.id
+        LEFT JOIN factions   f ON f.entity_id = e.id
+        WHERE e.novel_id = %s
+          AND (
+            e.entity_type != 'character'
+            OR c.first_appearance_chapter IS NULL
+            OR c.first_appearance_chapter <= %s
+          )
+        """,
+        (str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    nodes_list = [dict(r) for r in node_rows]
+    node_entity_ids = {n["id"] for n in nodes_list}
+
+    edge_rows = db.fetchall(
+        """
+        SELECT r.id::text AS id,
+               r.entity_a_id::text AS "from",
+               r.entity_b_id::text AS "to",
+               r.rel_type AS label,
+               r.from_chapter AS chapter_number
+        FROM relationships r
+        JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
+        WHERE r.from_chapter IS NULL OR r.from_chapter <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    edges_list = [dict(r) for r in edge_rows]
+
+    return {"nodes": nodes_list, "edges": edges_list}
