@@ -25,12 +25,22 @@ CREATE TABLE IF NOT EXISTS chapters (
 CREATE TABLE IF NOT EXISTS entities (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
-    entity_type TEXT NOT NULL CHECK (entity_type IN ('character', 'location', 'faction', 'object')),
+    entity_type TEXT NOT NULL,
     name TEXT NOT NULL,
     UNIQUE(novel_id, entity_type, name)
 );
 
 CREATE INDEX IF NOT EXISTS idx_entities_novel ON entities(novel_id, entity_type);
+
+CREATE TABLE IF NOT EXISTS novel_entity_types (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    description TEXT,
+    UNIQUE(novel_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_novel_entity_types_novel ON novel_entity_types(novel_id);
 
 CREATE TABLE IF NOT EXISTS characters (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
