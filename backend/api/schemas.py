@@ -16,10 +16,48 @@ class NovelSummary(BaseModel):
     max_chapter: int
 
 
+class NovelEntityTypeInput(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class NovelEntityType(BaseModel):
+    id: UUID
+    novel_id: UUID
+    name: str
+    description: str | None = None
+
+
+class CustomEntitySummary(BaseModel):
+    id: str
+    name: str
+    entity_type: str
+    description: str | None = None
+
+
+class CustomEntityRelationship(BaseModel):
+    other_entity_name: str
+    other_entity_type: str
+    direction: str
+    rel_type: str | None
+    from_chapter: int | None
+    to_chapter: int | None
+    notes: str | None
+
+
+class CustomEntityDetail(BaseModel):
+    id: str
+    name: str
+    entity_type: str
+    description: str | None = None
+    relationships: list[CustomEntityRelationship]
+
+
 class NovelCreate(BaseModel):
     title: str
     author: str | None = None
     language: str | None = None
+    custom_entity_types: list[NovelEntityTypeInput] = []
 
 
 class CharacterSummary(BaseModel):

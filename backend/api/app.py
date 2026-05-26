@@ -14,6 +14,7 @@ from api.routes import (
     commitments,
     continuity,
     dynamics,
+    entity_types,
     factions,
     knowledge,
     locations,
@@ -44,6 +45,7 @@ app.include_router(scenes.router)
 app.include_router(commitments.router)
 app.include_router(canon.router)
 app.include_router(knowledge.router)
+app.include_router(entity_types.router)
 
 
 @app.get("/api/health")

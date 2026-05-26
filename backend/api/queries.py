@@ -74,7 +74,12 @@ def get_novel(novel_id: UUID) -> dict[str, Any] | None:
     }
 
 
-def create_novel(title: str, author: str | None, language: str | None) -> dict[str, Any]:
+def create_novel(
+    title: str,
+    author: str | None,
+    language: str | None,
+    custom_entity_types: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     db = _get_db()
     if hasattr(db, "novels"):
         novel: dict[str, Any] = {
@@ -85,11 +90,24 @@ def create_novel(title: str, author: str | None, language: str | None) -> dict[s
             "created_at": datetime.now(timezone.utc),
         }
         db.novels.append(novel)
+        for et in (custom_entity_types or []):
+            db.novel_entity_types.append({
+                "id": uuid4(),
+                "novel_id": novel["id"],
+                "name": et["name"],
+                "description": et.get("description"),
+            })
         return {**novel, "max_chapter": 0}
-    return _create_novel_real(db, title, author, language)
+    return _create_novel_real(db, title, author, language, custom_entity_types or [])
 
 
-def _create_novel_real(db: DBClient, title: str, author: str | None, language: str | None) -> dict[str, Any]:
+def _create_novel_real(
+    db: DBClient,
+    title: str,
+    author: str | None,
+    language: str | None,
+    custom_entity_types: list[dict[str, Any]],
+) -> dict[str, Any]:
     row = db.fetchone(
         """
         INSERT INTO novels (id, title, author, language, created_at)
@@ -100,6 +118,17 @@ def _create_novel_real(db: DBClient, title: str, author: str | None, language: s
         dict_rows=True,
         commit=True,
     )
+    novel_id = str(row["id"])
+    for et in custom_entity_types:
+        db.execute(
+            """
+            INSERT INTO novel_entity_types (novel_id, name, description)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (novel_id, name) DO NOTHING
+            """,
+            (novel_id, et["name"], et.get("description")),
+            commit=True,
+        )
     return {**dict(row), "max_chapter": 0}
 
 
@@ -1588,3 +1617,32 @@ def list_possession_edges(
         }
         for r in rows
     ]
+
+
+def list_entity_types(novel_id: UUID) -> list[dict[str, Any]]:
+    db = _get_db()
+    if hasattr(db, "novel_entity_types"):
+        return [
+            {
+                "id": str(et["id"]),
+                "novel_id": str(et["novel_id"]),
+                "name": et["name"],
+                "description": et.get("description"),
+            }
+            for et in db.novel_entity_types
+            if et["novel_id"] == novel_id
+        ]
+    rows = db.fetchall(
+        "SELECT id, novel_id, name, description FROM novel_entity_types WHERE novel_id = %s ORDER BY name",
+        (str(novel_id),),
+        dict_rows=True,
+    )
+    return [dict(r) for r in rows]
+
+
+def list_custom_entities(novel_id: UUID, entity_type: str) -> list[dict[str, Any]]:
+    return []
+
+
+def get_custom_entity_detail(novel_id: UUID, entity_id: UUID) -> dict[str, Any] | None:
+    return None
