@@ -19,8 +19,6 @@ def _merge_story_edges(raw: list[dict]) -> list[dict]:
     Returns one dict per canonical pair with keys: id, from, to, label, chapter_number,
     edge_kind, tooltip.
     """
-    from uuid import uuid4 as _uuid4
-
     grouped: dict[tuple[str, str], dict] = {}
     for item in raw:
         a, b = item["from"], item["to"]
@@ -53,7 +51,7 @@ def _merge_story_edges(raw: list[dict]) -> list[dict]:
         label = data["descriptions"][0] if n == 1 else (f"{n} {kind_plural}" if n > 0 else None)
         tooltip = "\n".join(data["descriptions"]) or None
         result.append({
-            "id": str(_uuid4()),
+            "id": str(uuid4()),
             "from": data["from"],
             "to": data["to"],
             "label": label,
