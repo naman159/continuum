@@ -185,6 +185,7 @@
   <a href="#api-timeline">Timeline / Events</a>
   <a href="#api-threads">Plot Threads</a>
   <a href="#api-relationships">Relationships</a>
+  <a href="#api-entity-graph">Entity Graph</a>
   <a href="#api-sota">SOTA Endpoints</a>
   <a href="#api-process">Processing</a>
 
@@ -1056,6 +1057,24 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
     <p>Returns <code>RelationshipGraph</code>: <code>{"nodes": GraphNode[], "edges": GraphEdge[]}</code>.</p>
     <p>The frontend renders this with <strong>vis-network</strong>. Nodes are entity names; edges are labeled with <code>rel_type</code>.</p>
+  </section>
+
+  <section id="api-entity-graph">
+    <h2>API: Entity Graph</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query Params</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/entity-graph</code></td>
+          <td><code>?cap=N</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Returns <code>EntityGraph</code>: <code>{"nodes": EntityGraphNode[], "edges": EntityGraphEdge[]}</code>.</p>
+    <p>Similar to relationships graph but includes all entity types (characters, locations, factions, custom types, etc.) with cross-type edges. The frontend renders this with <strong>vis-network</strong>. Nodes include entity type information; edges are labeled with relationship types.</p>
   </section>
 
   <section id="api-sota">
