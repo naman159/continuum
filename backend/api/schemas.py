@@ -197,6 +197,19 @@ class RelationshipGraph(BaseModel):
     edges: list[GraphEdge]
 
 
+class EntityGraphNode(BaseModel):
+    id: UUID
+    label: str
+    entity_type: str
+    native_id: UUID
+    description: str | None = None
+
+
+class EntityGraph(BaseModel):
+    nodes: list[EntityGraphNode]
+    edges: list[GraphEdge]
+
+
 class ProcessRequest(BaseModel):
     number: int
     text: str
