@@ -22,3 +22,42 @@ th { background: #f5f5f5; font-size: 12px; text-transform: uppercase; letter-spa
 .field-list dd { margin: 0; }
 .tag { display: inline-block; padding: 2px 8px; background: #eef; border-radius: 4px; font-size: 12px; margin-right: 4px; }
 .muted { color: #999; }
+
+.entity-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  align-items: center;
+}
+
+.entity-type-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border: 1px solid #444;
+  border-radius: 20px;
+  background: transparent;
+  color: #ccc;
+  font-size: 12px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.entity-type-pill:hover {
+  border-color: #888;
+  color: #fff;
+}
+
+.entity-type-pill.dimmed {
+  opacity: 0.35;
+}
+
+.pill-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
