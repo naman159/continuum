@@ -1836,7 +1836,6 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         dict_rows=True,
     )
     nodes_list = [dict(r) for r in node_rows]
-    node_entity_ids = {n["id"] for n in nodes_list}
 
     edge_rows = db.fetchall(
         """
