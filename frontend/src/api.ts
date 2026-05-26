@@ -241,6 +241,44 @@ export type FactionDetail = {
   characters: string[];
 };
 
+export type NovelEntityType = {
+  id: string;
+  novel_id: string;
+  name: string;
+  description: string | null;
+};
+
+export type GenrePreset = {
+  id: string;
+  label: string;
+  types: { name: string; description: string }[];
+};
+
+export type CustomEntitySummary = {
+  id: string;
+  name: string;
+  entity_type: string;
+  description: string | null;
+};
+
+export type CustomEntityRelationship = {
+  other_entity_name: string;
+  other_entity_type: string;
+  direction: "from" | "to";
+  rel_type: string | null;
+  from_chapter: number | null;
+  to_chapter: number | null;
+  notes: string | null;
+};
+
+export type CustomEntityDetail = {
+  id: string;
+  name: string;
+  entity_type: string;
+  description: string | null;
+  relationships: CustomEntityRelationship[];
+};
+
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -332,4 +370,11 @@ export const api = {
       `/api/novels/${novelId}/possessions${qs ? `?${qs}` : ""}`
     );
   },
+  genres: () => fetchJson<GenrePreset[]>("/api/genres"),
+  entityTypes: (novelId: string) =>
+    fetchJson<NovelEntityType[]>(`/api/novels/${novelId}/entity-types`),
+  customEntities: (novelId: string, typeName: string) =>
+    fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
+  customEntity: (novelId: string, entityId: string) =>
+    fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
 };
