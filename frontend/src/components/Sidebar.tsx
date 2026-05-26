@@ -37,6 +37,7 @@ export default function Sidebar() {
         ["Objects", `/novels/${novelId}/objects`],
         ["Factions", `/novels/${novelId}/factions`],
         ["Dynamics", `/novels/${novelId}/dynamics`],
+        ["Entity Graph", `/novels/${novelId}/entity-graph`],
         ["Continuity", `/novels/${novelId}/continuity`],
         ["Process Chapter", `/novels/${novelId}/process`],
       ]
