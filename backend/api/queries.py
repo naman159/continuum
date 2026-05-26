@@ -9,6 +9,60 @@ from pipeline.db.client import DBClient
 
 _db: DBClient | None = None
 
+_STORY_KIND_PRECEDENCE = ["dynamic", "event", "possession", "location"]
+
+
+def _merge_story_edges(raw: list[dict]) -> list[dict]:
+    """Collapse multiple raw story records between the same entity pair into one edge.
+
+    Each item in raw must have: from (str), to (str), edge_kind (str), description (str|None).
+    Returns one dict per canonical pair with keys: id, from, to, label, chapter_number,
+    edge_kind, tooltip.
+    """
+    from uuid import uuid4 as _uuid4
+
+    grouped: dict[tuple[str, str], dict] = {}
+    for item in raw:
+        a, b = item["from"], item["to"]
+        pair = (min(a, b), max(a, b))
+        desc = item.get("description") or ""
+        if pair not in grouped:
+            grouped[pair] = {
+                "from": a,
+                "to": b,
+                "edge_kind": item["edge_kind"],
+                "descriptions": [desc] if desc else [],
+            }
+        else:
+            existing = grouped[pair]
+            cur_prec = _STORY_KIND_PRECEDENCE.index(existing["edge_kind"])
+            new_prec = _STORY_KIND_PRECEDENCE.index(item["edge_kind"])
+            if new_prec < cur_prec:
+                existing["edge_kind"] = item["edge_kind"]
+            if desc:
+                existing["descriptions"].append(desc)
+
+    result = []
+    for data in grouped.values():
+        n = len(data["descriptions"])
+        kind = data["edge_kind"]
+        kind_plural = {
+            "dynamic": "dynamics", "event": "events",
+            "possession": "possessions", "location": "locations",
+        }.get(kind, kind)
+        label = data["descriptions"][0] if n == 1 else (f"{n} {kind_plural}" if n > 0 else None)
+        tooltip = "\n".join(data["descriptions"]) or None
+        result.append({
+            "id": str(_uuid4()),
+            "from": data["from"],
+            "to": data["to"],
+            "label": label,
+            "chapter_number": None,
+            "edge_kind": kind,
+            "tooltip": tooltip,
+        })
+    return result
+
 
 def _get_db() -> DBClient:
     """DB factory; tests patch this to return a FakeDB."""
@@ -1810,13 +1864,16 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
             and r["entity_b_id"] in entity_id_set
             and (r.get("from_chapter") is None or r["from_chapter"] <= effective_cap)
         ]
+        for e in edges:
+            e["edge_kind"] = "relationship"
+            e["tooltip"] = None
         return {"nodes": nodes, "edges": edges}
 
     # Real DB path
     node_rows = db.fetchall(
         """
         SELECT e.id::text AS id,
-               e.name,
+               e.name AS label,
                e.entity_type,
                COALESCE(c.id, l.id, o.id, f.id, e.id)::text AS native_id,
                NULL::text AS description
@@ -1853,5 +1910,9 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         dict_rows=True,
     )
     edges_list = [dict(r) for r in edge_rows]
+    for e in edges_list:
+        e["edge_kind"] = "relationship"
+        e["tooltip"] = None
+    raw_story: list[dict] = []
 
     return {"nodes": nodes_list, "edges": edges_list}
