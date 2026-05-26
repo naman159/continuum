@@ -1865,6 +1865,26 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         for e in edges:
             e["edge_kind"] = "relationship"
             e["tooltip"] = None
+
+        chapter_by_id = {c["id"]: c for c in db.chapters}
+        raw_story: list[dict] = []
+
+        # shared_dynamics
+        for sd in db.shared_dynamics:
+            chap = chapter_by_id.get(sd.get("chapter_id"))
+            if chap is None or chap.get("novel_id") != novel_id:
+                continue
+            if chap["number"] > effective_cap:
+                continue
+            if sd["entity_a_id"] not in entity_id_set or sd["entity_b_id"] not in entity_id_set:
+                continue
+            raw_story.append({
+                "from": str(sd["entity_a_id"]),
+                "to": str(sd["entity_b_id"]),
+                "edge_kind": "dynamic",
+                "description": sd.get("description"),
+            })
+
         return {"nodes": nodes, "edges": edges}
 
     # Real DB path
@@ -1912,5 +1932,22 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         e["edge_kind"] = "relationship"
         e["tooltip"] = None
     raw_story: list[dict] = []
+
+    dyn_rows = db.fetchall(
+        """
+        SELECT sd.entity_a_id::text AS "from",
+               sd.entity_b_id::text AS "to",
+               'dynamic'            AS edge_kind,
+               sd.description       AS description
+        FROM shared_dynamics sd
+        JOIN chapters ch ON ch.id = sd.chapter_id
+        JOIN entities ea ON ea.id = sd.entity_a_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = sd.entity_b_id AND eb.novel_id = %s
+        WHERE ch.number <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in dyn_rows)
 
     return {"nodes": nodes_list, "edges": edges_list}
