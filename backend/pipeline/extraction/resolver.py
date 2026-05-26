@@ -39,6 +39,62 @@ class EntityResolver:
     def resolve_object(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
         return self._resolve("object", name, metadata or {})
 
+    def resolve_custom_entity(
+        self, name: str, entity_type: str, metadata: dict[str, Any] | None = None
+    ) -> ResolvedEntity:
+        """Resolve or create a custom-typed entity (entities table only, no dedicated table)."""
+        normalized_name = (name or "").strip()
+        if not normalized_name:
+            raise ValueError(f"Cannot resolve empty {entity_type} name")
+
+        cache_key = (entity_type, normalized_name.lower())
+        cached = self._cache.get(cache_key)
+        if cached:
+            return ResolvedEntity(cached[0], cached[1], created=False)
+
+        # Check existing entity in entities table directly.
+        if hasattr(self.db, "entities"):
+            entity = next(
+                (
+                    e for e in self.db.entities
+                    if str(e.get("novel_id")) == str(self.novel_id)
+                    and str(e.get("entity_type")) == entity_type
+                    and str(e.get("name", "")).lower() == normalized_name.lower()
+                ),
+                None,
+            )
+            if entity:
+                uid = str(entity["id"])
+                self._cache[cache_key] = (uid, uid)
+                return ResolvedEntity(uid, uid, created=False)
+        else:
+            row = self.db.fetchone(
+                """
+                SELECT id FROM entities
+                WHERE novel_id = %s AND entity_type = %s AND lower(name) = lower(%s)
+                LIMIT 1
+                """,
+                (self.novel_id, entity_type, normalized_name),
+            )
+            if row:
+                uid = str(row[0])
+                self._cache[cache_key] = (uid, uid)
+                return ResolvedEntity(uid, uid, created=False)
+
+        # Create: insert into entities only.
+        universal_id = str(self.db.fetchval(
+            """
+            INSERT INTO entities (novel_id, entity_type, name)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (novel_id, entity_type, name) DO UPDATE SET name = EXCLUDED.name
+            RETURNING id
+            """,
+            (self.novel_id, entity_type, normalized_name),
+            commit=True,
+        ))
+        self._cache[cache_key] = (universal_id, universal_id)
+        return ResolvedEntity(universal_id, universal_id, created=True)
+
     def resolve_any_entity(self, name: str) -> str:
         """Return the universal entity ID for any entity type.
 
