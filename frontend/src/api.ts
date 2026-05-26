@@ -190,6 +190,19 @@ export type GraphNode = { id: string; label: string; description: string | null 
 export type GraphEdge = { id: string; from: string; to: string; label: string | null; chapter_number: number | null };
 export type RelationshipGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 
+export type EntityGraphNode = {
+  id: string;
+  label: string;
+  entity_type: string;
+  native_id: string;
+  description: string | null;
+};
+
+export type EntityGraphData = {
+  nodes: EntityGraphNode[];
+  edges: GraphEdge[];
+};
+
 export type LocationSummary = {
   id: string;
   name: string;
@@ -312,6 +325,8 @@ export const api = {
   },
   relationships: (id: string, cap: number | null) =>
     fetchJson<RelationshipGraph>(`/api/novels/${id}/relationships${capParam(cap)}`),
+  entityGraph: (novelId: string, cap: number | null) =>
+    fetchJson<EntityGraphData>(`/api/novels/${novelId}/entity-graph${capParam(cap)}`),
   dynamics: (id: string, cap: number | null) =>
     fetchJson<SharedDynamicRow[]>(`/api/novels/${id}/dynamics${capParam(cap)}`),
   locations: (novelId: string, cap: number | null) =>
