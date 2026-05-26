@@ -179,3 +179,188 @@ def test_entity_graph_edges_cross_types(fake_db_factory, client):
     node_ids = {n["id"] for n in body["nodes"]}
     assert edge["from"] in node_ids
     assert edge["to"] in node_ids
+
+
+# ── helpers ───────────────────────────────────────────────────────────────
+
+
+def _make_char_entity(novel_id, name, chapter=1):
+    entity_id = uuid4()
+    char_id = uuid4()
+    entity = {"id": entity_id, "novel_id": novel_id, "entity_type": "character", "name": name}
+    char = {
+        "id": char_id,
+        "entity_id": entity_id,
+        "novel_id": novel_id,
+        "name": name,
+        "aliases": [],
+        "description": None,
+        "first_appearance_chapter": chapter,
+    }
+    return entity, char
+
+
+def _make_loc_entity(novel_id, name):
+    entity_id = uuid4()
+    loc_id = uuid4()
+    entity = {"id": entity_id, "novel_id": novel_id, "entity_type": "location", "name": name}
+    loc = {"id": loc_id, "entity_id": entity_id, "novel_id": novel_id, "name": name}
+    return entity, loc
+
+
+# ── new tests ─────────────────────────────────────────────────────────────
+
+
+def test_entity_graph_shared_dynamics_edge(fake_db_factory, client):
+    """shared_dynamics between two entities appears as a 'dynamic' edge."""
+    novel = make_novel()
+    chap1 = make_chapter(novel["id"], 1)
+    e1, c1 = _make_char_entity(novel["id"], "Alice")
+    e2, c2 = _make_char_entity(novel["id"], "Bob")
+
+    fake_db_factory(
+        novels=[novel],
+        chapters=[chap1],
+        entities=[e1, e2],
+        characters=[c1, c2],
+        relationships=[
+            {"id": uuid4(), "entity_a_id": e1["id"], "entity_b_id": e2["id"],
+             "rel_type": "friends", "from_chapter": 1, "to_chapter": None, "notes": None},
+        ],
+        shared_dynamics=[
+            {"id": uuid4(), "entity_a_id": e1["id"], "entity_b_id": e2["id"],
+             "description": "They argued over lunch.", "chapter_id": chap1["id"]},
+        ],
+    )
+    resp = client.get(f"/api/novels/{novel['id']}/entity-graph")
+    assert resp.status_code == 200
+    edges = resp.json()["edges"]
+    kinds = {e["edge_kind"] for e in edges}
+    assert "relationship" in kinds
+    assert "dynamic" in kinds
+    dyn_edge = next(e for e in edges if e["edge_kind"] == "dynamic")
+    assert dyn_edge["tooltip"] == "They argued over lunch."
+
+
+def test_entity_graph_event_cooccurrence_char_char(fake_db_factory, client):
+    """Two characters in the same event get a co-occurrence edge."""
+    novel = make_novel()
+    chap1 = make_chapter(novel["id"], 1)
+    e1, c1 = _make_char_entity(novel["id"], "Alice")
+    e2, c2 = _make_char_entity(novel["id"], "Bob")
+
+    fake_db_factory(
+        novels=[novel],
+        chapters=[chap1],
+        entities=[e1, e2],
+        characters=[c1, c2],
+        events=[
+            {"id": uuid4(), "chapter_id": chap1["id"],
+             "description": "Alice and Bob entered the room.",
+             "involved_characters": [c1["id"], c2["id"]],
+             "involved_locations": [], "involved_objects": [], "involved_factions": []},
+        ],
+    )
+    resp = client.get(f"/api/novels/{novel['id']}/entity-graph")
+    assert resp.status_code == 200
+    edges = resp.json()["edges"]
+    assert len(edges) == 1
+    assert edges[0]["edge_kind"] == "event"
+    assert "Alice and Bob entered the room." in edges[0]["tooltip"]
+
+
+def test_entity_graph_event_char_location_edge(fake_db_factory, client):
+    """Character and location in the same event get an edge."""
+    novel = make_novel()
+    chap1 = make_chapter(novel["id"], 1)
+    e_char, char = _make_char_entity(novel["id"], "Alice")
+    e_loc, loc = _make_loc_entity(novel["id"], "Cave")
+
+    fake_db_factory(
+        novels=[novel],
+        chapters=[chap1],
+        entities=[e_char, e_loc],
+        characters=[char],
+        locations=[loc],
+        events=[
+            {"id": uuid4(), "chapter_id": chap1["id"],
+             "description": "Alice explored the cave.",
+             "involved_characters": [char["id"]],
+             "involved_locations": [loc["id"]],
+             "involved_objects": [], "involved_factions": []},
+        ],
+    )
+    resp = client.get(f"/api/novels/{novel['id']}/entity-graph")
+    assert resp.status_code == 200
+    body = resp.json()
+    edges = body["edges"]
+    assert len(edges) == 1
+    assert edges[0]["edge_kind"] == "event"
+    node_ids = {n["id"] for n in body["nodes"]}
+    assert edges[0]["from"] in node_ids
+    assert edges[0]["to"] in node_ids
+
+
+def test_entity_graph_collapses_multiple_events(fake_db_factory, client):
+    """Three events between the same pair collapse to one edge labelled '3 events'."""
+    novel = make_novel()
+    chap1 = make_chapter(novel["id"], 1)
+    e1, c1 = _make_char_entity(novel["id"], "Alice")
+    e2, c2 = _make_char_entity(novel["id"], "Bob")
+
+    fake_db_factory(
+        novels=[novel],
+        chapters=[chap1],
+        entities=[e1, e2],
+        characters=[c1, c2],
+        events=[
+            {"id": uuid4(), "chapter_id": chap1["id"], "description": "Event one.",
+             "involved_characters": [c1["id"], c2["id"]],
+             "involved_locations": [], "involved_objects": [], "involved_factions": []},
+            {"id": uuid4(), "chapter_id": chap1["id"], "description": "Event two.",
+             "involved_characters": [c1["id"], c2["id"]],
+             "involved_locations": [], "involved_objects": [], "involved_factions": []},
+            {"id": uuid4(), "chapter_id": chap1["id"], "description": "Event three.",
+             "involved_characters": [c1["id"], c2["id"]],
+             "involved_locations": [], "involved_objects": [], "involved_factions": []},
+        ],
+    )
+    resp = client.get(f"/api/novels/{novel['id']}/entity-graph")
+    assert resp.status_code == 200
+    edges = resp.json()["edges"]
+    assert len(edges) == 1
+    assert edges[0]["label"] == "3 events"
+    assert "Event one." in edges[0]["tooltip"]
+    assert "Event two." in edges[0]["tooltip"]
+    assert "Event three." in edges[0]["tooltip"]
+
+
+def test_entity_graph_relationship_and_dynamic_coexist(fake_db_factory, client):
+    """Explicit relationship + dynamic between same pair → 2 separate edges."""
+    novel = make_novel()
+    chap1 = make_chapter(novel["id"], 1)
+    e1, c1 = _make_char_entity(novel["id"], "Alice")
+    e2, c2 = _make_char_entity(novel["id"], "Bob")
+
+    fake_db_factory(
+        novels=[novel],
+        chapters=[chap1],
+        entities=[e1, e2],
+        characters=[c1, c2],
+        relationships=[
+            {"id": uuid4(), "entity_a_id": e1["id"], "entity_b_id": e2["id"],
+             "rel_type": "rivals", "from_chapter": 1, "to_chapter": None, "notes": None},
+        ],
+        shared_dynamics=[
+            {"id": uuid4(), "entity_a_id": e1["id"], "entity_b_id": e2["id"],
+             "description": "They clashed in the arena.", "chapter_id": chap1["id"]},
+        ],
+    )
+    resp = client.get(f"/api/novels/{novel['id']}/entity-graph")
+    assert resp.status_code == 200
+    edges = resp.json()["edges"]
+    assert len(edges) == 2
+    kinds = {e["edge_kind"] for e in edges}
+    assert kinds == {"relationship", "dynamic"}
+    rel_edge = next(e for e in edges if e["edge_kind"] == "relationship")
+    assert rel_edge["label"] == "rivals"
