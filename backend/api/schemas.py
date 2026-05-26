@@ -190,6 +190,8 @@ class GraphEdge(BaseModel):
     to: UUID
     label: str | None
     chapter_number: int | None
+    edge_kind: str | None = None
+    tooltip: str | None = None
 
 
 class RelationshipGraph(BaseModel):
