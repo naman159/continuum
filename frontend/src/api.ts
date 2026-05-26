@@ -187,7 +187,15 @@ export type ContinuityFlag = {
 };
 
 export type GraphNode = { id: string; label: string; description: string | null };
-export type GraphEdge = { id: string; from: string; to: string; label: string | null; chapter_number: number | null };
+export type GraphEdge = {
+  id: string;
+  from: string;
+  to: string;
+  label: string | null;
+  chapter_number: number | null;
+  edge_kind: string | null;
+  tooltip: string | null;
+};
 export type RelationshipGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 
 export type EntityGraphNode = {
