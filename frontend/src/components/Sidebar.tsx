@@ -7,16 +7,23 @@ export default function Sidebar() {
   const { novelId } = useParams();
   const location = useLocation();
   const [cap, setCap] = useChapterCap();
+
   const novelQuery = useQuery({
     queryKey: ["novel", novelId],
     queryFn: () => api.novel(novelId!),
     enabled: Boolean(novelId),
   });
 
+  const entityTypesQuery = useQuery({
+    queryKey: ["entity-types", novelId],
+    queryFn: () => api.entityTypes(novelId!),
+    enabled: Boolean(novelId),
+  });
+
   const max = novelQuery.data?.max_chapter ?? null;
   const effective = cap ?? max ?? 0;
 
-  const links = novelId
+  const staticLinks: [string, string][] = novelId
     ? [
         ["Characters", `/novels/${novelId}/characters`],
         ["Chapters", `/novels/${novelId}/chapters`],
@@ -35,6 +42,14 @@ export default function Sidebar() {
       ]
     : [];
 
+  const customLinks: [string, string][] = (entityTypesQuery.data ?? []).map((et) => {
+    const label = et.name.replace(/_/g, " ");
+    const displayLabel = label.charAt(0).toUpperCase() + label.slice(1) + "s";
+    return [displayLabel, `/novels/${novelId}/entity-types/${et.name}/entities`];
+  });
+
+  const allLinks = [...staticLinks, ...customLinks];
+
   return (
     <aside className="sidebar">
       <h1>
@@ -43,7 +58,7 @@ export default function Sidebar() {
       {novelQuery.data && <h2>{novelQuery.data.title}</h2>}
       <nav>
         <ul>
-          {links.map(([label, to]) => (
+          {allLinks.map(([label, to]) => (
             <li key={to}>
               <Link
                 to={`${to}${location.search}`}
