@@ -568,7 +568,7 @@ graph LR
         <strong>Ingest raw text</strong> — <code>ingest_chapter()</code> inserts the raw chapter text into the <code>chapters</code> table. Duplicate (novel_id, chapter_number) is rejected.
       </li>
       <li>
-        <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, recent events, and custom entity types from the DB. This context is injected into every LLM prompt so the model knows what already exists.
+        <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, recent events, and custom entity types from the DB. Characters and locations are <em>selected, not dumped</em>: entities whose name or alias appears in the chapter text always make the cut, the remainder back-fills by recency, and the lists are capped at <code>CONTEXT_MAX_CHARACTERS</code> (default 40) / <code>CONTEXT_MAX_LOCATIONS</code> (default 30) so prompt size stays bounded as the cast grows. The result is injected into every LLM prompt so the model knows what already exists.
       </li>
       <li>
         <strong>Chunk the text</strong> — <code>sliding_window_chunks()</code> splits the chapter into 2,000-token windows with 200-token overlap using tiktoken (falls back to whitespace split). Each chunk is processed independently.

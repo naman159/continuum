@@ -836,9 +836,11 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ OBSERVABILITY ════════════════ -->
   <section id="observability">
   <h2>Foundations — Observability &amp; Cost</h2>
-  <p>A chapter already costs a lot of LLM calls: 12 extraction passes per chunk, plus intra-dedup,
+  <p>A chapter already costs a lot of LLM calls: 13 extraction passes per chunk, plus intra-dedup,
      canonicalization, multi-summaries, scenes, knowledge, and commitments — before any planning, drafting,
-     or critique. Yet:</p>
+     or critique. Prompt <em>size</em> is now bounded, at least: the canonicalizer roster is capped
+     (<code>CANONICALIZER_MAX_ROSTER</code>) and extraction context selects mentioned + recent entities under
+     <code>CONTEXT_MAX_CHARACTERS</code>/<code>CONTEXT_MAX_LOCATIONS</code> instead of dumping the full cast. Yet:</p>
   <ul>
     <li><code>LLM_CONFIG</code> is single-model; there is no tiering (cheap model for extraction/style,
         strong model for drafting) despite LiteLLM making this trivial.</li>
