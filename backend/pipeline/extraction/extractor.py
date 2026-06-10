@@ -95,6 +95,13 @@ def _dedupe_strings(values: list[str]) -> list[str]:
     return list(dict.fromkeys(v.strip() for v in values if v and v.strip()))
 
 
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (ValueError, TypeError):
+        return 0.0
+
+
 def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
     output = empty_extraction()
 
@@ -382,19 +389,10 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
                 continue
             key = (subj, pred)
             current = best_canon.get(key)
-            try:
-                new_conf = float(fact.get("confidence") or 0.0)
-            except (ValueError, TypeError):
-                new_conf = 0.0
-            if current is None:
+            # Tie-break: strict > keeps the FIRST occurrence on equal confidence
+            # (chunk order = narrative order, unlike the summaries' last-wins rule).
+            if current is None or _safe_float(fact.get("confidence")) > _safe_float(current.get("confidence")):
                 best_canon[key] = fact
-            else:
-                try:
-                    cur_conf = float(current.get("confidence") or 0.0)
-                except (ValueError, TypeError):
-                    cur_conf = 0.0
-                if new_conf > cur_conf:
-                    best_canon[key] = fact
     merged["canon_facts"] = list(best_canon.values())
 
     return merged
