@@ -338,6 +338,16 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><code>80</code></td>
           <td>Max roster entries serialized into one canonicalization LLM call (most string-similar kept). Bounds prompt cost as the cast grows; ≤ 0 disables the cap.</td>
         </tr>
+        <tr>
+          <td><code>CONTEXT_MAX_CHARACTERS</code></td>
+          <td><code>40</code></td>
+          <td>Max characters injected into extraction prompts. Mentioned-in-chapter entities are always kept; the rest back-fills by recency. ≤ 0 disables the cap.</td>
+        </tr>
+        <tr>
+          <td><code>CONTEXT_MAX_LOCATIONS</code></td>
+          <td><code>30</code></td>
+          <td>Max locations injected into extraction prompts (same selection rules as characters).</td>
+        </tr>
       </tbody>
     </table>
 
