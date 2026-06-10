@@ -83,3 +83,24 @@ def test_canon_subjects_collected_and_renamed():
     )
     assert renamed["canon_facts"][0]["subject_name"] == "Jane Bennet"
     assert renamed["canon_facts"][1]["subject_name"] == "Netherfield Park"
+
+
+def test_canon_subject_with_unknown_type_is_ignored_not_crashed():
+    extracted = {
+        "canon_facts": [
+            {"subject_name": "Ghost", "subject_type": "person", "predicate": "x", "value": "y"},
+        ],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert "Ghost" not in by_type["character"]
+    assert "person" not in by_type  # never inserted under a bogus key
+
+
+def test_canon_rename_leaves_unmapped_types_untouched():
+    extracted = {
+        "canon_facts": [
+            {"subject_name": "The Order", "subject_type": "faction", "predicate": "x", "value": "y"},
+        ],
+    }
+    renamed = _apply_rename_map(extracted, {"character": {"jane": "Jane Bennet"}})
+    assert renamed["canon_facts"][0]["subject_name"] == "The Order"
