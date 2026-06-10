@@ -231,9 +231,11 @@ ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
 -- ---- Ingestion provenance + replayability ----
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'human';
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS generation_meta JSONB;
--- relationships become traceable to the chapter that asserted them, and are
--- cascade-deleted when that chapter is replaced.
+-- relationships become traceable to the chapter that asserted them; rows with a
+-- non-NULL chapter_id cascade-delete when that chapter is replaced (rows created
+-- before this column existed have NULL and are not covered).
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS chapter_id UUID REFERENCES chapters(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_relationships_chapter ON relationships(chapter_id);
 
 -- ---- Scene-level segmentation ----
 CREATE TABLE IF NOT EXISTS scenes (
