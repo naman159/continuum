@@ -57,6 +57,12 @@ def delete_chapter_data(db: DBClient, *, novel_id: str, chapter_number: int) -> 
     of a FK need explicit handling. Known non-undoable residue: plot_threads
     upserts and entity rows created by this chapter remain — re-processing
     resolves back onto them.
+
+    located_in_edges/possesses_edges evidence pointers into this chapter are
+    NULLed (their rows are projections; materialize_state rebuilds them).
+    knows_edges.source_event_id and commitments.foreshadow/payoff_event_id also
+    reference events with NO ACTION but are never populated by the pipeline
+    today — revisit here if that changes.
     """
     # knows_edges has no chapter FK — keyed by learned_chapter int.
     db.execute(
@@ -80,6 +86,32 @@ def delete_chapter_data(db: DBClient, *, novel_id: str, chapter_number: int) -> 
     # Foreshadows this chapter introduced disappear with it.
     db.execute(
         "DELETE FROM commitments WHERE novel_id = %s AND foreshadow_chapter = %s",
+        (novel_id, chapter_number),
+    )
+    # located_in_edges / possesses_edges reference events with NO ACTION FKs;
+    # NULL their evidence pointers so the chapter's event cascade can't violate
+    # them. The rows themselves are materialized projections — re-running the
+    # state materializer rebuilds them from the surviving event log.
+    db.execute(
+        """
+        UPDATE located_in_edges SET evidence_event_id = NULL
+         WHERE evidence_event_id IN (
+           SELECT e.id FROM events e
+             JOIN chapters ch ON ch.id = e.chapter_id
+            WHERE ch.novel_id = %s AND ch.number = %s
+         )
+        """,
+        (novel_id, chapter_number),
+    )
+    db.execute(
+        """
+        UPDATE possesses_edges SET evidence_event_id = NULL
+         WHERE evidence_event_id IN (
+           SELECT e.id FROM events e
+             JOIN chapters ch ON ch.id = e.chapter_id
+            WHERE ch.novel_id = %s AND ch.number = %s
+         )
+        """,
         (novel_id, chapter_number),
     )
     # Relationships rows written before chapter_id existed (NULL) cannot be
