@@ -46,6 +46,7 @@ const PASS_LABELS: Record<string, string> = {
   commitments: "Tracking commitments",
   intra_dedup: "Deduplicating entities",
   canonicalization: "Canonicalising names",
+  canon_facts: "Extracting canon facts",
 };
 
 function ZapIcon() {

@@ -485,7 +485,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </div>
 
     <p>
-      Runs 12 LLM passes per chunk (see <a href="architecture.html#extraction-passes">Extraction Passes</a>),
+      Runs 13 LLM passes per chunk (see <a href="architecture.html#extraction-passes">Extraction Passes</a>),
       then merges across chunks with <code>merge_extractions()</code>.
     </p>
 
@@ -1019,10 +1019,67 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   created_at       <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
 );</code></pre>
     <p>
-      When <code>locked=true</code>, the planned critic system will raise a hard error if a future
-      extraction contradicts this fact. When <code>locked=false</code>, it's a warning only.
-      The frontend Canon page shows these grouped by <code>subject_entity_id</code>.
+      When <code>locked=true</code>, a contradicting extraction does not overwrite the fact — instead
+      a <code>continuity_flag</code> of type <code>canon_contradiction</code> is raised. When
+      <code>locked=false</code>, a new extraction value replaces the old one. The frontend Canon page
+      shows these grouped by subject entity and lets users toggle the lock.
     </p>
+
+    <h3>canon_facts pass schema</h3>
+    <p>
+      The <code>canon_facts</code> extraction pass (pass 13) asks the LLM to emit a list of facts.
+      Each fact in the extracted array has the following shape:
+    </p>
+    <pre><code>{
+  <span class="str">"kind"</span>: <span class="str">"identity"</span> | <span class="str">"world_rule"</span> | <span class="str">"relationship"</span> | <span class="str">"object_property"</span>,
+  <span class="str">"subject_name"</span>: <span class="str">"..."</span>,          <span class="cmt">// entity name — resolved to subject_entity_id</span>
+  <span class="str">"predicate"</span>: <span class="str">"is_heir"</span>,           <span class="cmt">// snake_case property key</span>
+  <span class="str">"value"</span>: <span class="str">"true"</span>,                  <span class="cmt">// string value (booleans as "true"/"false")</span>
+  <span class="str">"confidence"</span>: <span class="num">0.95</span>               <span class="cmt">// 0.0–1.0</span>
+}</code></pre>
+    <p>
+      <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>.
+      If the existing row has <code>locked=true</code>, the value is not updated; instead a
+      <code>continuity_flags</code> row is inserted with <code>flag_type='canon_contradiction'</code>
+      describing the conflict.
+    </p>
+
+    <h3>Canon API Endpoints</h3>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Body / Params</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/canon</code></td>
+          <td><code>?locked_only=true</code></td>
+          <td><code>CanonFactRow[]</code> — id, kind, subject_name, predicate, value, source_chapter, confidence, locked</td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">POST</span></td>
+          <td><code>/api/novels/{id}/canon</code></td>
+          <td><code>{"kind": "...", "predicate": "...", "value": "...", "subject_entity_id": "uuid|null", "confidence": 0.9, "locked": false}</code></td>
+          <td><code>{"ok": true, "id": "uuid"}</code> — HTTP 201</td>
+        </tr>
+        <tr>
+          <td><span class="badge orange">PATCH</span></td>
+          <td><code>/api/novels/{id}/canon/{fact_id}</code></td>
+          <td><code>{"locked": true}</code> or <code>{"value": "..."}</code> or both</td>
+          <td><code>{"ok": true}</code> — HTTP 200. Partial update: only supplied fields are changed.</td>
+        </tr>
+        <tr>
+          <td><span class="badge red">DELETE</span></td>
+          <td><code>/api/novels/{id}/canon/{fact_id}</code></td>
+          <td>—</td>
+          <td><code>{"ok": true}</code> — HTTP 200</td>
+        </tr>
+      </tbody>
+    </table>
+    <div class="callout info">
+      <strong>Lock semantics:</strong> <code>PATCH</code> with <code>{"locked": true}</code> marks the fact as
+      authoritative. Subsequent extraction passes that would change the <code>value</code> will instead emit a
+      <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>). <code>PATCH</code> with
+      <code>{"locked": false}</code> unlocks it, restoring normal upsert behaviour.
+    </div>
   </section>
 
   <section id="schema-knows">
@@ -1357,8 +1414,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         </tr>
         <tr>
           <td><code>/api/novels/{id}/canon</code></td>
-          <td><code>?cap=N&amp;locked=true|false</code></td>
-          <td><code>CanonFactRow[]</code> — grouped by subject entity in frontend</td>
+          <td><code>?locked_only=true</code></td>
+          <td><code>CanonFactRow[]</code> — grouped by subject entity in frontend. See <a href="#schema-canon">canon_facts schema</a> for POST/PATCH/DELETE.</td>
         </tr>
         <tr>
           <td><code>/api/novels/{id}/knows</code></td>
