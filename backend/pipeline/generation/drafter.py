@@ -7,14 +7,10 @@ Mock mode is deterministic so the loop is testable offline.
 """
 
 import json
-import logging
 from typing import Any
 
 from pipeline.config import settings
 from pipeline.planner.types import ChapterPlan, ScenePlan
-
-logger = logging.getLogger(__name__)
-
 
 def _load_completion():
     try:
