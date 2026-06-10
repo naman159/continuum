@@ -52,6 +52,10 @@ export default function Canon() {
         <p className="muted">No canon facts have been recorded yet.</p>
       )}
 
+      {lockMutation.isError && (
+        <p style={{ color: "var(--red-text)", fontSize: 13 }}>Lock update failed: {(lockMutation.error as Error).message}</p>
+      )}
+
       {Array.from(bySubject.entries()).map(([subject, facts]) => (
         <section key={subject} style={{ marginTop: 16 }}>
           <h2>{subject}</h2>
@@ -83,6 +87,7 @@ export default function Canon() {
                       type="button"
                       title={f.locked ? "Unlock (allow extraction to update)" : "Lock (contradictions become flags)"}
                       onClick={() => lockMutation.mutate({ factId: f.id, locked: !f.locked })}
+                      disabled={lockMutation.isPending && lockMutation.variables?.factId === f.id}
                       style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px", cursor: "pointer", color: f.locked ? "var(--accent)" : "var(--text-muted)", fontSize: 12 }}
                     >
                       {f.locked ? "🔒 Locked" : "🔓 Lock"}

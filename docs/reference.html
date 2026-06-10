@@ -1058,7 +1058,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels/{id}/canon</code></td>
           <td><code>{"kind": "...", "predicate": "...", "value": "...", "subject_entity_id": "uuid|null", "confidence": 0.9, "locked": false}</code></td>
-          <td><code>{"ok": true, "id": "uuid"}</code> — HTTP 201</td>
+          <td><code>{"id": "uuid"}</code> — HTTP 201</td>
         </tr>
         <tr>
           <td><span class="badge orange">PATCH</span></td>
@@ -1070,7 +1070,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><span class="badge red">DELETE</span></td>
           <td><code>/api/novels/{id}/canon/{fact_id}</code></td>
           <td>—</td>
-          <td><code>{"ok": true}</code> — HTTP 200</td>
+          <td>— HTTP 204 No Content</td>
         </tr>
       </tbody>
     </table>
