@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,38 @@ from pipeline.extraction.persist_extras import (
 )
 from pipeline.extraction.resolver import EntityResolver
 from pipeline.ingestion.ingest import ingest_chapter
+
+logger = logging.getLogger(__name__)
+
+
+def _normalize_custom_entities(
+    custom_entities: list[Any],
+    custom_entity_types: list[dict],
+) -> list[dict]:
+    """Drop extracted custom entities whose type isn't registered for the novel
+    and normalize the type to its registered casing. Unregistered types would
+    otherwise create entities rows that no dedup pass or UI page ever sees."""
+    registered = {
+        str(t.get("name", "")).strip().lower(): str(t.get("name", "")).strip()
+        for t in custom_entity_types or []
+        if str(t.get("name", "")).strip()
+    }
+    normalized: list[dict] = []
+    for item in custom_entities or []:
+        if not isinstance(item, dict):
+            continue
+        raw_type = str(item.get("type", "")).strip()
+        match = registered.get(raw_type.lower())
+        if match is None:
+            logger.warning(
+                "custom entity %r has unregistered type %r — skipped",
+                item.get("name"),
+                raw_type,
+            )
+            continue
+        item["type"] = match
+        normalized.append(item)
+    return normalized
 
 
 def _read_chapter_text(file_path: str | None) -> str:
@@ -207,6 +240,9 @@ def process_chapter(
             progress=progress,
             custom_entity_types=custom_entity_types or None,
         )
+        extracted["custom_entities"] = _normalize_custom_entities(
+            extracted.get("custom_entities", []), custom_entity_types
+        )
 
         if progress is not None:
             progress.on_pass_start("intra_dedup")
@@ -241,6 +277,9 @@ def process_chapter(
             chapter_summary=extracted.get("summary", ""),
             event_rows=event_rows,
             service=embedding_service,
+            # persist_multi_summaries re-embeds the chapter from summary_medium;
+            # skip the throwaway embedding when that will happen.
+            embed_chapter=not (extracted.get("summary_medium") or "").strip(),
         )
 
         db.execute(

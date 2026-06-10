@@ -53,3 +53,23 @@ def test_merge_extractions_deduplicates_custom_entities():
     e2["custom_entities"] = [{"name": "The 93rd Universe", "type": "realm", "description": "Same thing."}]
     merged = merge_extractions([e1, e2])
     assert len(merged["custom_entities"]) == 1
+
+
+def test_normalize_custom_entities_drops_unregistered_and_fixes_casing():
+    from pipeline.pipeline import _normalize_custom_entities
+
+    registered = [{"name": "realm", "description": "A dimension."}]
+    items = [
+        {"name": "The 93rd Universe", "type": "Realm"},   # casing fixed
+        {"name": "The System", "type": "power_system"},   # unregistered → dropped
+        "not a dict",                                      # ignored
+    ]
+    result = _normalize_custom_entities(items, registered)
+    assert result == [{"name": "The 93rd Universe", "type": "realm"}]
+
+
+def test_normalize_custom_entities_empty_registry_drops_all():
+    from pipeline.pipeline import _normalize_custom_entities
+
+    items = [{"name": "X", "type": "realm"}]
+    assert _normalize_custom_entities(items, []) == []

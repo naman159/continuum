@@ -29,6 +29,40 @@ async function createNovel(
   return res.json();
 }
 
+function BookIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function ChaptersIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <path d="M4 6h16M4 12h16M4 18h7" />
+    </svg>
+  );
+}
+
+function AuthorIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+
 export default function Novels() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -74,108 +108,179 @@ export default function Novels() {
     setStep("details"); setShowForm(false);
   }
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error) return <p>Error: {String(error instanceof Error ? error.message : error)}</p>;
+  if (isLoading) return <p className="muted" style={{ padding: "20px 0" }}>Loading…</p>;
+  if (error) return <p style={{ color: "var(--red-text)", padding: "20px 0" }}>Error: {String(error instanceof Error ? error.message : error)}</p>;
 
   return (
     <div>
-      <h1>Novels</h1>
-
-      {!showForm && (
-        <button onClick={() => setShowForm(true)}>New Novel</button>
-      )}
+      <div className="page-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <h1 style={{ margin: 0 }}>Library</h1>
+        </div>
+        {!showForm && (
+          <button className="btn-primary" onClick={() => setShowForm(true)}>
+            <PlusIcon />
+            New Novel
+          </button>
+        )}
+      </div>
 
       {showForm && step === "details" && (
-        <form onSubmit={(e) => { e.preventDefault(); if (!title.trim()) return; setStep("types"); }} style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 8 }}>
-            <label htmlFor="novel-title">Title</label><br />
-            <input id="novel-title" type="text" value={title} onChange={(e) => setTitle(e.target.value)} required style={{ marginTop: 4 }} />
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label htmlFor="novel-author">Author (optional)</label><br />
-            <input id="novel-author" type="text" value={author} onChange={(e) => setAuthor(e.target.value)} style={{ marginTop: 4 }} />
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <label htmlFor="novel-language">Language (optional)</label><br />
-            <input id="novel-language" type="text" value={language} onChange={(e) => setLanguage(e.target.value)} style={{ marginTop: 4 }} />
-          </div>
-          <button type="submit" disabled={!title.trim()}>Next: Entity Types →</button>
-          {" "}
-          <button type="button" onClick={resetForm}>Cancel</button>
-        </form>
+        <div className="form-panel">
+          <p className="form-panel-title">New Novel</p>
+          <form onSubmit={(e) => { e.preventDefault(); if (!title.trim()) return; setStep("types"); }}>
+            <div className="form-group">
+              <label className="form-label" htmlFor="novel-title">Title</label>
+              <input
+                id="novel-title"
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="The Name of the Wind"
+                required
+                autoFocus
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="novel-author">Author <span style={{ color: "var(--text-muted)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+              <input
+                id="novel-author"
+                type="text"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+                placeholder="Patrick Rothfuss"
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label" htmlFor="novel-language">Language <span style={{ color: "var(--text-muted)", fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+              <input
+                id="novel-language"
+                type="text"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+                placeholder="English"
+              />
+            </div>
+            <div className="form-actions">
+              <button type="submit" className="btn-primary" disabled={!title.trim()}>
+                Next: Entity Types →
+              </button>
+              <button type="button" className="btn-ghost" onClick={resetForm}>Cancel</button>
+            </div>
+          </form>
+        </div>
       )}
 
       {showForm && step === "types" && (
-        <div style={{ marginBottom: 16 }}>
-          <h3>Custom Entity Types (optional)</h3>
-          <p style={{ color: "#666", fontSize: 14 }}>
-            Define types beyond Characters, Locations, Factions, and Objects.
+        <div className="form-panel">
+          <p className="form-panel-title">Custom Entity Types</p>
+          <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 16, lineHeight: 1.6 }}>
+            Beyond Characters, Locations, Factions, and Objects — add types that matter to this story.
           </p>
 
           {genres && genres.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <strong>Genre presets:</strong>
-              {" "}
-              {genres.map((g) => (
-                <button key={g.id} type="button" onClick={() => applyPreset(g)} style={{ marginRight: 6, marginBottom: 4 }}>
-                  {g.label}
-                </button>
-              ))}
+            <div style={{ marginBottom: 16 }}>
+              <label className="form-label">Genre presets</label>
+              <div className="preset-pills">
+                {genres.map((g) => (
+                  <button key={g.id} type="button" className="preset-pill" onClick={() => applyPreset(g)}>
+                    {g.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
           {customTypes.length > 0 && (
-            <div style={{ marginBottom: 12 }}>
-              <strong>Selected types:</strong>
-              <ul style={{ margin: "4px 0", paddingLeft: 20 }}>
+            <div style={{ marginBottom: 16 }}>
+              <label className="form-label">Selected types</label>
+              <ul className="entity-type-list">
                 {customTypes.map((t) => (
-                  <li key={t.name}>
-                    <code>{t.name}</code>
-                    {t.description && <span style={{ color: "#666", fontSize: 13 }}> — {t.description}</span>}
-                    {" "}
-                    <button type="button" aria-label={`Remove ${t.name}`} onClick={() => removeType(t.name)} style={{ fontSize: 11 }}>✕</button>
+                  <li key={t.name} className="entity-type-item">
+                    {t.name.replace(/_/g, " ")}
+                    <button
+                      type="button"
+                      className="entity-type-remove"
+                      aria-label={`Remove ${t.name}`}
+                      onClick={() => removeType(t.name)}
+                    >
+                      ×
+                    </button>
                   </li>
                 ))}
               </ul>
             </div>
           )}
 
-          <div style={{ marginBottom: 12 }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
             <input
               type="text"
-              placeholder="Add custom type (e.g. deity)"
+              placeholder="Add type (e.g. deity, artifact, ship)"
               value={newTypeName}
               onChange={(e) => setNewTypeName(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomType(); } }}
             />
-            {" "}
-            <button type="button" onClick={addCustomType}>Add</button>
+            <button type="button" onClick={addCustomType} style={{ flexShrink: 0, width: "auto" }}>
+              Add
+            </button>
           </div>
 
           {mutation.isError && (
-            <p style={{ color: "red" }}>Error: {String(mutation.error instanceof Error ? mutation.error.message : mutation.error)}</p>
+            <p style={{ color: "var(--red-text)", fontSize: 13, marginBottom: 12 }}>
+              Error: {String(mutation.error instanceof Error ? mutation.error.message : mutation.error)}
+            </p>
           )}
-          <button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-            {mutation.isPending ? "Creating…" : "Create Novel"}
-          </button>
-          {" "}
-          <button type="button" onClick={() => setStep("details")} disabled={mutation.isPending}>← Back</button>
-          {" "}
-          <button type="button" onClick={resetForm} disabled={mutation.isPending}>Cancel</button>
+
+          <div className="form-actions">
+            <button type="button" className="btn-primary" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
+              {mutation.isPending ? "Creating…" : "Create Novel"}
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setStep("details")} disabled={mutation.isPending}>
+              ← Back
+            </button>
+            <button type="button" className="btn-ghost" onClick={resetForm} disabled={mutation.isPending}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
-      {(!data || data.length === 0) && !showForm && <p>No novels.</p>}
+      {(!data || data.length === 0) && !showForm && (
+        <div className="empty-state">
+          <div style={{ marginBottom: 16, opacity: 0.3 }}>
+            <BookIcon />
+          </div>
+          <p style={{ marginBottom: 12, fontFamily: "'Crimson Pro', Georgia, serif", fontSize: "1.1rem", color: "var(--text)" }}>
+            No novels yet
+          </p>
+          <p style={{ fontSize: 13 }}>Add your first novel to start tracking characters, events, and plot threads.</p>
+        </div>
+      )}
+
       {data && data.length > 0 && (
-        <ul>
+        <div className="novel-grid">
           {data.map((n) => (
-            <li key={n.id}>
-              <Link to={`/novels/${n.id}/characters`}>{n.title}</Link>
-              {" — "}
-              {n.author ?? "Unknown"} · {n.max_chapter} chapter{n.max_chapter === 1 ? "" : "s"}
-            </li>
+            <Link
+              key={n.id}
+              to={`/novels/${n.id}/characters`}
+              className="novel-card"
+            >
+              <div className="novel-card-title">{n.title}</div>
+              <div className="novel-card-meta">
+                {n.author && (
+                  <span className="novel-card-stat">
+                    <AuthorIcon />
+                    {n.author}
+                  </span>
+                )}
+                <span className="novel-card-stat">
+                  <ChaptersIcon />
+                  {n.max_chapter} ch{n.max_chapter === 1 ? "" : "s"}
+                </span>
+              </div>
+            </Link>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

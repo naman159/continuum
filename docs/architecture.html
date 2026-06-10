@@ -351,13 +351,23 @@
   <a href="#canon-facts">Canon Facts</a>
   <a href="#commitments">Commitments</a>
   <a href="#knows-edges">Theory of Mind</a>
+  <a href="#entity-graph">Entity Graph</a>
+  <a href="#custom-entity-types">Custom Entity Types</a>
+
+  <div class="sidebar-section">Advanced Modules</div>
+  <a href="#retrieval">Hybrid Retrieval</a>
+  <a href="#critic">Continuity Critic</a>
+  <a href="#planner">Scene Planner</a>
+  <a href="#state-materializer">State Materializer</a>
 
   <div class="sidebar-section">Codebase</div>
   <a href="#file-map">Key File Map</a>
-  <a href="#current-branch">Current Branch</a>
+  <a href="#current-branch">Recent Changes</a>
 
   <div class="sidebar-doc-link">
-    Also see: <a href="reference.html">API &amp; Schema Reference →</a>
+    Also see:<br>
+    <a href="reference.html">API &amp; Schema Reference →</a><br>
+    <a href="state-of-the-system.html">State of the System →</a>
   </div>
 </nav>
 
@@ -387,12 +397,12 @@
       </div>
       <div class="card">
         <h4>Query</h4>
-        <p>20 wiki-style views served by FastAPI, rendered in React</p>
+        <p>25+ wiki-style views served by FastAPI, rendered in React — including entity graph, scenes, canon facts, and custom entity types</p>
       </div>
     </div>
 
     <div class="callout info">
-      <strong>Active branch:</strong> <code>closing-the-gap-with-sota</code> — This PR adds SOTA narrative-tracking tables (scenes, commitments, canon_facts, knows_edges, bitemporal location/possession edges). Many files in the git diff are part of this work.
+      <strong>Active branch:</strong> <code>closing-the-gap-with-sota</code> — This branch added SOTA narrative-tracking tables (scenes, commitments, canon_facts, knows_edges, bitemporal edges), plus the Entity Graph with rich edges, Custom Entity Types with genre presets, and the Critic / Planner / Retrieval / State sub-modules.
     </div>
   </section>
 
@@ -431,17 +441,17 @@
       <tbody>
         <tr>
           <td><strong>Entities</strong></td>
-          <td>Characters, locations, factions, objects — the nouns of the story</td>
+          <td>Characters, locations, factions, objects, and user-defined custom types — the nouns of the story</td>
           <td>Every entity gets a UUID in the <code>entities</code> table first</td>
         </tr>
         <tr>
           <td><strong>Events</strong></td>
-          <td>Timestamped story events — the verbs</td>
+          <td>Timestamped story events — the verbs. Now enriched with SVO triples and story-time ordering.</td>
           <td>Always tied to a chapter; can reference any entity type via UUID arrays</td>
         </tr>
         <tr>
           <td><strong>State</strong></td>
-          <td>Character state snapshots, scenes, relationships, knowledge edges</td>
+          <td>Character state snapshots, scenes, relationships, knowledge edges, bitemporal possession/location edges</td>
           <td>Every state row has a chapter reference → enables chapter-cap filtering</td>
         </tr>
       </tbody>
@@ -469,7 +479,8 @@ graph LR
     F -->|12 passes| G["LLM\n(LiteLLM)"]
     G --> F
     F --> H["IntraExtractionDeduplicator\n(canonicalizer.py)"]
-    H --> I["EntityResolver\n(resolver.py)"]
+    H --> H2["EntityCanonicalizer\n(canonicalizer.py)"]
+    H2 --> I["EntityResolver\n(resolver.py)"]
     I --> J["_persist_extraction\n(pipeline.py)"]
     J --> K[(PostgreSQL\nknowledge graph)]
     K --> L["FastAPI\n(api/)"]
@@ -486,34 +497,60 @@ graph LR
 <span class="dir">continuum/</span>
 ├── <span class="dir">backend/</span>
 │   ├── <span class="dir">api/</span>
-│   │   ├── <span class="key">app.py</span>            <span class="cmt"># FastAPI app, mounts 17 routers</span>
-│   │   ├── <span class="key">queries.py</span>        <span class="cmt"># All SQL — 1,591 lines, every wiki view</span>
-│   │   ├── <span class="key">schemas.py</span>        <span class="cmt"># Pydantic response models (30+ types)</span>
+│   │   ├── <span class="key">app.py</span>            <span class="cmt"># FastAPI app, mounts 19 routers</span>
+│   │   ├── <span class="key">queries.py</span>        <span class="cmt"># All SQL — 2,097 lines, every wiki view</span>
+│   │   ├── <span class="key">schemas.py</span>        <span class="cmt"># Pydantic response models (35+ types)</span>
+│   │   ├── <span class="key">jobs.py</span>           <span class="cmt"># In-memory job status store</span>
 │   │   └── routes/           <span class="cmt"># One file per entity/feature domain</span>
+│   │       ├── entity_graph.py   <span class="cmt"># Unified entity + rich edge graph</span>
+│   │       └── entity_types.py   <span class="cmt"># Custom entity type CRUD + genre presets</span>
 │   ├── <span class="dir">pipeline/</span>
 │   │   ├── <span class="key">pipeline.py</span>       <span class="cmt"># Master orchestration — start here</span>
 │   │   ├── <span class="key">config.py</span>         <span class="cmt"># All tuneable settings (frozen dataclass)</span>
 │   │   ├── <span class="dir">db/</span>
 │   │   │   ├── <span class="key">schema.sql</span>        <span class="cmt"># Source of truth for DB structure</span>
-│   │   │   └── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
+│   │   │   ├── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
+│   │   │   └── migrate_*.py      <span class="cmt"># One-shot migration helpers</span>
 │   │   ├── <span class="dir">extraction/</span>
 │   │   │   ├── <span class="key">extractor.py</span>      <span class="cmt"># ChapterExtractor — drives 12 LLM passes</span>
 │   │   │   ├── <span class="key">prompts.py</span>        <span class="cmt"># All prompt templates + JSON schemas</span>
-│   │   │   ├── canonicalizer.py  <span class="cmt"># Intra-extraction name deduplication</span>
-│   │   │   ├── resolver.py       <span class="cmt"># Fuzzy entity → DB ID resolution</span>
+│   │   │   ├── <span class="key">presets.py</span>        <span class="cmt"># Genre presets for custom entity types</span>
+│   │   │   ├── canonicalizer.py  <span class="cmt"># Intra-extraction dedup + cross-chapter canonicalizer</span>
+│   │   │   ├── resolver.py       <span class="cmt"># Entity name → DB ID resolution (exact/alias/partial)</span>
 │   │   │   ├── chunker.py        <span class="cmt"># Sliding window tokenizer</span>
 │   │   │   └── persist_extras.py <span class="cmt"># Persist SOTA tables (scenes, knows, etc.)</span>
+│   │   ├── <span class="dir">critic/</span>           <span class="cmt"># ContinuityCritic: 6 typed checks</span>
+│   │   │   ├── runner.py         <span class="cmt"># Orchestrates all checks → CritiqueReport</span>
+│   │   │   ├── types.py          <span class="cmt"># DraftChapter, CritiqueReport, Finding</span>
+│   │   │   └── checks/           <span class="cmt"># commitment, entity, knowledge, location, temporal, thread</span>
+│   │   ├── <span class="dir">planner/</span>          <span class="cmt"># ScenePlanner: next-chapter narrative plan</span>
+│   │   │   ├── planner.py        <span class="cmt"># LLM-based chapter plan generator</span>
+│   │   │   ├── context.py        <span class="cmt"># gather_plan_context() — DB snapshot for planner</span>
+│   │   │   ├── prompts.py        <span class="cmt"># Planner prompt templates</span>
+│   │   │   └── types.py          <span class="cmt"># ChapterPlan, ScenePlan</span>
+│   │   ├── <span class="dir">retrieval/</span>        <span class="cmt"># HybridRetriever: BM25 + dense + RRF + MMR</span>
+│   │   │   ├── hybrid.py         <span class="cmt"># Orchestrator: BM25 → dense → RRF → rerank → MMR</span>
+│   │   │   ├── bm25.py           <span class="cmt"># Full-text search (tsvector)</span>
+│   │   │   ├── dense.py          <span class="cmt"># Vector ANN search (HNSW)</span>
+│   │   │   ├── fusion.py         <span class="cmt"># Reciprocal rank fusion</span>
+│   │   │   ├── rerank.py         <span class="cmt"># LLM reranker</span>
+│   │   │   ├── mmr.py            <span class="cmt"># Max marginal relevance diversification</span>
+│   │   │   └── types.py          <span class="cmt"># RetrievalQuery, RetrievalResult, RetrievalBundle</span>
+│   │   ├── <span class="dir">state/</span>            <span class="cmt"># StateMaterializer: derives projections from event log</span>
+│   │   │   ├── materializer.py   <span class="cmt"># Writes character_states, located_in_edges, possesses_edges</span>
+│   │   │   ├── event_replay.py   <span class="cmt"># Replays events to build state snapshots</span>
+│   │   │   └── types.py          <span class="cmt"># StateSnapshot, LocationFact, PossessionFact</span>
 │   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding + hash fallback</span>
 │   │   └── ingestion/ingest.py   <span class="cmt"># Raw chapter INSERT</span>
 │   ├── cli/                      <span class="cmt"># CLI entry points (query each domain)</span>
 │   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
 └── <span class="dir">frontend/src/</span>
-    ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 20 routes</span>
+    ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 23 routes</span>
     ├── <span class="key">api.ts</span>                <span class="cmt"># Type definitions + all fetch functions</span>
     ├── components/
-    │   ├── <span class="key">Sidebar.tsx</span>       <span class="cmt"># Navigation + chapter cap slider</span>
+    │   ├── <span class="key">Sidebar.tsx</span>       <span class="cmt"># Navigation (including dynamic custom-type links) + chapter cap slider</span>
     │   └── Layout.tsx
-    └── routes/               <span class="cmt"># 20 page components</span>
+    └── routes/               <span class="cmt"># 23 page components</span>
     </div>
   </section>
 
@@ -531,7 +568,7 @@ graph LR
         <strong>Ingest raw text</strong> — <code>ingest_chapter()</code> inserts the raw chapter text into the <code>chapters</code> table. Duplicate (novel_id, chapter_number) is rejected.
       </li>
       <li>
-        <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, and recent events from the DB. This context is injected into every LLM prompt so the model knows what already exists.
+        <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, recent events, and custom entity types from the DB. This context is injected into every LLM prompt so the model knows what already exists.
       </li>
       <li>
         <strong>Chunk the text</strong> — <code>sliding_window_chunks()</code> splits the chapter into 2,000-token windows with 200-token overlap using tiktoken (falls back to whitespace split). Each chunk is processed independently.
@@ -540,19 +577,22 @@ graph LR
         <strong>LLM extraction (12 passes per chunk)</strong> — <code>ChapterExtractor</code> runs 12 sequential LLM calls per chunk. See <a href="#extraction-passes">Extraction Passes</a> for details.
       </li>
       <li>
-        <strong>Merge across chunks</strong> — <code>merge_extractions()</code> deduplicates the results from all chunks by name/description (naïve string matching at this stage).
+        <strong>Merge across chunks</strong> — <code>merge_extractions()</code> deduplicates the results from all chunks by name/description (naïve string matching at this stage; objects are keyed by name + owner so same-named items with different owners survive the merge).
       </li>
       <li>
-        <strong>Intra-extraction deduplication</strong> — <code>IntraExtractionDeduplicator</code> calls the LLM once more to group name variants ("Jane", "Jane B", "Miss Bennet") and renames all to the longest canonical form.
+        <strong>Intra-extraction deduplication</strong> — <code>IntraExtractionDeduplicator</code> makes one focused LLM call per entity type (including the novel's custom types) to group name variants ("Jane", "Jane B", "Miss Bennet") and renames every occurrence to the longest canonical form — across new entities, deltas, events (characters, locations, objects, <em>and factions</em>), relationships, dynamics, scenes, learnings, and custom entities. Group members are validated against the actually-extracted names, so an LLM-hallucinated name can never become the canonical form. Renamed lists are also de-duplicated in place.
       </li>
       <li>
-        <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (via exact match → alias → fuzzy → create new). Returns UUIDs.
+        <strong>Cross-chapter canonicalization</strong> — <code>EntityCanonicalizer</code> matches names not yet in the DB against the per-type roster. Names whose normalized form (<code>normalize_name()</code>: case, whitespace, surrounding punctuation, leading article) equals exactly one roster name/alias merge <em>deterministically with zero LLM cost</em>; only the rest go to one LLM call per type, with the roster capped to the <code>CANONICALIZER_MAX_ROSTER</code> (default 80) most string-similar entries so prompt size stays bounded as the novel grows. Confirmed matches are appended to the entity's <code>aliases[]</code> — custom entity types store theirs on <code>entities.aliases</code>.
+      </li>
+      <li>
+        <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs.
       </li>
       <li>
         <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes everything: entities, character states, events, relationships, shared dynamics, plot threads, continuity flags.
       </li>
       <li>
-        <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for the chapter summary and each event description (enables semantic search later).
+        <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for each event description, plus the chapter summary only when no medium summary exists (otherwise <code>persist_multi_summaries()</code> embeds the chapter from <code>summary_medium</code>, so the extra call is skipped).
       </li>
       <li>
         <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code> fill the newer tables added in the SOTA branch.
@@ -593,8 +633,8 @@ graph LR
         <tr>
           <td><span class="badge blue">2</span></td>
           <td><code>new_entities</code></td>
-          <td>New characters, locations (with <code>parent_location</code>), factions, objects (with <code>owner_name</code> + <code>distinguishing_properties</code>)</td>
-          <td><code>characters</code>, <code>locations</code>, <code>factions</code>, <code>objects</code></td>
+          <td>New characters, locations (with <code>parent_location</code>), factions, objects (with <code>owner_name</code> + <code>distinguishing_properties</code>), and <strong>custom entities</strong> (genre-specific types defined per novel)</td>
+          <td><code>characters</code>, <code>locations</code>, <code>factions</code>, <code>objects</code>, <code>entities</code> (for custom types)</td>
         </tr>
         <tr>
           <td><span class="badge blue">3</span></td>
@@ -663,6 +703,10 @@ graph LR
       <strong>Persistence via persist_extras.py:</strong> Passes 9–12 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers in <code>persist_extras.py</code> (<code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_multi_summaries()</code>), which handle the extra logic needed for those tables (embedding, entity linking, deduplication).
     </div>
 
+    <div class="callout tip">
+      <strong>Custom entities in pass 2:</strong> When a novel has user-defined entity types (e.g., <code>realm</code>, <code>power_system</code> for LitRPG), the <code>new_entities</code> pass prompt is extended with those types and their descriptions. Extracted custom entities land in the <code>custom_entities</code> array in the extraction result and are persisted as <code>entities</code> rows with <code>entity_type = &lt;type_name&gt;</code>.
+    </div>
+
     <h3>Mock Mode</h3>
     <p>
       Set <code>USE_MOCK_LLM=true</code> (or use <code>--mock</code> CLI flag) to run without an API key.
@@ -701,7 +745,7 @@ flowchart TD
     </div>
 
     <div class="callout warn">
-      <strong>Intra-extraction dedup runs first</strong> — before entity resolution, the <code>IntraExtractionDeduplicator</code> uses an LLM call to group all name variants within a single extraction and renames them to the longest canonical form. This means the resolver sees cleaner input. The deduplicator uses the rule: <em>longest form wins</em> (e.g., "Jane Bennet" beats "Jane").
+      <strong>Two dedup passes run first</strong> — before entity resolution, the <code>IntraExtractionDeduplicator</code> groups name variants within the extraction (rule: <em>longest form wins</em>, e.g., "Jane Bennet" beats "Jane"; only names actually present in the extraction may participate), then the <code>EntityCanonicalizer</code> merges still-unknown names into existing DB entities by writing aliases (deterministic normalized-equality first, LLM second). The resolver therefore sees cleaner input and finds canonicalized names via its alias lookup. <code>resolve_any_entity</code> additionally checks every typed table's name <em>and</em> aliases before falling back to creating a character, so an aliased faction/location/object reference can no longer create a phantom character row.
     </div>
 
     <p>
@@ -756,15 +800,23 @@ flowchart TD
       </div>
       <div class="card">
         <h4>Polymorphic entities</h4>
-        <p>All characters, locations, factions, and objects share the <code>entities</code> table for cross-entity relationships. Entity-type tables are subsets.</p>
+        <p>All characters, locations, factions, objects, and custom-typed entities share the <code>entities</code> table for cross-entity relationships. Entity-type tables are subsets.</p>
       </div>
       <div class="card">
         <h4>Array columns for involvement</h4>
         <p>Events store <code>involved_characters[]</code>, <code>involved_locations[]</code>, etc. as UUID arrays instead of junction tables. Faster to write; GIN-indexed for queries.</p>
       </div>
       <div class="card">
-        <h4>Pgvector embeddings</h4>
-        <p>Chapters, events, scenes, commitments, and characters store vector embeddings. HNSW indexes enable fast ANN (approximate nearest neighbor) search.</p>
+        <h4>Pgvector + HNSW</h4>
+        <p>Chapters, events, scenes, commitments, and characters store vector embeddings. HNSW indexes (replacing the old IVFFlat) enable fast ANN search with better recall at novel scale.</p>
+      </div>
+      <div class="card">
+        <h4>Full-text search (BM25)</h4>
+        <p><code>chapters</code>, <code>scenes</code>, and <code>events</code> have a <code>search_tsv tsvector</code> column maintained by triggers. Used by the <code>BM25Search</code> component of the hybrid retriever.</p>
+      </div>
+      <div class="card">
+        <h4>Invalidate-don't-delete</h4>
+        <p>Relationships and knows_edges have a <code>superseded_by_id</code> column. Old rows are kept; the latest non-superseded row is the current truth. Enables change history.</p>
       </div>
     </div>
   </section>
@@ -773,7 +825,7 @@ flowchart TD
   <!-- CORE TABLES -->
   <section id="core-tables">
     <h2>Core Tables</h2>
-    <p>These tables exist from the beginning of the project and support the 6 base extraction passes.</p>
+    <p>These tables exist from the beginning of the project and support the base extraction passes.</p>
 
     <table>
       <thead>
@@ -787,13 +839,18 @@ flowchart TD
         </tr>
         <tr>
           <td><code>chapters</code></td>
-          <td>One row per chapter. Stores raw text and embeddings.</td>
-          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, embedding</code></td>
+          <td>One row per chapter. Stores raw text, multi-granularity summaries, and embeddings.</td>
+          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (JSONB), embedding, search_tsv</code></td>
         </tr>
         <tr>
           <td><code>entities</code></td>
-          <td>Universal polymorphic entity table. All characters/locations/etc. get an entry here first.</td>
-          <td><code>novel_id, entity_type ('character'|'location'|'faction'|'object'), name</code></td>
+          <td>Universal polymorphic entity table. All characters/locations/factions/objects/custom types get an entry here first. <code>aliases[]</code> stores name variants for custom types.</td>
+          <td><code>novel_id, entity_type ('character'|'location'|'faction'|'object'|&lt;custom&gt;), name, aliases[]</code></td>
+        </tr>
+        <tr>
+          <td><code>novel_entity_types</code></td>
+          <td>Defines custom entity types for a novel (e.g., <code>realm</code>, <code>power_system</code>). Populated from genre presets or manually.</td>
+          <td><code>novel_id, name, description</code></td>
         </tr>
         <tr>
           <td><code>characters</code></td>
@@ -818,17 +875,17 @@ flowchart TD
         <tr>
           <td><code>character_states</code></td>
           <td>Snapshot of a character's state at a given chapter</td>
-          <td><code>character_id, chapter_id, location_id, emotional_state, goals, knowledge[], physical_state</code></td>
+          <td><code>character_id, chapter_id, location_id, emotional_state, goals, knowledge[], physical_state, appearance, notes</code></td>
         </tr>
         <tr>
           <td><code>events</code></td>
-          <td>Narrative events — the story's verbs</td>
-          <td><code>chapter_id, description, event_type, impact_level, involved_characters[], involved_locations[], involved_factions[], involved_objects[]</code></td>
+          <td>Narrative events — the story's verbs. Enriched with SVO triples and story-time ordering.</td>
+          <td><code>chapter_id, description, event_type, impact_level, involved_characters[], involved_locations[], involved_factions[], involved_objects[], subject_entity_id, verb, object_entity_id, story_time_ordinal, narrative_order, scene_id, embedding, search_tsv</code></td>
         </tr>
         <tr>
           <td><code>relationships</code></td>
-          <td>Pairwise entity relationships with type and chapter range</td>
-          <td><code>entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes</code></td>
+          <td>Pairwise entity relationships with type and chapter range. Supports invalidation chain.</td>
+          <td><code>entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes, superseded_by_id, evidence_event_ids[], sentiment</code></td>
         </tr>
         <tr>
           <td><code>shared_dynamics</code></td>
@@ -857,10 +914,10 @@ flowchart TD
 
   <!-- SOTA TABLES -->
   <section id="sota-tables">
-    <h2>SOTA Tables <span class="badge orange">New in this branch</span></h2>
+    <h2>SOTA Tables</h2>
     <p>
-      These tables were added on the <code>closing-the-gap-with-sota</code> branch to bring the
-      extraction quality closer to state-of-the-art narrative understanding systems.
+      These tables were added on the <code>closing-the-gap-with-sota</code> branch to bring extraction
+      quality closer to state-of-the-art narrative understanding systems.
     </p>
 
     <table>
@@ -871,7 +928,7 @@ flowchart TD
         <tr>
           <td><code>scenes</code></td>
           <td>Individual scenes within a chapter: who's present, where, when, what POV</td>
-          <td><code>chapter_id, scene_index, pov_character_id, location_id, time_anchor, present_characters[], summary, embedding</code></td>
+          <td><code>chapter_id, scene_index, pov_character_id, location_id, time_anchor, story_time_ordinal, present_characters[], summary, embedding, search_tsv</code></td>
         </tr>
         <tr>
           <td><code>canon_facts</code></td>
@@ -880,28 +937,33 @@ flowchart TD
         </tr>
         <tr>
           <td><code>knows_edges</code></td>
-          <td>"Theory of mind" — who knows what fact, when they learned it, how certain they are</td>
-          <td><code>character_id, fact_description, learned_chapter, source_event_id, source_type, certainty, shared_with[]</code></td>
+          <td>"Theory of mind" — who knows what fact, when they learned it, how certain they are. Supports supersession chain.</td>
+          <td><code>character_id, fact_id, fact_description, learned_chapter, source_event_id, source_type, certainty, shared_with[], superseded_by_id</code></td>
         </tr>
         <tr>
           <td><code>possesses_edges</code></td>
           <td>Bitemporal object possession: character owns object from chapter X to Y</td>
-          <td><code>character_id, object_id, since_chapter, until_chapter, evidence_event_id, certainty</code></td>
+          <td><code>character_id, object_id, since_chapter, until_chapter, evidence_event_id, certainty, superseded_by_id</code></td>
         </tr>
         <tr>
           <td><code>located_in_edges</code></td>
           <td>Bitemporal entity location: entity was at location from chapter X to Y</td>
-          <td><code>entity_id, location_id, since_chapter, until_chapter, evidence_event_id, certainty</code></td>
+          <td><code>entity_id, location_id, since_chapter, until_chapter, evidence_event_id, certainty, superseded_by_id</code></td>
         </tr>
         <tr>
           <td><code>commitments</code></td>
           <td>Foreshadow/payoff pairs: a story promise and its resolution (or lack thereof)</td>
-          <td><code>foreshadow_text, foreshadow_chapter, trigger_predicate (JSONB), payoff_text, payoff_chapter, status, weight</code></td>
+          <td><code>foreshadow_text, foreshadow_chapter, trigger_predicate (JSONB), payoff_text, payoff_chapter, status, weight, related_entity_ids[], embedding</code></td>
         </tr>
         <tr>
           <td><code>temporal_constraints</code></td>
           <td>Ordering constraints between events (A before B, A causes B)</td>
           <td><code>event_a_id, event_b_id, relation, certainty</code></td>
+        </tr>
+        <tr>
+          <td><code>materialized_state_runs</code></td>
+          <td>Audit log of <code>StateMaterializer</code> runs — which novel was materialized through which chapter</td>
+          <td><code>novel_id, through_chapter, materialized_at, notes</code></td>
         </tr>
       </tbody>
     </table>
@@ -961,7 +1023,7 @@ flowchart TD
     <h2>API Layer</h2>
     <p>
       FastAPI app at <code>backend/api/app.py</code>. All endpoints are under
-      <code>/api/novels/{novel_id}/...</code>. The app also serves the React build as static files,
+      <code>/api/novels/{novel_id}/...</code> (except <code>/api/genres</code>). The app also serves the React build as static files,
       with an SPA catch-all fallback.
     </p>
 
@@ -976,22 +1038,24 @@ flowchart TD
         <tr><td><code>timeline.py</code></td><td><code>/.../timeline</code></td><td>Events grouped by chapter, cap-filtered</td></tr>
         <tr><td><code>threads.py</code></td><td><code>/.../threads</code></td><td>Plot threads with linked events</td></tr>
         <tr><td><code>continuity.py</code></td><td><code>/.../continuity</code></td><td>Foreshadowing/setup/callback flags with resolved status</td></tr>
-        <tr><td><code>relationships.py</code></td><td><code>/.../relationships</code></td><td>Node + edge graph for vis.js visualization</td></tr>
+        <tr><td><code>relationships.py</code></td><td><code>/.../relationships</code></td><td>Node + edge graph for vis.js relationship visualization</td></tr>
+        <tr><td><code>entity_graph.py</code></td><td><code>/.../entity-graph</code></td><td>Unified entity graph with rich 5-kind edges (relationship, dynamic, event, possession, location) — used by the Entity Graph view</td></tr>
         <tr><td><code>dynamics.py</code></td><td><code>/.../dynamics</code></td><td>Pairwise entity dynamics descriptions</td></tr>
         <tr><td><code>locations.py</code></td><td><code>/.../locations</code></td><td>Location list; detail with events, characters</td></tr>
         <tr><td><code>objects.py</code></td><td><code>/.../objects</code></td><td>Object list; detail with history</td></tr>
         <tr><td><code>factions.py</code></td><td><code>/.../factions</code></td><td>Faction list; detail</td></tr>
-        <tr><td><code>scenes.py</code></td><td><code>/.../scenes</code></td><td><span class="badge orange">SOTA</span> Scene segmentation with POV + present characters</td></tr>
-        <tr><td><code>commitments.py</code></td><td><code>/.../commitments</code></td><td><span class="badge orange">SOTA</span> Foreshadow/payoff tracking with status filter</td></tr>
-        <tr><td><code>canon.py</code></td><td><code>/.../canon</code></td><td><span class="badge orange">SOTA</span> Immutable world facts, grouped by subject entity</td></tr>
-        <tr><td><code>knowledge.py</code></td><td><code>/.../knowledge</code></td><td><span class="badge orange">SOTA</span> knows_edges, location_history, possession_history</td></tr>
+        <tr><td><code>scenes.py</code></td><td><code>/.../scenes</code></td><td>Scene segmentation with POV + present characters</td></tr>
+        <tr><td><code>commitments.py</code></td><td><code>/.../commitments</code></td><td>Foreshadow/payoff tracking with status filter</td></tr>
+        <tr><td><code>canon.py</code></td><td><code>/.../canon</code></td><td>Immutable world facts, grouped by subject entity</td></tr>
+        <tr><td><code>knowledge.py</code></td><td><code>/.../knowledge</code></td><td>knows_edges, location_history, possession_history</td></tr>
+        <tr><td><code>entity_types.py</code></td><td><code>/api/genres</code>, <code>/.../entity-types</code>, <code>/.../entity-types/:type/entities</code>, <code>/.../custom-entities/:id</code></td><td>Genre preset list; custom entity type CRUD; list/detail views for custom entities</td></tr>
         <tr><td><code>process.py</code></td><td><code>/.../process</code></td><td>Submit chapter for async processing</td></tr>
         <tr><td><code>jobs.py</code></td><td><code>/.../jobs/{id}</code></td><td>Job status polling (in-memory)</td></tr>
       </tbody>
     </table>
 
     <div class="callout warn">
-      <strong>Job tracking is in-memory only</strong> — the <code>jobs.py</code> route stores job status in a dict. This doesn't survive server restarts and doesn't scale horizontally. It's a known MVP limitation.
+      <strong>Job tracking is in-memory only</strong> — the job status store doesn't survive server restarts and doesn't scale horizontally. It's a known MVP limitation.
     </div>
   </section>
 
@@ -1025,11 +1089,14 @@ flowchart TD
           <code>/.../locations</code> + <code>/:id</code><br/>
           <code>/.../objects</code> + <code>/:id</code><br/>
           <code>/.../factions</code> + <code>/:id</code><br/>
-          <code>/.../dynamics</code> → Shared dynamics
+          <code>/.../dynamics</code> → Shared dynamics<br/>
+          <code>/.../entity-graph</code> → Unified entity graph (rich edges)<br/>
+          <code>/.../entity-types/:typeName/entities</code> → Custom entity list<br/>
+          <code>/.../custom-entities/:id</code> → Custom entity detail
         </p>
       </div>
       <div class="card">
-        <h4>SOTA Views (New)</h4>
+        <h4>SOTA Views</h4>
         <p>
           <code>/.../scenes</code> → Scene segmentation<br/>
           <code>/.../commitments</code> → Foreshadow/payoff<br/>
@@ -1044,6 +1111,32 @@ flowchart TD
         </p>
       </div>
     </div>
+
+    <h3>Design System</h3>
+    <p>
+      All styles live in <code>frontend/src/styles.css</code> (the only imported stylesheet —
+      <code>index.css</code> and <code>App.css</code> are unused). Fonts are loaded via
+      <code>index.html</code>: <strong>Crimson Pro</strong> (serif, headings), <strong>Inter</strong>
+      (body), <strong>JetBrains Mono</strong> (code/monospace).
+    </p>
+    <p>
+      The design uses a dark "Obsidian Manuscript" theme with CSS custom properties:
+      <code>--bg #0b0d14</code>, <code>--surface #12141f</code>, <code>--accent #a855f7</code>.
+      Key component classes: <code>.novel-grid</code>, <code>.novel-card</code>,
+      <code>.form-panel</code>, <code>.job-card</code>, <code>.graph-container</code>,
+      <code>.btn-primary</code>, <code>.filter-bar</code>, <code>.status-*</code>.
+    </p>
+
+    <h3>Dynamic Sidebar Links</h3>
+    <p>
+      The <code>Sidebar.tsx</code> component fetches <code>/.../entity-types</code> on load and
+      dynamically appends nav links for each custom entity type defined for the current novel.
+      Static nav links are organised into five groups: <strong>Story</strong> (Characters, Chapters,
+      Scenes), <strong>Narrative</strong> (Timeline, Threads, Commitments), <strong>World</strong>
+      (Locations, Objects, Factions), <strong>Analysis</strong> (Knowledge, Canon, Dynamics,
+      Entity Graph, Continuity), and <strong>Tools</strong> (Process Chapter).
+      Custom entity types appear in a sixth <strong>Custom</strong> group.
+    </p>
 
     <h3>Key Frontend Files</h3>
     <table>
@@ -1061,7 +1154,7 @@ flowchart TD
         </tr>
         <tr>
           <td><code>frontend/src/components/Sidebar.tsx</code></td>
-          <td>Navigation links + the chapter cap slider. When you add a new route, add the nav link here.</td>
+          <td>Navigation links (static + dynamic custom-type links) + the chapter cap slider. When you add a new route, add the nav link here.</td>
         </tr>
         <tr>
           <td><code>frontend/src/hooks/useChapterCap.ts</code></td>
@@ -1091,12 +1184,12 @@ flowchart TD
         <tr><td><code>predicate</code></td><td>The property or relationship (e.g., "is_heir", "has_curse")</td></tr>
         <tr><td><code>value</code></td><td>The fact value (e.g., "true", "Ironwood Throne")</td></tr>
         <tr><td><code>confidence</code></td><td>0.0–1.0 confidence from the extractor</td></tr>
-        <tr><td><code>locked</code></td><td>If true, future chapters violating this fact trigger a hard error (critic mode). If false, it's a warning.</td></tr>
+        <tr><td><code>locked</code></td><td>If true, the <code>ContinuityCritic</code> treats violations as FAIL severity (hard error). If false, it's a WARN.</td></tr>
       </tbody>
     </table>
 
     <p>
-      The critic system (planned in <code>backend/pipeline/critic/</code>) uses canon facts to validate
+      The <code>ContinuityCritic</code> (in <code>backend/pipeline/critic/</code>) uses locked canon facts to validate
       that new chapter extractions don't contradict established world rules.
     </p>
   </section>
@@ -1143,7 +1236,7 @@ flowchart TD
 character_id    → Asha's UUID
 fact_description → "The king is not her biological father"
 learned_chapter → 7
-source_type     → "overheard"   <span class="comment">-- or: told, witnessed, deduced, read</span>
+source_type     → "overheard"   <span class="comment">-- or: told, witnessed, deduced, dialogue, assumed, inference</span>
 certainty       → 0.9
 shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told</span></code></pre>
 
@@ -1151,6 +1244,232 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
       The frontend's <strong>Knowledge page</strong> (<code>/.../knowledge</code>) shows three tabs:
       who-knows-what, character location history, and character possession history — all from the
       three bitemporal edge tables.
+    </p>
+  </section>
+
+
+  <!-- ENTITY GRAPH -->
+  <section id="entity-graph">
+    <h2>Entity Graph</h2>
+    <p>
+      The Entity Graph (<code>/.../entity-graph</code>) is a unified force-directed visualization of all entities
+      and the edges between them. Unlike the simpler Relationships page (which shows only explicit
+      relationship arcs), the Entity Graph assembles <strong>5 kinds of edges</strong> into one view.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Edge Kind</th><th>Source</th><th>Rendered As</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><span class="badge blue">relationship</span></td><td><code>relationships</code> table</td><td>Solid line, label = rel_type</td></tr>
+        <tr><td><span class="badge purple">dynamic</span></td><td><code>shared_dynamics</code> table</td><td>Solid line, label = "dynamic"</td></tr>
+        <tr><td><span class="badge green">event</span></td><td>Co-occurrence in <code>events.involved_*</code></td><td>Dashed line (story edge)</td></tr>
+        <tr><td><span class="badge orange">possession</span></td><td><code>possesses_edges</code> table</td><td>Dashed line (story edge)</td></tr>
+        <tr><td><span class="badge yellow">location</span></td><td><code>located_in_edges</code> table</td><td>Dashed line (story edge)</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      <strong>Story edges</strong> (event, possession, location) are rendered as dashed lines with
+      tooltips showing the underlying details. When multiple story edges exist between the same pair
+      of entities, they are merged into a single edge — the <code>_STORY_KIND_PRECEDENCE</code>
+      list in <code>queries.py</code> determines which <code>edge_kind</code> wins (possession &gt; location &gt; event).
+    </p>
+
+    <p>
+      The backend returns an <code>EntityGraph</code> response with <code>nodes: EntityGraphNode[]</code>
+      and <code>edges: GraphEdge[]</code>. Each <code>GraphEdge</code> has the fields:
+      <code>id</code>, <code>from</code>, <code>to</code>, <code>label</code>, <code>chapter_number</code>,
+      <code>edge_kind</code>, and <code>tooltip</code>.
+    </p>
+
+    <div class="callout tip">
+      <strong>Deduplication in the query:</strong> Event co-occurrence edges are collected per unique (entity_a, entity_b) pair across all events. The query deduplicates these before merging with the other story-edge types.
+    </div>
+  </section>
+
+
+  <!-- CUSTOM ENTITY TYPES -->
+  <section id="custom-entity-types">
+    <h2>Custom Entity Types</h2>
+    <p>
+      Continuum supports <strong>genre-specific entity types</strong> beyond the four built-in types
+      (character, location, faction, object). Authors define custom types per novel; the extractor
+      then finds instances of those types in chapter text.
+    </p>
+
+    <h3>Genre Presets</h3>
+    <p>
+      <code>backend/pipeline/extraction/presets.py</code> ships a set of genre presets. The
+      <code>/api/genres</code> endpoint exposes them. Supported genres:
+    </p>
+    <div class="grid-3">
+      <div class="card">
+        <h4>LitRPG</h4>
+        <p><code>realm</code>, <code>power_system</code>, <code>species</code></p>
+      </div>
+      <div class="card">
+        <h4>High Fantasy</h4>
+        <p><code>deity</code>, <code>species</code>, <code>magic_system</code></p>
+      </div>
+      <div class="card">
+        <h4>…and more</h4>
+        <p>See <code>presets.py</code> for the full list. Custom types can also be defined without a preset.</p>
+      </div>
+    </div>
+
+    <h3>How It Works End-to-End</h3>
+    <ol class="steps">
+      <li>
+        <strong>Define types at novel creation</strong> — <code>NovelCreate.custom_entity_types</code> accepts a list of <code>{name, description}</code> objects. These are written to <code>novel_entity_types</code>.
+      </li>
+      <li>
+        <strong>Injected into extraction</strong> — <code>load_story_context()</code> fetches the types. The <code>new_entities</code> pass prompt is extended with the type names and descriptions.
+      </li>
+      <li>
+        <strong>LLM extracts instances</strong> — Extracted custom entities land in the <code>custom_entities[]</code> array in the extraction result.
+      </li>
+      <li>
+        <strong>Persisted as generic entities</strong> — Custom instances are written to the <code>entities</code> table with <code>entity_type = &lt;type_name&gt;</code>.
+      </li>
+      <li>
+        <strong>Queryable via API</strong> — <code>entity_types.py</code> exposes list and detail views. The sidebar dynamically adds a nav link per custom type.
+      </li>
+    </ol>
+  </section>
+
+
+  <!-- HYBRID RETRIEVAL -->
+  <section id="retrieval">
+    <h2>Hybrid Retrieval</h2>
+    <p>
+      <code>backend/pipeline/retrieval/</code> implements a 4-stage retrieval pipeline designed to find
+      relevant story context from the DB for LLM-facing features (the Planner, and an eventual Drafter).
+    </p>
+
+    <div class="callout warn">
+      <strong>Integration status.</strong> The four "Advanced Modules" in this group — Hybrid Retrieval,
+      Continuity Critic, Scene Planner, and State Materializer — are built and unit-tested but
+      <strong>not yet wired into the ingestion pipeline</strong>. They are imported only by their own
+      tests; <code>process_chapter</code> does not call them, and the retriever currently has no caller
+      (the Planner gathers context by recency rather than through this retriever). See
+      <a href="state-of-the-system.html">State of the System</a> for the full wiring map and the roadmap
+      to integrate them.
+    </div>
+
+    <div class="diagram-wrap">
+      <div class="mermaid">
+flowchart LR
+    Q["RetrievalQuery\n(text + filters)"] --> BM["BM25Search\n(tsvector)"]
+    Q --> DS["DenseSearch\n(HNSW cosine)"]
+    BM --> RRF["Reciprocal\nRank Fusion"]
+    DS --> RRF
+    RRF --> RR["LLMReranker\n(optional)"]
+    RR --> MMR["MMR\nDiversification"]
+    MMR --> OUT["RetrievalBundle\n(top-K results + debug)"]
+
+    style Q fill:#21262d,stroke:#30363d,color:#e6edf3
+    style OUT fill:#1f6feb,stroke:#58a6ff,color:#e6edf3
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Component</th><th>File</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>BM25Search</code></td><td><code>bm25.py</code></td><td>Queries <code>search_tsv</code> columns on chapters, scenes, events using PostgreSQL full-text search</td></tr>
+        <tr><td><code>DenseSearch</code></td><td><code>dense.py</code></td><td>ANN search over HNSW vector indexes using cosine similarity</td></tr>
+        <tr><td><code>reciprocal_rank_fusion</code></td><td><code>fusion.py</code></td><td>Merges BM25 and dense ranked lists via RRF formula; deduplicates by item_id</td></tr>
+        <tr><td><code>LLMReranker</code></td><td><code>rerank.py</code></td><td>Optional LLM reranking of the fused top-K pool for better relevance</td></tr>
+        <tr><td><code>mmr</code></td><td><code>mmr.py</code></td><td>Max marginal relevance — diversifies the final result set to avoid redundancy</td></tr>
+        <tr><td><code>HybridRetriever</code></td><td><code>hybrid.py</code></td><td>Orchestrates all stages; records per-stage timings and snapshots in <code>RetrievalBundle.debug</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      The retriever searches across <strong>chapters, scenes, and events</strong> by default
+      (<code>_DEFAULT_KINDS</code>). It emits up to 50 candidates per kind before RRF merges them.
+    </p>
+  </section>
+
+
+  <!-- CONTINUITY CRITIC -->
+  <section id="critic">
+    <h2>Continuity Critic</h2>
+    <p>
+      <code>backend/pipeline/critic/</code> provides <code>ContinuityCritic</code>, which validates
+      a <code>DraftChapter</code> (extracted facts before persistence) against existing DB state.
+      It runs <strong>6 typed checks</strong> in sequence and returns a <code>CritiqueReport</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Check</th><th>File</th><th>What It Validates</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN</td></tr>
+        <tr><td>Location &amp; possession</td><td><code>location_possession_check.py</code></td><td>Character location/possession claims don't contradict active bitemporal edges</td></tr>
+        <tr><td>Knowledge state</td><td><code>knowledge_state_check.py</code></td><td>Knows-edges don't contradict existing theory-of-mind state</td></tr>
+        <tr><td>Temporal consistency</td><td><code>temporal_check.py</code></td><td>Event ordering respects <code>temporal_constraints</code></td></tr>
+        <tr><td>Commitments</td><td><code>commitment_check.py</code></td><td>Pending commitments are either advanced or acknowledged</td></tr>
+        <tr><td>Thread coverage</td><td><code>thread_coverage_check.py</code></td><td>Open plot threads from prior chapters receive some mention</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      Each finding has a severity (<code>FAIL</code> or <code>WARN</code>). The report's
+      <code>passed</code> flag is <code>False</code> if any FAIL finding was produced.
+      Locked canon facts that are contradicted → FAIL; unlocked → WARN.
+    </p>
+  </section>
+
+
+  <!-- SCENE PLANNER -->
+  <section id="planner">
+    <h2>Scene Planner</h2>
+    <p>
+      <code>backend/pipeline/planner/</code> provides <code>ScenePlanner</code>, which generates
+      a <code>ChapterPlan</code> for the next chapter given the current story state. This is an
+      author-assist tool, not part of the ingestion pipeline.
+    </p>
+
+    <p>
+      <code>gather_plan_context()</code> assembles a <code>PlanContext</code> from the DB: main characters,
+      active threads, pending commitments, locked canon facts, recent chapter summaries, and recent
+      events (selected by recency, not by the Hybrid Retriever). The planner then
+      calls LiteLLM with this context to produce a <code>ChapterPlan</code> — a list of <code>ScenePlan</code>
+      objects (POV, location, goals, characters present, narrative beats).
+    </p>
+
+    <p>
+      Mock mode (<code>USE_MOCK_LLM=true</code>) emits a deterministic 2-scene plan from context
+      without network calls, so tests run offline.
+    </p>
+  </section>
+
+
+  <!-- STATE MATERIALIZER -->
+  <section id="state-materializer">
+    <h2>State Materializer</h2>
+    <p>
+      <code>backend/pipeline/state/</code> provides <code>StateMaterializer</code>, which derives
+      state projections from the event log rather than from LLM extraction. This is an alternative
+      write path for <code>character_states</code>, <code>located_in_edges</code>, and <code>possesses_edges</code>
+      that is purely deterministic and idempotent.
+    </p>
+
+    <p>
+      <code>EventReplay</code> scans all events for a novel up to a given chapter, infers
+      <code>StateSnapshot</code>, <code>LocationFact</code>, and <code>PossessionFact</code> objects
+      by reading event descriptions, then <code>StateMaterializer</code> persists them in a single
+      transaction. Re-running for the same <code>(novel_id, through_chapter)</code> is safe — it
+      won't produce duplicate rows.
+    </p>
+
+    <p>
+      Each run is logged to <code>materialized_state_runs</code> for auditability.
     </p>
   </section>
 
@@ -1167,38 +1486,43 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
       <tbody>
         <tr>
           <td><code>backend/pipeline/db/schema.sql</code></td>
-          <td>424</td>
+          <td>433</td>
           <td><strong>Source of truth for DB structure.</strong> Any new feature starts here. Watch for missing indexes, wrong types, missing chapter-cap columns.</td>
         </tr>
         <tr>
           <td><code>backend/api/queries.py</code></td>
-          <td>1,591</td>
-          <td><strong>All SQL queries.</strong> Every wiki view is assembled here. Watch for N+1 queries, missing cap filters, wrong JOIN direction.</td>
+          <td>2,097</td>
+          <td><strong>All SQL queries.</strong> Every wiki view is assembled here. Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
-          <td>625</td>
+          <td>661</td>
           <td><strong>Pipeline orchestration.</strong> Process order matters — resolvers run before persistence, extras run after core persist. Watch for missing steps when adding new tables.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/extractor.py</code></td>
-          <td>200+</td>
-          <td><strong>LLM orchestration.</strong> Pass order, merge logic, mock behavior. Changes here affect extraction quality.</td>
+          <td>616</td>
+          <td><strong>LLM orchestration.</strong> Pass order, merge logic, mock behavior, custom entity type handling. Changes here affect extraction quality.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/prompts.py</code></td>
-          <td>300+</td>
-          <td><strong>All prompt templates + JSON schemas.</strong> Changing prompts directly changes extraction quality. Schema changes here must match DB schema.</td>
+          <td>667</td>
+          <td><strong>All prompt templates + JSON schemas.</strong> Changing prompts directly changes extraction quality. Schema changes here must match DB schema. Custom entity type injection lives here.</td>
         </tr>
         <tr>
           <td><code>backend/api/schemas.py</code></td>
-          <td>200+</td>
+          <td>359</td>
           <td><strong>Pydantic response types.</strong> Frontend's <code>api.ts</code> mirrors these. Keep in sync when adding fields.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/persist_extras.py</code></td>
           <td>200+</td>
-          <td><strong>SOTA table persistence.</strong> New in this branch — scenes, knows_edges, commitments. Watch for missing novel_id scoping, missing cap columns.</td>
+          <td><strong>SOTA table persistence.</strong> Scenes, knows_edges, commitments. Watch for missing novel_id scoping, missing cap columns.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/extraction/presets.py</code></td>
+          <td>~60</td>
+          <td><strong>Genre presets for custom entity types.</strong> Add new genres here. Each preset is a list of <code>{name, description}</code> dicts.</td>
         </tr>
         <tr>
           <td><code>frontend/src/api.ts</code></td>
@@ -1210,66 +1534,96 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
   </section>
 
 
-  <!-- CURRENT BRANCH -->
+  <!-- CURRENT BRANCH / RECENT CHANGES -->
   <section id="current-branch">
-    <h2>Current Branch Context</h2>
+    <h2>Recent Changes (closing-the-gap-with-sota)</h2>
     <p>
-      The active branch is <code>closing-the-gap-with-sota</code>. Here's what's changed:
+      The <code>closing-the-gap-with-sota</code> branch is the main active branch. It contains
+      all of the SOTA tables, the Entity Graph, Custom Entity Types, and the advanced sub-modules.
+      Here's a summary of what was added:
     </p>
 
-    <h3>New Files (untracked)</h3>
+    <h3>New Backend Routes</h3>
     <div class="grid-2">
       <div class="card">
-        <h4>Backend</h4>
+        <h4>Entity Graph</h4>
         <p>
-          <code>api/routes/canon.py</code><br/>
-          <code>api/routes/commitments.py</code><br/>
-          <code>api/routes/knowledge.py</code><br/>
-          <code>api/routes/scenes.py</code><br/>
-          <code>pipeline/extraction/persist_extras.py</code><br/>
-          <code>pipeline/critic/</code> (directory)<br/>
-          <code>pipeline/planner/</code> (directory)<br/>
-          <code>pipeline/retrieval/</code> (directory)<br/>
-          <code>pipeline/state/</code> (directory)
+          <code>api/routes/entity_graph.py</code><br/>
+          Returns a unified <code>EntityGraph</code> with nodes (all entity types) and edges
+          (5 kinds: relationship, dynamic, event, possession, location). Story edges are dashed
+          in the UI; relationship/dynamic edges are solid.
         </p>
       </div>
       <div class="card">
-        <h4>Frontend</h4>
+        <h4>Entity Types / Custom Entities</h4>
         <p>
-          <code>routes/Canon.tsx</code><br/>
-          <code>routes/Commitments.tsx</code><br/>
-          <code>routes/Knowledge.tsx</code><br/>
-          <code>routes/Scenes.tsx</code>
+          <code>api/routes/entity_types.py</code><br/>
+          <code>/api/genres</code> → genre presets<br/>
+          <code>/.../entity-types</code> → list/create custom types<br/>
+          <code>/.../entity-types/:type/entities</code> → list entities of that type<br/>
+          <code>/.../custom-entities/:id</code> → entity detail
         </p>
       </div>
     </div>
 
-    <h3>Modified Files</h3>
+    <h3>New Backend Sub-Modules</h3>
     <table>
       <thead>
-        <tr><th>File</th><th>What Changed</th></tr>
+        <tr><th>Module</th><th>What It Does</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>db/schema.sql</code></td><td>Added SOTA tables: scenes, canon_facts, knows_edges, possesses_edges, located_in_edges, commitments, temporal_constraints</td></tr>
-        <tr><td><code>pipeline.py</code></td><td>Added calls to persist_extras functions at the end of <code>process_chapter()</code></td></tr>
-        <tr><td><code>extractor.py</code></td><td>Added extraction passes for scenes, knows, commitments</td></tr>
-        <tr><td><code>prompts.py</code></td><td>Added prompt templates and JSON schemas for SOTA passes</td></tr>
-        <tr><td><code>api/app.py</code></td><td>Registered 4 new route routers (scenes, commitments, canon, knowledge)</td></tr>
-        <tr><td><code>api/queries.py</code></td><td>Added query functions for all SOTA tables</td></tr>
-        <tr><td><code>api/schemas.py</code></td><td>Added Pydantic models for all SOTA table rows</td></tr>
-        <tr><td><code>frontend/App.tsx</code></td><td>Added 4 new routes</td></tr>
-        <tr><td><code>frontend/Sidebar.tsx</code></td><td>Added nav links for 4 new pages</td></tr>
-        <tr><td><code>frontend/api.ts</code></td><td>Added TypeScript types and fetch functions for SOTA endpoints</td></tr>
+        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 6 typed pre-persistence checks against DB state</td></tr>
+        <tr><td><code>pipeline/planner/</code></td><td><code>ScenePlanner</code> — LLM-based next-chapter narrative plan from story context</td></tr>
+        <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → LLM rerank → MMR</td></tr>
+        <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from event log</td></tr>
+      </tbody>
+    </table>
+
+    <h3>New Frontend Pages</h3>
+    <div class="grid-2">
+      <div class="card">
+        <h4>Entity Graph</h4>
+        <p>
+          <code>routes/EntityGraph.tsx</code><br/>
+          Renders the unified entity graph. Story edges (event, possession, location) are dashed
+          with tooltips; relationship/dynamic edges are solid.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Custom Entity Views</h4>
+        <p>
+          <code>routes/CustomEntityList.tsx</code><br/>
+          <code>routes/CustomEntityDetail.tsx</code><br/>
+          Dynamically generated per novel — sidebar links appear for each custom entity type.
+        </p>
+      </div>
+    </div>
+
+    <h3>Schema Additions</h3>
+    <table>
+      <thead>
+        <tr><th>Table / Column</th><th>What Was Added</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>novel_entity_types</code></td><td>New table for custom entity type definitions</td></tr>
+        <tr><td><code>chapters.*</code></td><td><code>summary_short</code>, <code>summary_long</code>, <code>style_fingerprint</code>, <code>search_tsv</code></td></tr>
+        <tr><td><code>events.*</code></td><td>SVO triples (<code>subject_entity_id</code>, <code>verb</code>, <code>object_entity_id</code>), <code>story_time_ordinal</code>, <code>narrative_order</code>, <code>scene_id</code>, <code>search_tsv</code></td></tr>
+        <tr><td><code>relationships.*</code></td><td><code>superseded_by_id</code>, <code>evidence_event_ids[]</code>, <code>sentiment</code></td></tr>
+        <tr><td><code>scenes.*</code></td><td><code>search_tsv</code> (for BM25 retrieval)</td></tr>
+        <tr><td><code>materialized_state_runs</code></td><td>New table — audit log for <code>StateMaterializer</code> runs</td></tr>
+        <tr><td>HNSW indexes</td><td>Replaced IVFFlat with HNSW on chapters, events, scenes, commitments, characters</td></tr>
+        <tr><td>Full-text triggers</td><td>Auto-updating <code>search_tsv</code> triggers on chapters, scenes, events</td></tr>
       </tbody>
     </table>
 
     <div class="callout info">
-      <strong>What to look for when reviewing this PR:</strong>
-      <br/>• Do the new SOTA table queries have correct <code>cap</code> filtering?
+      <strong>What to look for when reviewing PRs on this branch:</strong>
+      <br/>• Do new SOTA table queries have correct <code>cap</code> filtering?
       <br/>• Does <code>persist_extras.py</code> correctly scope to <code>novel_id</code> (to avoid cross-novel contamination)?
-      <br/>• Are the new Pydantic schemas in <code>schemas.py</code> aligned with the TS types in <code>api.ts</code>?
-      <br/>• Do the new frontend pages use <code>useChapterCap()</code> and pass the cap to the API?
-      <br/>• Are the new DB indexes appropriate (HNSW for vectors, GIN for arrays)?
+      <br/>• Are new Pydantic schemas in <code>schemas.py</code> aligned with the TS types in <code>api.ts</code>?
+      <br/>• Do new frontend pages use <code>useChapterCap()</code> and pass the cap to the API?
+      <br/>• Do entity graph edge queries correctly set <code>edge_kind</code> and <code>tooltip</code>?
+      <br/>• Are custom entity types scoped to <code>novel_id</code> everywhere?
     </div>
   </section>
 

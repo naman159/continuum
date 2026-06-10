@@ -269,3 +269,94 @@ def test_resolve_location_without_parent_location_creates_exact_name():
     resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
     resolver.resolve_location("Pemberley", {"description": "Grand estate."})
     assert "Pemberley" in db.inserted_names
+
+
+# ---------------------------------------------------------------------------
+# resolve_any_entity: aliased non-character entities must not create characters
+# ---------------------------------------------------------------------------
+
+def test_resolve_any_entity_finds_faction_by_alias_no_phantom_character():
+    """An alias known only to the factions table must resolve to the faction,
+    not fall through to creating a character named after the alias."""
+    import uuid
+
+    faction_id = str(uuid.uuid4())
+    faction_entity_id = str(uuid.uuid4())
+
+    class FactionAliasDB:
+        def __init__(self):
+            self.inserts: list[tuple[str, tuple]] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            if "FROM factions" in query and "unnest(aliases)" in query:
+                return (faction_id, faction_entity_id)
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            import uuid as _uuid
+            self.inserts.append((query, tuple(params or ())))
+            return _uuid.uuid4()
+
+        def execute(self, query, params=None):
+            pass
+
+    db = FactionAliasDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=3)
+    uid = resolver.resolve_any_entity("the Empire")
+    assert uid == faction_entity_id
+    assert db.inserts == [], "no character must be created for an aliased faction"
+
+
+def test_resolve_any_entity_creates_character_only_as_last_resort():
+    """When nothing matches anywhere, the fallback still creates a character."""
+    import uuid
+
+    class NothingDB:
+        def __init__(self):
+            self.inserts: list[str] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            self.inserts.append(query)
+            return uuid.uuid4()
+
+        def execute(self, query, params=None):
+            pass
+
+    db = NothingDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    uid = resolver.resolve_any_entity("Brand New Person")
+    assert uid
+    assert any("INSERT INTO characters" in q for q in db.inserts)
+
+
+def test_resolve_custom_entity_finds_by_alias():
+    """Custom entities resolve through entities.aliases (no duplicate row)."""
+    import uuid
+
+    realm_id = str(uuid.uuid4())
+
+    class CustomAliasDB:
+        def __init__(self):
+            self.inserts: list[str] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            if "FROM entities" in query and "unnest(aliases)" in query:
+                return (realm_id,)
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            self.inserts.append(query)
+            return uuid.uuid4()
+
+        def execute(self, query, params=None):
+            pass
+
+    db = CustomAliasDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=2)
+    result = resolver.resolve_custom_entity("Ninety-Third Universe", "realm")
+    assert result.entity_id == realm_id
+    assert result.created is False
+    assert db.inserts == []

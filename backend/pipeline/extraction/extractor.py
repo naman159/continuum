@@ -65,13 +65,17 @@ def _safe_json_loads(raw: str) -> dict[str, Any]:
     return {}
 
 
-def _dedupe_by_name(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    deduped: dict[str, dict[str, Any]] = {}
+def _dedupe_by_name(
+    items: list[dict[str, Any]], *, include_owner: bool = False
+) -> list[dict[str, Any]]:
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
     for item in items:
         name = str(item.get("name", "")).strip()
         if not name:
             continue
-        key = name.lower()
+        # Objects with different owners are distinct even when names collide.
+        owner = str(item.get("owner_name") or "").strip().lower() if include_owner else ""
+        key = (name.lower(), owner)
         if key not in deduped:
             deduped[key] = item
             continue
@@ -169,7 +173,9 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
         combined: list[dict[str, Any]] = []
         for extraction in extractions:
             combined.extend(extraction.get("new_entities", {}).get(entity_type, []))
-        merged["new_entities"][entity_type] = _dedupe_by_name(combined)
+        merged["new_entities"][entity_type] = _dedupe_by_name(
+            combined, include_owner=(entity_type == "objects")
+        )
 
     # Merge deltas by character name, keeping latest non-empty values.
     delta_index: dict[str, dict[str, Any]] = {}

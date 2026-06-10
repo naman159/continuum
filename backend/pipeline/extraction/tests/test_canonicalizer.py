@@ -323,7 +323,8 @@ def test_intra_dedup_renames_character_variant():
     assert "Jane" not in chars
     assert chars.count("Jane Bennet") == 1
     assert result["entity_deltas"][0]["character_name"] == "Jane Bennet"
-    assert result["events"][0]["involved_characters"] == ["Jane Bennet", "Jane Bennet"]
+    # Renaming variants to one canonical form also drops the resulting duplicates.
+    assert result["events"][0]["involved_characters"] == ["Jane Bennet"]
 
 
 def test_intra_dedup_renames_location_variant():
@@ -706,3 +707,279 @@ def test_canonicalization_system_prompt_location_relaxed():
     from pipeline.extraction.prompts import build_canonicalization_system_prompt
     prompt = build_canonicalization_system_prompt("location")
     assert "reasoning" in prompt.lower() or "semantic" in prompt.lower()
+
+
+# ---------------------------------------------------------------------------
+# Dedup coverage gaps: event factions, scenes, learnings, custom entities
+# ---------------------------------------------------------------------------
+
+from pipeline.extraction.canonicalizer import normalize_name, _select_roster_subset
+
+
+def test_collect_names_by_type_includes_event_factions():
+    extracted = {
+        "events": [{"involved_factions": ["the Empire", "Rebel Alliance"]}],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert by_type["faction"] == {"the Empire", "Rebel Alliance"}
+
+
+def test_collect_names_by_type_includes_scenes_and_learnings():
+    extracted = {
+        "scenes": [
+            {
+                "pov_character_name": "Jake",
+                "location_name": "Corporate Office",
+                "present_character_names": ["Sarah", "Jake"],
+            }
+        ],
+        "learnings": [
+            {
+                "character_name": "Sarah",
+                "source_character_name": "Mr. Kim",
+                "shared_with_character_names": ["Jake"],
+            }
+        ],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert by_type["character"] == {"Jake", "Sarah", "Mr. Kim"}
+    assert by_type["location"] == {"Corporate Office"}
+
+
+def test_collect_names_by_type_includes_custom_entities():
+    extracted = {
+        "custom_entities": [
+            {"name": "The 93rd Universe", "type": "realm"},
+            {"name": "The System", "type": "power_system"},
+        ],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert by_type["realm"] == {"The 93rd Universe"}
+    assert by_type["power_system"] == {"The System"}
+
+
+def test_intra_dedup_renames_scenes_learnings_and_event_factions():
+    extracted = {
+        "new_entities": {
+            "characters": [{"name": "Jane Bennet"}, {"name": "Jane"}],
+            "factions": [{"name": "The Galactic Empire"}, {"name": "the Empire"}],
+        },
+        "entity_deltas": [],
+        "events": [
+            {
+                "involved_characters": [],
+                "involved_locations": [],
+                "involved_objects": [],
+                "involved_factions": ["the Empire"],
+            }
+        ],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+        "scenes": [
+            {
+                "pov_character_name": "Jane",
+                "location_name": None,
+                "present_character_names": ["Jane", "Jane Bennet"],
+            }
+        ],
+        "learnings": [
+            {
+                "character_name": "Jane",
+                "source_character_name": "Jane",
+                "shared_with_character_names": ["Jane"],
+            }
+        ],
+    }
+
+    def completion(**kwargs):
+        user = kwargs["messages"][1]["content"]
+        if "CHARACTER" in user:
+            return _make_completion({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})()
+        return _make_completion({"groups": [{"names": ["the Empire", "The Galactic Empire"], "reasoning": "shorthand"}]})()
+
+    dedup = IntraExtractionDeduplicator(use_mock=False, completion_fn=completion)
+    result = dedup.deduplicate(extracted, "Jane Bennet faced The Galactic Empire. Jane and the Empire.")
+    assert result["scenes"][0]["pov_character_name"] == "Jane Bennet"
+    assert result["scenes"][0]["present_character_names"] == ["Jane Bennet"]
+    assert result["learnings"][0]["character_name"] == "Jane Bennet"
+    assert result["learnings"][0]["source_character_name"] == "Jane Bennet"
+    assert result["learnings"][0]["shared_with_character_names"] == ["Jane Bennet"]
+    assert result["events"][0]["involved_factions"] == ["The Galactic Empire"]
+
+
+def test_intra_dedup_custom_entities_renamed_and_deduped():
+    extracted = {
+        "new_entities": {},
+        "custom_entities": [
+            {"name": "The 93rd Universe", "type": "realm", "description": "A dimension."},
+            {"name": "93rd Universe", "type": "realm", "description": "Same place."},
+        ],
+        "entity_deltas": [],
+        "events": [],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+    dedup = _make_deduplicator(
+        {"groups": [{"names": ["93rd Universe", "The 93rd Universe"], "reasoning": "same realm"}]}
+    )
+    result = dedup.deduplicate(extracted, "They entered the 93rd Universe.")
+    assert len(result["custom_entities"]) == 1
+    assert result["custom_entities"][0]["name"] == "The 93rd Universe"
+
+
+def test_intra_dedup_ignores_hallucinated_group_members():
+    """A canonical name invented by the LLM must never replace real input names."""
+    extracted = {
+        "new_entities": {
+            "characters": [{"name": "Jane"}, {"name": "Mr. Bingley"}],
+        },
+        "entity_deltas": [],
+        "events": [],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+    # "Jane Bennet of Longbourn Estate" is not an input name — hallucinated.
+    dedup = _make_deduplicator(
+        {"groups": [{"names": ["Jane", "Jane Bennet of Longbourn Estate"], "reasoning": "same"}]}
+    )
+    result = dedup.deduplicate(extracted, "Jane met Mr. Bingley.")
+    chars = [c["name"] for c in result["new_entities"]["characters"]]
+    assert chars == ["Jane", "Mr. Bingley"]
+
+
+# ---------------------------------------------------------------------------
+# Deterministic normalized-equality merges (no LLM call)
+# ---------------------------------------------------------------------------
+
+
+def test_normalize_name_basics():
+    assert normalize_name("The Galactic Empire") == normalize_name("Galactic  Empire")
+    assert normalize_name("“Jake’s Sword”") == normalize_name("jake's sword")
+    assert normalize_name("Pemberley.") == normalize_name("pemberley")
+    assert normalize_name("A") != ""  # short names survive article stripping
+
+
+def test_canonicalizer_deterministic_merge_skips_llm():
+    faction_roster = [
+        {
+            "id": "fac-0001-0000-0000-0000-000000000001",
+            "name": "Galactic Empire",
+            "aliases": [],
+            "description": "Authoritarian ruling faction.",
+        }
+    ]
+    db = FakeDBMultiType({"faction": faction_roster})
+    calls: list = []
+
+    def recording_completion(**kwargs):
+        calls.append(kwargs)
+        return _make_completion({"resolutions": []})()
+
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=recording_completion)
+    merges = canon.canonicalize(
+        chapter_text="The Galactic Empire advanced.",
+        candidate_names_by_type={"faction": {"The Galactic Empire"}},
+    )
+    assert calls == [], "normalized-equal candidate must not reach the LLM"
+    assert merges["faction"]["The Galactic Empire"] == "fac-0001-0000-0000-0000-000000000001"
+    assert "The Galactic Empire" in faction_roster[0]["aliases"]
+
+
+def test_canonicalizer_ambiguous_normalized_match_goes_to_llm():
+    """Two roster entries with the same normalized name must not auto-merge."""
+    faction_roster = [
+        {"id": "fac-1", "name": "The Order", "aliases": [], "description": ""},
+        {"id": "fac-2", "name": "Order", "aliases": [], "description": ""},
+    ]
+    db = FakeDBMultiType({"faction": faction_roster})
+    calls: list = []
+
+    def recording_completion(**kwargs):
+        calls.append(kwargs)
+        return _make_completion({"resolutions": []})()
+
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=recording_completion)
+    merges = canon.canonicalize(
+        chapter_text="An order was given.",
+        candidate_names_by_type={"faction": {"the order!"}},
+    )
+    assert len(calls) == 1, "ambiguous candidates must be deferred to the LLM"
+    assert merges == {}
+
+
+# ---------------------------------------------------------------------------
+# Custom entity types in the cross-chapter canonicalizer
+# ---------------------------------------------------------------------------
+
+
+class FakeDBCustomEntities(FakeDB):
+    def __init__(self, entity_rows: list[dict]) -> None:
+        super().__init__([])
+        self.entity_rows = entity_rows
+
+    def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+        if "FROM entities" in query:
+            return [dict(r) for r in self.entity_rows]
+        return []
+
+    def execute(self, query, params=None):
+        self.executed.append((query, tuple(params or ())))
+        if "UPDATE entities" in query and "aliases = %s" in query:
+            new_aliases, row_id, _novel_id = params
+            for row in self.entity_rows:
+                if str(row["id"]) == str(row_id):
+                    row["aliases"] = list(new_aliases)
+
+
+def test_canonicalizer_custom_type_merges_via_entities_table():
+    entity_rows = [
+        {"id": "ent-0001", "name": "The 93rd Universe", "aliases": []},
+    ]
+    db = FakeDBCustomEntities(entity_rows)
+    response = {
+        "resolutions": [
+            {
+                "candidate": "the Ninety-Third Universe",
+                "verdict": "existing",
+                "id": "ent-0001",
+                "grammatical_anchor": "",
+                "reasoning": "Spelled-out form of the same realm.",
+            }
+        ]
+    }
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=_make_completion(response))
+    merges = canon.canonicalize(
+        chapter_text="They crossed into the Ninety-Third Universe.",
+        candidate_names_by_type={"realm": {"the Ninety-Third Universe"}},
+    )
+    assert merges["realm"]["the Ninety-Third Universe"] == "ent-0001"
+    assert "the Ninety-Third Universe" in entity_rows[0]["aliases"]
+    assert any("UPDATE entities" in q for q, _ in db.executed)
+
+
+# ---------------------------------------------------------------------------
+# Roster cap for canonicalization LLM calls
+# ---------------------------------------------------------------------------
+
+
+def test_select_roster_subset_keeps_similar_entries():
+    roster = [
+        {"id": f"id-{i}", "name": f"Background Person {i}", "aliases": []}
+        for i in range(120)
+    ]
+    roster.append({"id": "id-target", "name": "Galactic Empire", "aliases": []})
+    subset = _select_roster_subset(["the Empire"], roster, cap=10)
+    assert len(subset) == 10
+    assert any(e["id"] == "id-target" for e in subset)
+
+
+def test_select_roster_subset_noop_when_under_cap():
+    roster = [{"id": "1", "name": "Jake", "aliases": []}]
+    assert _select_roster_subset(["anything"], roster, cap=80) is roster
+
+
+def test_canonicalization_system_prompt_custom_type_uses_generic_rules():
+    from pipeline.extraction.prompts import build_canonicalization_system_prompt
+    prompt = build_canonicalization_system_prompt("realm")
+    assert "NOT required" in prompt
+    assert "realm" in prompt

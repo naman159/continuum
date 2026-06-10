@@ -76,18 +76,22 @@ def embed_chapter_and_events(
     chapter_summary: str,
     event_rows: list[dict[str, str]],
     service: EmbeddingService | None = None,
+    embed_chapter: bool = True,
 ) -> None:
     service = service or EmbeddingService()
 
-    chapter_embedding = service.embed_text(chapter_summary)
-    db.execute(
-        """
-        UPDATE chapters
-        SET embedding = %s::vector
-        WHERE id = %s
-        """,
-        (vector_literal(chapter_embedding), chapter_id),
-    )
+    # embed_chapter=False when persist_multi_summaries will immediately
+    # overwrite chapters.embedding with the medium summary's embedding.
+    if embed_chapter:
+        chapter_embedding = service.embed_text(chapter_summary)
+        db.execute(
+            """
+            UPDATE chapters
+            SET embedding = %s::vector
+            WHERE id = %s
+            """,
+            (vector_literal(chapter_embedding), chapter_id),
+        )
 
     for row in event_rows:
         event_id = row["id"]

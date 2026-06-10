@@ -61,8 +61,9 @@ if _FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str) -> FileResponse:
-        target = _FRONTEND_DIST / full_path
-        if full_path and target.is_file():
+        target = (_FRONTEND_DIST / full_path).resolve()
+        # Refuse anything that escapes the dist directory ("../" traversal).
+        if full_path and target.is_relative_to(_FRONTEND_DIST) and target.is_file():
             return FileResponse(target)
         return FileResponse(_FRONTEND_DIST / "index.html")
 

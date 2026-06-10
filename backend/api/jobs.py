@@ -39,6 +39,9 @@ class ProgressTracker:
 
 
 class JobStore:
+    # Finished jobs kept around for status polling; oldest are evicted past this.
+    _MAX_FINISHED = 50
+
     def __init__(self) -> None:
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.Lock()
@@ -47,11 +50,19 @@ class JobStore:
         job_id = str(uuid.uuid4())
         record = JobRecord(job_id=job_id, total_passes=total_passes)
         with self._lock:
+            self._evict_finished_locked()
             self._jobs[job_id] = record
         return job_id
 
     def get(self, job_id: str) -> JobRecord | None:
-        return self._jobs.get(job_id)
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def _evict_finished_locked(self) -> None:
+        finished = [jid for jid, r in self._jobs.items() if r.status in ("done", "error")]
+        # dicts preserve insertion order, so the front of the list is the oldest.
+        for jid in finished[: max(0, len(finished) - self._MAX_FINISHED)]:
+            del self._jobs[jid]
 
     def mark_done(self, job_id: str, result: dict[str, Any]) -> None:
         with self._lock:

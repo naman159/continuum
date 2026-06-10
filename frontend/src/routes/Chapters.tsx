@@ -11,7 +11,7 @@ export default function Chapters() {
     queryFn: () => api.chapters(novelId!, cap),
     enabled: Boolean(novelId),
   });
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <p className="muted">Loading…</p>;
   return (
     <div>
       <h1>Chapters</h1>

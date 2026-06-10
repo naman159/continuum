@@ -27,8 +27,11 @@ CREATE TABLE IF NOT EXISTS entities (
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
     entity_type TEXT NOT NULL,
     name TEXT NOT NULL,
+    aliases TEXT[] DEFAULT '{}',
     UNIQUE(novel_id, entity_type, name)
 );
+
+ALTER TABLE entities ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}';
 
 CREATE INDEX IF NOT EXISTS idx_entities_novel ON entities(novel_id, entity_type);
 

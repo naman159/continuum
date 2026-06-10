@@ -494,8 +494,25 @@ _CANON_RULES_BY_TYPE: dict[str, str] = {
 }
 
 
+_CANON_RULES_GENERIC = dedent(
+    """
+    Rules:
+    - Verdict "existing" requires an id from the roster AND clear reasoning
+      that the candidate refers to the same entity.
+    - A verbatim grammatical_anchor is NOT required. Name variants,
+      abbreviations, and shorthand are sufficient evidence when context makes
+      the identity unambiguous.
+    - Still set grammatical_anchor to a relevant quote if one exists, else "".
+    - Return "new" only for entities clearly distinct from those in the roster.
+      When in doubt, return "new" — duplicates are less harmful than wrong merges.
+    """
+).strip()
+
+
 def build_canonicalization_system_prompt(entity_type: str = "character") -> str:
-    rules = _CANON_RULES_BY_TYPE.get(entity_type, _CANON_RULES_BY_TYPE["character"])
+    # Custom (user-defined) entity types get the generic semantic rules; the
+    # strict verbatim-anchor requirement only applies to characters.
+    rules = _CANON_RULES_BY_TYPE.get(entity_type, _CANON_RULES_GENERIC)
     return dedent(
         f"""
         You are a strict {entity_type} canonicalizer for a novel continuity pipeline.
