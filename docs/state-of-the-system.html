@@ -406,15 +406,15 @@ flowchart TB
       </tr>
       <tr>
         <td><strong>Orchestrator / state machine</strong></td>
-        <td><span class="badge red">Missing</span></td>
-        <td>No module sequences plan→retrieve→draft→critique→update</td>
-        <td>The keystone — build first (see Target Architecture)</td>
+        <td><span class="badge green">Built</span></td>
+        <td><code>generation/loop.py</code> sequences plan→retrieve→draft→critique→revise→ingest with critic-gated write-back</td>
+        <td>Exposed via CLI, API job, and the Process page</td>
       </tr>
       <tr>
         <td><strong>Drafter + Reviser</strong></td>
-        <td><span class="badge red">Missing</span></td>
-        <td>No prose-generation code; <code>grep</code> for "drafter" finds only doc comments</td>
-        <td>The generator path — build last, gated on evals</td>
+        <td><span class="badge green">Built</span></td>
+        <td><code>generation/drafter.py</code> drafts per scene with retrieval context + style fingerprint; critic FAILs become revision notes (up to <code>GENERATION_MAX_REVISIONS</code>)</td>
+        <td>Eval harness still pending — quality is gated by the critic only</td>
       </tr>
       <tr>
         <td><strong>Eval harness</strong></td>
@@ -473,9 +473,9 @@ flowchart TB
   <table>
     <thead><tr><th>Subsystem</th><th>Engineering quality</th><th>Why it is stuck</th></tr></thead>
     <tbody>
-      <tr><td><code>planner/</code></td><td>Clean types, mock fallback, JSON-repair</td><td>Produces a <code>ChapterPlan</code> nothing reads</td></tr>
-      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Serves zero queries — no API, no planner, no drafter</td></tr>
-      <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Consumes a <code>DraftChapter</code> no code constructs</td></tr>
+      <tr><td><code>planner/</code></td><td>Clean types, mock fallback, JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
+      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Now serves the drafter's per-scene context queries</td></tr>
+      <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Now fed by <code>generation/draft_claims.py</code> and gates generated-chapter ingestion</td></tr>
       <tr><td><code>state/</code></td><td>Idempotent replay, invalidate-don't-delete edges</td><td>Reachable only via an unregistered CLI nothing calls</td></tr>
     </tbody>
   </table>

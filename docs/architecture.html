@@ -358,6 +358,7 @@
   <a href="#retrieval">Hybrid Retrieval</a>
   <a href="#critic">Continuity Critic</a>
   <a href="#planner">Scene Planner</a>
+  <a href="#generation-loop">Generation Loop</a>
   <a href="#state-materializer">State Materializer</a>
 
   <div class="sidebar-section">Codebase</div>
@@ -1476,6 +1477,37 @@ flowchart LR
       Mock mode (<code>USE_MOCK_LLM=true</code>) emits a deterministic 2-scene plan from context
       without network calls, so tests run offline.
     </p>
+  </section>
+
+
+  <!-- GENERATION LOOP -->
+  <section id="generation-loop">
+    <h2>Generation Loop</h2>
+    <p>
+      <code>backend/pipeline/generation/</code> closes the recursive loop: Continuum can now
+      <strong>plan → retrieve → draft → critique → revise → ingest</strong> its own chapters.
+      Entry point: <code>generate_chapter(novel_id, n)</code> in <code>loop.py</code>, exposed as the
+      <code>generate-chapter</code> CLI subcommand, the
+      <code>POST /api/novels/{id}/chapters/generate</code> job endpoint, and the
+      "Generate chapter" mode on the Process page.
+    </p>
+    <ol>
+      <li><strong>Plan</strong> — <code>ScenePlanner</code> produces the <code>ChapterPlan</code> (forced to the deterministic mock plan when mocking, so <code>--mock-llm</code> never hits the network).</li>
+      <li><strong>Retrieve</strong> — per scene, the <code>HybridRetriever</code> pulls the top chapters/scenes/events matching the scene goal + cast (capped at chapter N−1, no spoilers).</li>
+      <li><strong>Draft</strong> — <code>SceneDrafter</code> writes prose per scene with the retrieved context, the plan's key facts, the prior text tail, and the novel's voice (averaged <code>style_fingerprint</code> of the last 3 chapters).</li>
+      <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its six typed checks.</li>
+      <li><strong>Revise</strong> — blocking findings become revision notes injected into a redraft, up to <code>GENERATION_MAX_REVISIONS</code> times.</li>
+      <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>process_chapter</code> path with <code>source='generated'</code> and a <code>generation_meta</code> audit blob (model, goal, critic summary, iterations). A failing draft is returned for human review, never ingested.</li>
+    </ol>
+    <table>
+      <thead><tr><th>Module</th><th>Responsibility</th></tr></thead>
+      <tbody>
+        <tr><td><code>generation/style.py</code></td><td>LLM-free per-chapter style fingerprint (sentence length, dialogue ratio, POV person), written to <code>chapters.style_fingerprint</code> at ingest</td></tr>
+        <tr><td><code>generation/drafter.py</code></td><td><code>SceneDrafter</code> — prose output (no JSON response_format), <code>DRAFT_MODEL</code>/<code>DRAFT_TEMPERATURE</code>, deterministic mock mode</td></tr>
+        <tr><td><code>generation/draft_claims.py</code></td><td>Draft → critic bridge: one focused claims-extraction pass + read-only name→id resolution into a <code>DraftChapter</code></td></tr>
+        <tr><td><code>generation/loop.py</code></td><td><code>generate_chapter</code> orchestrator with revision loop and critic-gated ingest-back</td></tr>
+      </tbody>
+    </table>
   </section>
 
 
