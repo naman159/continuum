@@ -70,12 +70,14 @@ def persist_canon_facts(
         )
 
         if existing is None:
+            # ON CONFLICT: a concurrent chapter job may have inserted the same (subject, predicate); losing this race must not abort the whole chapter transaction.
             db.execute(
                 """
                 INSERT INTO canon_facts (
                     novel_id, kind, subject_entity_id, predicate, value,
                     source_chapter, confidence
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (novel_id, subject_entity_id, predicate) DO NOTHING
                 """,
                 (novel_id, kind, subject_universal_id, predicate, value,
                  chapter_number, confidence),
@@ -94,7 +96,7 @@ def persist_canon_facts(
                     (
                         chapter_id,
                         (
-                            f"Chapter contradicts locked canon: {subject_name}."
+                            f"Chapter contradicts locked canon: {subject_name} "
                             f"{predicate} is locked to {existing['value']!r} but this "
                             f"chapter says {value!r}. Quote: {fact.get('quote') or 'n/a'}"
                         ),
