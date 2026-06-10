@@ -11,31 +11,41 @@ export default function Timeline() {
     queryFn: () => api.timeline(novelId!, cap),
     enabled: Boolean(novelId),
   });
-  if (isLoading) return <p>Loading…</p>;
+
+  if (isLoading) return <p className="muted">Loading…</p>;
   if (!data) return null;
+
   const grouped = new Map<number, typeof data>();
   for (const e of data) {
     if (!grouped.has(e.chapter_number)) grouped.set(e.chapter_number, []);
     grouped.get(e.chapter_number)!.push(e);
   }
+
   return (
     <div>
       <h1>Timeline</h1>
-      {data.length === 0 && <p>No events yet.</p>}
+      {data.length === 0 && (
+        <div className="empty-state"><p>No events yet. Process some chapters to populate the timeline.</p></div>
+      )}
       {[...grouped.entries()].map(([chapter, events]) => (
         <section key={chapter}>
           <h2>Chapter {chapter}</h2>
           <table>
             <thead>
-              <tr><th>Description</th><th>Type</th><th>Impact</th><th>With</th></tr>
+              <tr>
+                <th>Description</th>
+                <th>Type</th>
+                <th>Impact</th>
+                <th>With</th>
+              </tr>
             </thead>
             <tbody>
               {events.map((e) => (
                 <tr key={e.id}>
                   <td>{e.description}</td>
-                  <td>{e.event_type ?? "—"}</td>
-                  <td>{e.impact_level ?? "—"}</td>
-                  <td>{e.involved_characters.join(", ") || "—"}</td>
+                  <td>{e.event_type ?? <span className="muted">—</span>}</td>
+                  <td>{e.impact_level ?? <span className="muted">—</span>}</td>
+                  <td style={{ fontSize: 12 }}>{e.involved_characters.join(", ") || <span className="muted">—</span>}</td>
                 </tr>
               ))}
             </tbody>

@@ -104,7 +104,8 @@ export type CommitmentRow = {
   foreshadow_chapter: number;
   payoff_text: string | null;
   payoff_chapter: number | null;
-  trigger_predicate: Record<string, unknown> | null;
+  // JSONB: may be a plain string, an object, or null depending on extraction.
+  trigger_predicate: unknown;
   status: "pending" | "satisfied" | "broken" | "abandoned" | string;
   weight: number | null;
   related_entity_names: string[];

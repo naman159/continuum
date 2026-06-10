@@ -172,20 +172,24 @@
   <a href="#schema-characters">characters</a>
   <a href="#schema-events">events</a>
   <a href="#schema-relationships">relationships</a>
+  <a href="#schema-other-core">other core tables</a>
   <a href="#schema-scenes">scenes (SOTA)</a>
   <a href="#schema-canon">canon_facts (SOTA)</a>
   <a href="#schema-knows">knows_edges (SOTA)</a>
   <a href="#schema-commitments">commitments (SOTA)</a>
   <a href="#schema-bitemp">bitemporal edges (SOTA)</a>
+  <a href="#schema-temporal-runs">temporal &amp; runs (SOTA)</a>
 
   <div class="sidebar-section">API Endpoints</div>
   <a href="#api-novels">Novels</a>
   <a href="#api-entity-types">Entity Types</a>
   <a href="#api-characters">Characters</a>
+  <a href="#api-entities">Locations / Objects / Factions</a>
   <a href="#api-timeline">Timeline / Events</a>
   <a href="#api-threads">Plot Threads</a>
   <a href="#api-relationships">Relationships</a>
   <a href="#api-entity-graph">Entity Graph</a>
+  <a href="#api-misc">Chapters / Continuity / Dynamics</a>
   <a href="#api-sota">SOTA Endpoints</a>
   <a href="#api-process">Processing</a>
 
@@ -195,7 +199,8 @@
   <a href="#fe-new-page">Adding a New Page</a>
 
   <div class="sidebar-doc-link">
-    ← <a href="architecture.html">Architecture Overview</a>
+    ← <a href="architecture.html">Architecture Overview</a><br>
+    <a href="state-of-the-system.html">State of the System →</a>
   </div>
 </nav>
 
@@ -320,6 +325,11 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><code>false</code></td>
           <td>Use regex mock instead of real LLM. Good for testing without API keys.</td>
         </tr>
+        <tr>
+          <td><code>CANONICALIZER_MAX_ROSTER</code></td>
+          <td><code>80</code></td>
+          <td>Max roster entries serialized into one canonicalization LLM call (most string-similar kept). Bounds prompt cost as the cast grows; ≤ 0 disables the cap.</td>
+        </tr>
       </tbody>
     </table>
 
@@ -335,25 +345,35 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   <section id="scripts">
     <h2>CLI Scripts</h2>
     <p>
-      Entry points are defined in <code>pyproject.toml</code>. Each script maps to a
-      <code>backend/cli/</code> module.
+      Entry points are defined in <code>[project.scripts]</code> in <code>pyproject.toml</code>.
+      Each script name maps to a <code>module:function</code> target. Run them with
+      <code>uv run &lt;script&gt;</code>.
     </p>
 
     <table>
       <thead>
-        <tr><th>Script</th><th>Command</th><th>Description</th></tr>
+        <tr><th>Script</th><th>Target</th><th>Description</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>novel-pipeline</code></td><td><code>python -m pipeline</code></td><td>Main pipeline CLI: init-db, create-novel, process</td></tr>
-        <tr><td><code>list-characters</code></td><td><code>python -m cli.character</code></td><td>Query characters for a novel</td></tr>
-        <tr><td><code>list-timeline</code></td><td><code>python -m cli.timeline</code></td><td>Query events / timeline</td></tr>
-        <tr><td><code>list-threads</code></td><td><code>python -m cli.threads</code></td><td>Query plot threads</td></tr>
-        <tr><td><code>list-scenes</code></td><td><code>python -m cli.scenes</code></td><td>Query scenes</td></tr>
-        <tr><td><code>list-commitments</code></td><td><code>python -m cli.commitments</code></td><td>Query commitments</td></tr>
-        <tr><td><code>list-canon</code></td><td><code>python -m cli.canon</code></td><td>Query canon facts</td></tr>
-        <tr><td><code>list-knowledge</code></td><td><code>python -m cli.knowledge</code></td><td>Query knows_edges</td></tr>
+        <tr><td><code>novel-pipeline</code></td><td><code>pipeline.pipeline:main</code></td><td>Main pipeline CLI: <code>init-db</code>, <code>create-novel</code>, <code>list-novels</code>, <code>process-chapter</code></td></tr>
+        <tr><td><code>novel-wiki-character</code></td><td><code>cli.character:main</code></td><td>Render a character page for a novel</td></tr>
+        <tr><td><code>novel-wiki-timeline</code></td><td><code>cli.timeline:main</code></td><td>Query events / timeline</td></tr>
+        <tr><td><code>novel-wiki-threads</code></td><td><code>cli.threads:main</code></td><td>Query plot threads</td></tr>
+        <tr><td><code>novel-wiki-relationships</code></td><td><code>cli.relationships:main</code></td><td>Emit the relationship graph as JSON</td></tr>
+        <tr><td><code>novel-wiki-scenes</code></td><td><code>cli.scenes:main</code></td><td>Query scenes <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>novel-wiki-commitments</code></td><td><code>cli.commitments:main</code></td><td>Query foreshadow/payoff commitments <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>novel-wiki-canon</code></td><td><code>cli.canon:main</code></td><td>Query canon facts <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>novel-wiki-knowledge</code></td><td><code>cli.knowledge:main</code></td><td>Query knows_edges <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
       </tbody>
     </table>
+
+    <div class="callout warn">
+      <strong>Not a registered script:</strong> the state materializer is reachable only as a module —
+      <code>python -m pipeline.state.cli --novel-id &lt;uuid&gt; [--through-chapter N]</code> — it has no
+      <code>[project.scripts]</code> entry and nothing calls it automatically. See
+      <a href="state-of-the-system.html#state">State of the System</a>.
+    </div>
   </section>
 
 
@@ -485,18 +505,62 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <div class="method-sig">
       <span class="kw">class</span> <span class="fn-name">IntraExtractionDeduplicator</span>:<br/>
       &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">deduplicate</span>(
-        <span class="param">extraction</span>: <span class="ptype">dict</span>,
-        <span class="param">settings</span>: <span class="ptype">Settings</span>
+        <span class="param">extracted</span>: <span class="ptype">dict</span>,
+        <span class="param">chapter_text</span>: <span class="ptype">str</span>
       ) <span class="ret">→ dict</span>
     </div>
 
     <p><strong>Rule:</strong> longest form wins. <code>"Jane" + "Jane Bennet" → "Jane Bennet"</code> everywhere in the extraction dict.</p>
+
+    <p>
+      One focused LLM call per entity type with ≥ 2 extracted names — the four built-in types plus any
+      custom types found in <code>custom_entities</code>. Renames are applied to <em>every</em> name field:
+      <code>new_entities</code>, <code>entity_deltas</code>, <code>events</code> (characters, locations,
+      objects, factions), <code>relationship_updates</code>, <code>dynamics_updates</code>,
+      <code>scenes</code> (POV, location, present characters), <code>learnings</code> (learner, source,
+      shared-with), and <code>custom_entities</code>. Lists are de-duplicated after renaming.
+    </p>
 
     <div class="callout tip">
       <strong>Why longest wins?</strong> A longer form is almost always more specific and less ambiguous.
       "Miss Bennet" could be any Bennet sister; "Elizabeth Bennet" is unambiguous. The LLM groups
       the variants, Python picks the longest from each group.
     </div>
+
+    <div class="callout warn">
+      <strong>Hallucination guard:</strong> group members returned by the LLM are validated
+      (case-insensitively) against the names actually present in the extraction. Invented names are
+      discarded, so a hallucinated "canonical" form can never overwrite real extracted names.
+    </div>
+
+    <h2>EntityCanonicalizer</h2>
+    <p>Same file. Cross-chapter dedup: matches extracted names against the existing DB roster.</p>
+
+    <div class="method-sig">
+      <span class="kw">class</span> <span class="fn-name">EntityCanonicalizer</span>:<br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">canonicalize</span>(
+        <span class="param">chapter_text</span>: <span class="ptype">str</span>,
+        <span class="param">candidate_names_by_type</span>: <span class="ptype">dict[str, set[str]]</span>
+      ) <span class="ret">→ dict[str, dict[str, str]]</span>
+    </div>
+
+    <p>Per entity type, in order:</p>
+    <table>
+      <thead><tr><th>Step</th><th>What happens</th><th>LLM cost</th></tr></thead>
+      <tbody>
+        <tr><td>1. Known filter</td><td>Candidates exactly matching a roster name/alias (case-insensitive) are dropped</td><td>None</td></tr>
+        <tr><td>2. Deterministic merge</td><td><code>normalize_name()</code> equality (case, whitespace, surrounding punctuation/quotes, leading article) against exactly one roster entry → alias written directly. Ambiguous normalized matches are deferred to the LLM</td><td>None</td></tr>
+        <tr><td>3. LLM resolution</td><td>One call per type with remaining candidates. Roster capped at <code>CANONICALIZER_MAX_ROSTER</code> (default 80) most string-similar entries</td><td>1 call/type</td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      Validation before a merge is accepted: characters require a verbatim <code>grammatical_anchor</code>
+      quoted from the chapter text; all other types (including custom types) accept a non-empty
+      <code>reasoning</code>. Accepted merges append the candidate to the target's <code>aliases[]</code> —
+      built-in types on their own table, custom types on <code>entities.aliases</code> — which is what the
+      <code>EntityResolver</code> alias lookup later finds.
+    </p>
   </section>
 
 
@@ -511,6 +575,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_location</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
       &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_faction</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
       &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_object</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
+      &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_custom_entity</span>(<span class="param">name</span>: <span class="ptype">str</span>, <span class="param">entity_type</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span><br/>
       &nbsp;&nbsp;<span class="kw">def</span> <span class="fn-name">resolve_any_entity</span>(<span class="param">name</span>: <span class="ptype">str</span>) <span class="ret">→ UUID</span>
     </div>
 
@@ -530,16 +595,27 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <table>
       <thead><tr><th>Step</th><th>Method</th><th>Creates new?</th></tr></thead>
       <tbody>
-        <tr><td>1. Exact name</td><td>Case-insensitive string match on <code>name</code></td><td>No</td></tr>
-        <tr><td>2. Alias lookup</td><td>Check if name is in <code>aliases[]</code></td><td>No</td></tr>
-        <tr><td>3. Partial match</td><td>Characters only: "Jane" matches "Jane Bennet", adds "Jane" as alias</td><td>No</td></tr>
-        <tr><td>4. Fuzzy match</td><td>rapidfuzz token_sort_ratio ≥ 85%</td><td>No</td></tr>
+        <tr><td>1. In-memory cache</td><td>(entity_type, lowercased name) hit from earlier in the same run</td><td>No</td></tr>
+        <tr><td>2. Exact name</td><td>Case-insensitive string match on <code>name</code></td><td>No</td></tr>
+        <tr><td>3. Alias lookup</td><td>Check if name is in <code>aliases[]</code> (LIKE wildcards in names are escaped)</td><td>No</td></tr>
+        <tr><td>4. Partial match</td><td>Characters only: "Jane" matches "Jane Bennet" on a word boundary, adds "Jane" as alias</td><td>No</td></tr>
         <tr><td>5. Create new</td><td>INSERT into entities + specific table</td><td><strong>Yes</strong></td></tr>
       </tbody>
     </table>
 
+    <p>
+      <code>resolve_custom_entity</code> resolves against the <code>entities</code> table by exact name
+      <em>or</em> <code>entities.aliases</code> (written by the canonicalizer), creating an entities-only
+      row when nothing matches. Custom types extracted with an unregistered or differently-cased type are
+      normalized (or dropped) in <code>process_chapter</code> before they reach the resolver.
+    </p>
+
     <div class="callout warn">
-      <strong>Fuzzy threshold is 85%.</strong> This is aggressive — it means "Jane" and "Joan" won't merge (72%), but "Dumbledore" and "Dumbledore " (trailing space) will (99%). If you see false merges, increase the threshold in <code>resolver.py</code>.
+      <strong><code>resolve_any_entity</code> lookup order:</strong> entities table by name or alias →
+      each typed table (character, faction, location, object) by name or alias → only then fall back to
+      creating a character. The typed-alias step matters: without it, a relationship that references
+      "the Empire" (an alias of faction "The Galactic Empire") would create a phantom <em>character</em>
+      named "the Empire".
     </div>
   </section>
 
@@ -660,6 +736,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   novel_id    <span class="sql-type">UUID</span>     <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
   entity_type <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
   name        <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
+  aliases     <span class="sql-type">TEXT[]</span>   <span class="sql-constraint">DEFAULT</span> <span class="sql-val">'{}'</span>,
   <span class="sql-constraint">UNIQUE</span>(novel_id, entity_type, name)
 );</code></pre>
     <p>
@@ -668,7 +745,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>faction</code>, <code>object</code>) also get a row in their dedicated table.
       User-defined types (e.g. <code>realm</code>, <code>deity</code>) live <em>only</em> in this table —
       no dedicated table. The <code>CHECK</code> constraint on <code>entity_type</code> was removed to allow
-      arbitrary type values from <code>novel_entity_types</code>.
+      arbitrary type values from <code>novel_entity_types</code>. The <code>aliases[]</code> column holds
+      canonicalizer-confirmed name variants for custom entity types (built-in types keep aliases on their
+      dedicated tables); migration: <code>pipeline.db.migrate_add_entities_aliases</code>.
     </p>
     <p>
       The <code>relationships</code> table references <code>entities(id)</code> so cross-type relationships
@@ -788,6 +867,32 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       When a relationship changes (e.g., allies become enemies), a <em>new row</em> is inserted
       with <code>superseded_by_id</code> pointing from the old row to the new one.
       This creates a linked-list history of relationship evolution.
+    </p>
+  </section>
+
+  <section id="schema-other-core">
+    <h2>Schema: Other Core Tables</h2>
+    <p>
+      The remaining first-class tables. Full DDL lives in
+      <code>backend/pipeline/db/schema.sql</code>; the load-bearing columns are listed below.
+    </p>
+    <table>
+      <thead><tr><th>Table</th><th>Key columns</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>locations</code></td><td>id, novel_id, entity_id, name, aliases[], parent_location_id, first_appearance_chapter</td><td>Places. Self-referential <code>parent_location_id</code> nests sub-locations (a room inside a building).</td></tr>
+        <tr><td><code>factions</code></td><td>id, novel_id, entity_id, name, aliases[], description</td><td>Organisations / groups.</td></tr>
+        <tr><td><code>objects</code></td><td>id, novel_id, entity_id, name, aliases[], significance, first_appearance_chapter</td><td>Physical items with narrative weight.</td></tr>
+        <tr><td><code>character_states</code></td><td>character_id, chapter_id, location_id, emotional_state, goals, knowledge[], physical_state, appearance, notes</td><td>Per-chapter mutable snapshot of a character. Written by the extractor from deltas; also re-derivable by the State Materializer.</td></tr>
+        <tr><td><code>shared_dynamics</code></td><td>entity_a_id, entity_b_id, chapter_id, description</td><td>Per-chapter relational "moments" between two entities, distinct from typed <code>relationships</code>.</td></tr>
+        <tr><td><code>plot_threads</code></td><td>id, novel_id, title, status, opened_chapter, closed_chapter, thread_type</td><td>Narrative arcs. <code>status</code> ∈ open | progressing | closed.</td></tr>
+        <tr><td><code>thread_events</code></td><td>thread_id, event_id, impact</td><td>Links events to threads (many-to-many). <code>impact</code> ∈ opens | advances | closes.</td></tr>
+        <tr><td><code>continuity_flags</code></td><td>id, chapter_id, description, flag_type, resolved, resolved_chapter_id</td><td>Foreshadowing / setup / callback notes the extractor raised, with a resolved bit.</td></tr>
+      </tbody>
+    </table>
+    <p>
+      Every entity table (<code>characters</code>, <code>locations</code>, <code>factions</code>,
+      <code>objects</code>) carries an <code>entity_id</code> FK into the universal <code>entities</code>
+      table — that is what the relationship and graph layers join on.
     </p>
   </section>
 
@@ -919,6 +1024,36 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
 
+  <section id="schema-temporal-runs">
+    <h2>Schema: temporal_constraints &amp; materialized_state_runs <span class="badge orange">SOTA</span></h2>
+    <p>Two tables that back timeline checking and state-derivation auditing.</p>
+
+    <pre><code><span class="sql-kw">CREATE TABLE</span> temporal_constraints (
+  id           <span class="sql-type">UUID</span>   <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  event_a_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> events,
+  event_b_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> events,
+  relation     <span class="sql-type">TEXT</span>   <span class="sql-comment">-- before | after | simultaneous | caused_by | enables</span>
+  certainty    <span class="sql-type">FLOAT</span>  <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
+  <span class="sql-constraint">UNIQUE</span>(event_a_id, event_b_id, relation)
+);
+
+<span class="sql-kw">CREATE TABLE</span> materialized_state_runs (
+  id              <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  novel_id        <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
+  through_chapter <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
+  materialized_at <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now(),
+  notes           <span class="sql-type">TEXT</span>        <span class="sql-comment">-- e.g. "snapshots=12 location_edges=4 ..."</span>
+);</code></pre>
+
+    <div class="callout warn">
+      <strong>Producers status:</strong> <code>temporal_constraints</code> has no writer yet (the
+      extractor does not emit temporal relations), and <code>materialized_state_runs</code> is only
+      written when the State Materializer is run manually. See
+      <a href="state-of-the-system.html#schema-ahead">State of the System → Schema Ahead of Code</a>.
+    </div>
+  </section>
+
+
   <!-- ══════════ API ENDPOINTS ══════════ -->
 
   <section id="api-novels">
@@ -1007,6 +1142,25 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 }</code></pre>
   </section>
 
+  <section id="api-entities">
+    <h2>API: Locations, Objects &amp; Factions</h2>
+    <p>
+      Each entity type follows the same list + detail pattern as Characters. Locations and Objects accept
+      the chapter cap; Factions do not.
+    </p>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/locations</code></td><td><code>?cap=N</code></td><td><code>LocationSummary[]</code></td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/locations/{location_id}</code></td><td><code>?cap=N</code></td><td><code>LocationDetail</code> — description, parent, present characters, events</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/objects</code></td><td><code>?cap=N</code></td><td><code>ObjectSummary[]</code></td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/objects/{object_id}</code></td><td><code>?cap=N</code></td><td><code>ObjectDetail</code> — significance, owners, events</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions</code></td><td>—</td><td><code>FactionSummary[]</code> (no cap)</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions/{faction_id}</code></td><td>—</td><td><code>FactionDetail</code> — members, relationships</td></tr>
+      </tbody>
+    </table>
+  </section>
+
   <section id="api-timeline">
     <h2>API: Timeline / Events</h2>
 
@@ -1082,6 +1236,20 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <li><strong>Possession/location edges</strong> (<code>edge_kind: "possession"</code>, <code>"location"</code>) — from <code>possesses_edges</code> and <code>located_in_edges</code>; wired for future data.</li>
     </ul>
     <p>Multiple records between the same entity pair from the same source are collapsed into one story edge (tooltip shows all descriptions). At most two edges per pair: one relationship + one story edge. Each edge carries optional <code>edge_kind</code> and <code>tooltip</code> fields.</p>
+
+    <p><strong>Node colours (AAA-accessible palette).</strong> Nodes are tinted by entity type with bright, high-luminance hues so each fill clears WCAG non-text contrast against the dark canvas and stays distinguishable: characters <code>#60a5fa</code> (blue), locations <code>#34d399</code> (green), objects <code>#fbbf24</code> (amber), factions <code>#c084fc</code> (purple), custom types <code>#22d3ee</code> (cyan). Node and edge labels render in light text (<code>#e2ddef</code>) with a dark halo — ~13:1 contrast — so names stay legible even where they overlap a node. Colour is never the only cue: every node and legend pill is also text-labelled.</p>
+  </section>
+
+  <section id="api-misc">
+    <h2>API: Chapters, Continuity &amp; Dynamics</h2>
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query</th><th>Returns</th></tr></thead>
+      <tbody>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/chapters</code></td><td><code>?cap=N</code></td><td><code>ChapterSummary[]</code> — number, title, summary, processed_at</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/continuity</code></td><td><code>?cap=N&amp;resolved=open|all</code></td><td><code>ContinuityFlag[]</code> — description, flag_type, resolved</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/dynamics</code></td><td><code>?cap=N</code></td><td><code>SharedDynamicRow[]</code> — entity_a_name, entity_b_name, chapter_number, description</td></tr>
+      </tbody>
+    </table>
   </section>
 
   <section id="api-sota">
@@ -1106,18 +1274,18 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><code>CanonFactRow[]</code> — grouped by subject entity in frontend</td>
         </tr>
         <tr>
-          <td><code>/api/novels/{id}/knowledge/knows</code></td>
+          <td><code>/api/novels/{id}/knows</code></td>
           <td><code>?cap=N&amp;character_id=UUID</code></td>
           <td><code>KnowsEdgeRow[]</code> — character_name, fact_description, learned_chapter, source_type, certainty, shared_with[]</td>
         </tr>
         <tr>
-          <td><code>/api/novels/{id}/knowledge/locations</code></td>
-          <td><code>?cap=N&amp;active=true</code></td>
+          <td><code>/api/novels/{id}/locations-history</code></td>
+          <td><code>?cap=N&amp;only_active=true</code></td>
           <td><code>LocationEdgeRow[]</code> — entity_name, location_name, since_chapter, until_chapter</td>
         </tr>
         <tr>
-          <td><code>/api/novels/{id}/knowledge/possessions</code></td>
-          <td><code>?cap=N&amp;active=true</code></td>
+          <td><code>/api/novels/{id}/possessions</code></td>
+          <td><code>?cap=N&amp;only_active=true</code></td>
           <td><code>PossessionEdgeRow[]</code> — character_name, object_name, since_chapter, until_chapter</td>
         </tr>
       </tbody>
@@ -1132,13 +1300,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <tbody>
         <tr>
           <td><span class="badge blue">POST</span></td>
-          <td><code>/api/novels/{id}/process</code></td>
-          <td>Submit chapter for async processing. Returns <code>{"job_id": "..."}</code></td>
+          <td><code>/api/novels/{id}/chapters/process</code></td>
+          <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "..."}</code>. Returns <code>{"job_id": "..."}</code></td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
-          <td><code>/api/novels/{id}/jobs/{job_id}</code></td>
-          <td>Poll job status. Returns <code>{"status": "running|done|error", "error": "..."}</code></td>
+          <td><code>/api/jobs/{job_id}</code></td>
+          <td>Poll job status (note: not nested under the novel). Returns <code>JobStatusResponse</code> — <code>{job_id, status: "pending|running|done|error", current_pass, passes_done, total_passes, result, error}</code></td>
         </tr>
       </tbody>
     </table>
@@ -1185,7 +1353,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <h2>Frontend: Query Pattern</h2>
     <p>
       All server data fetching uses <code>@tanstack/react-query</code>. The pattern is consistent
-      across all 20 pages:
+      across all 23 page components:
     </p>
 
     <pre><code><span class="kw">import</span> { useQuery } <span class="kw">from</span> <span class="str">'@tanstack/react-query'</span>;

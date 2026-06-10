@@ -4,45 +4,86 @@ import { useParams } from "react-router-dom";
 import { api } from "../api";
 import { useChapterCap } from "../hooks/useChapterCap";
 
+const STATUS_CLASS: Record<string, string> = {
+  open: "status-open",
+  progressing: "status-progressing",
+  closed: "status-closed",
+};
+
 export default function Threads() {
   const { novelId } = useParams();
   const [cap] = useChapterCap();
   const [status, setStatus] = useState<"all" | "open" | "progressing" | "closed">("all");
+
   const { data, isLoading } = useQuery({
     queryKey: ["threads", novelId, cap, status],
     queryFn: () => api.threads(novelId!, cap, status),
     enabled: Boolean(novelId),
   });
-  if (isLoading) return <p>Loading…</p>;
+
+  if (isLoading) return <p className="muted">Loading…</p>;
+
   return (
     <div>
-      <h1>Threads</h1>
-      <label>
-        Status:{" "}
-        <select value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>
+      <div className="page-header">
+        <h1>Threads</h1>
+      </div>
+
+      <div className="filter-bar">
+        <span className="filter-label">Status</span>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as typeof status)}
+          style={{ width: "auto" }}
+        >
           <option value="all">All</option>
           <option value="open">Open</option>
           <option value="progressing">Progressing</option>
           <option value="closed">Closed</option>
         </select>
-      </label>
+      </div>
+
+      {(!data || data.length === 0) && (
+        <div className="empty-state"><p>No threads found.</p></div>
+      )}
+
       {data?.map((t) => (
         <details key={t.id} open>
           <summary>
-            <strong>{t.title}</strong> — {t.status} ({t.thread_type ?? "?"})
+            <strong style={{ color: "var(--text-h)" }}>{t.title}</strong>
+            <span className={`muted ${STATUS_CLASS[t.status] ?? ""}`} style={{ marginLeft: 8 }}>
+              {t.status}
+            </span>
+            {t.thread_type && (
+              <span className="tag" style={{ marginLeft: 6 }}>{t.thread_type}</span>
+            )}
           </summary>
-          {t.description && <p>{t.description}</p>}
-          <p className="muted">
+          {t.description && (
+            <p style={{ marginBottom: 10, lineHeight: 1.6 }}>{t.description}</p>
+          )}
+          <p className="muted" style={{ marginBottom: 10 }}>
             Opened ch {t.opened_chapter ?? "—"} · Closed ch {t.closed_chapter ?? "—"}
           </p>
-          <table>
-            <thead><tr><th>Chapter</th><th>Event</th><th>Impact</th></tr></thead>
-            <tbody>
-              {t.events.map((e) => (
-                <tr key={e.event_id}><td>{e.chapter_number}</td><td>{e.description}</td><td>{e.impact ?? "—"}</td></tr>
-              ))}
-            </tbody>
-          </table>
+          {t.events.length > 0 && (
+            <table>
+              <thead>
+                <tr>
+                  <th>Chapter</th>
+                  <th>Event</th>
+                  <th>Impact</th>
+                </tr>
+              </thead>
+              <tbody>
+                {t.events.map((e) => (
+                  <tr key={e.event_id}>
+                    <td style={{ whiteSpace: "nowrap" }}>ch {e.chapter_number}</td>
+                    <td>{e.description}</td>
+                    <td>{e.impact ?? <span className="muted">—</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </details>
       ))}
     </div>

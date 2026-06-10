@@ -20,7 +20,7 @@ export default function CustomEntityDetail() {
   return (
     <div>
       <h1>{data.name}</h1>
-      <p style={{ color: "#666", textTransform: "capitalize" }}>{typeLabel}</p>
+      <p style={{ color: "var(--text-muted)", textTransform: "capitalize" }}>{typeLabel}</p>
       {data.description && <p>{data.description}</p>}
 
       {data.relationships.length > 0 && (

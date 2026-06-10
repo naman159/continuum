@@ -1102,14 +1102,18 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
         characters = sorted(char_name.get(cid, str(cid)) for cid in involved_char_ids)
         relationships = [
             {
-                "character_name": char_entity_name.get(r["entity_a_id"], str(r["entity_a_id"])),
+                "character_name": char_entity_name.get(
+                    r["entity_a_id"] if r.get("entity_b_id") == obj_entity_id else r["entity_b_id"],
+                    str(r["entity_a_id"] if r.get("entity_b_id") == obj_entity_id else r["entity_b_id"]),
+                ),
                 "rel_type": r.get("rel_type"),
                 "from_chapter": r.get("from_chapter"),
                 "to_chapter": r.get("to_chapter"),
                 "notes": r.get("notes"),
             }
             for r in db.relationships
-            if r.get("entity_b_id") == obj_entity_id and obj_entity_id is not None
+            if obj_entity_id is not None
+            and (r.get("entity_b_id") == obj_entity_id or r.get("entity_a_id") == obj_entity_id)
         ]
     else:
         row = db.fetchone(
@@ -1172,13 +1176,17 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
             """
             SELECT c.name AS character_name, r.rel_type, r.from_chapter, r.to_chapter, r.notes
             FROM relationships r
-            JOIN characters c ON c.entity_id = r.entity_a_id AND c.novel_id = %s
-            WHERE r.entity_b_id = (
-                SELECT entity_id FROM objects WHERE id = %s AND novel_id = %s
-            )
+            JOIN objects ob ON ob.id = %s AND ob.novel_id = %s
+            JOIN characters c
+              ON c.novel_id = %s
+             AND c.entity_id = CASE
+                   WHEN r.entity_a_id = ob.entity_id THEN r.entity_b_id
+                   ELSE r.entity_a_id
+                 END
+            WHERE r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id
             ORDER BY r.from_chapter NULLS LAST
             """,
-            (str(novel_id), str(object_id), str(novel_id)),
+            (str(object_id), str(novel_id), str(novel_id)),
             dict_rows=True,
         )
         relationships = [dict(r) for r in rel_rows]
@@ -1278,43 +1286,36 @@ def get_faction_detail(novel_id: UUID, faction_id: UUID) -> dict[str, Any] | Non
         obj_name = {r["id"]: r["name"] for r in obj_name_rows}
         faction_name_map = {r["id"]: r["name"] for r in faction_name_rows}
 
-        faction_row = db.fetchone(
-            "SELECT entity_id FROM factions WHERE id = %s AND novel_id = %s",
-            (str(faction_id), str(novel_id)),
+        # events.involved_factions stores factions.id (the typed-table id the
+        # resolver returns), not entities.id — query with the faction id itself.
+        event_rows = db.fetchall(
+            """
+            SELECT e.id, e.description, e.event_type, e.impact_level,
+                   ch.number AS chapter_number,
+                   e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
+            FROM events e
+            JOIN chapters ch ON ch.id = e.chapter_id
+            WHERE ch.novel_id = %s
+              AND %s::uuid = ANY(e.involved_factions)
+            ORDER BY ch.number
+            """,
+            (str(novel_id), str(faction_id)),
+            dict_rows=True,
         )
-        faction_entity_id = str(faction_row[0]) if faction_row else None
-
-        if faction_entity_id:
-            event_rows = db.fetchall(
-                """
-                SELECT e.id, e.description, e.event_type, e.impact_level,
-                       ch.number AS chapter_number,
-                       e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
-                FROM events e
-                JOIN chapters ch ON ch.id = e.chapter_id
-                WHERE ch.novel_id = %s
-                  AND %s::uuid = ANY(e.involved_factions)
-                ORDER BY ch.number
-                """,
-                (str(novel_id), faction_entity_id),
-                dict_rows=True,
-            )
-            events = [
-                {
-                    "id": r["id"],
-                    "chapter_number": r["chapter_number"],
-                    "description": r["description"],
-                    "event_type": r.get("event_type"),
-                    "impact_level": r.get("impact_level"),
-                    "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
-                    "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
-                    "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
-                    "involved_factions": [faction_name_map.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
-                }
-                for r in event_rows
-            ]
-        else:
-            events = []
+        events = [
+            {
+                "id": r["id"],
+                "chapter_number": r["chapter_number"],
+                "description": r["description"],
+                "event_type": r.get("event_type"),
+                "impact_level": r.get("impact_level"),
+                "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
+                "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
+                "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
+                "involved_factions": [faction_name_map.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
+            }
+            for r in event_rows
+        ]
 
     return {
         "identity": {

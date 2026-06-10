@@ -1,1 +1,1 @@
-Ensure the docswebsite is updated after every change.
+Ensure the docs website is updated after every change.

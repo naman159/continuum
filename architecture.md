@@ -66,7 +66,7 @@ Chapter text (file/stdin)
 | `extraction/chunker.py` | `sliding_window_chunks()` -- tokenizes text via tiktoken (falls back to whitespace split) and produces overlapping chunks. `tokenize()` / `detokenize()` helpers. |
 | `extraction/prompts.py` | Prompt templates for the 6 extraction passes. `PASS_ORDER` defines execution order. `PASS_SCHEMAS` defines expected JSON output per pass. Builds system + user prompts with story context. |
 | `extraction/extractor.py` | `ChapterExtractor` -- runs 6 LLM passes per chunk via LiteLLM, normalizes and merges results across chunks. Mock extractor uses regex name detection + sentence splitting for deterministic testing. `merge_extractions()` deduplicates entities, events, threads, and flags. |
-| `extraction/resolver.py` | `EntityResolver` -- resolves entity names to database IDs. Lookup order: exact name match -> alias match (characters only) -> fuzzy match (rapidfuzz or SequenceMatcher, threshold 85%) -> create new entity. In-memory cache avoids redundant queries within a session. |
+| `extraction/resolver.py` | `EntityResolver` -- resolves entity names to database IDs. Lookup order: exact name match -> alias match (all entity types) -> word-boundary partial-name match (characters only) -> create new entity. In-memory cache avoids redundant queries within a session. |
 
 ### Embeddings
 
@@ -131,7 +131,6 @@ Results from multiple chunks are merged via `merge_extractions()` which deduplic
 - **psycopg[binary,pool]** -- PostgreSQL driver + connection pooling
 - **litellm** -- LLM abstraction (supports OpenAI, Anthropic, etc.)
 - **tiktoken** -- tokenizer for chunk sizing
-- **rapidfuzz** -- fuzzy string matching for entity resolution
 - **python-dotenv** -- environment config
 
 ## CLI Commands

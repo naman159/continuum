@@ -35,6 +35,11 @@ class Settings:
     chunk_size: int = field(default_factory=lambda: int(os.getenv("CHUNK_SIZE", "2000")))
     chunk_overlap: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "200")))
     use_mock_llm: bool = field(default_factory=lambda: _bool_env("USE_MOCK_LLM", False))
+    # Max roster entries serialized into a single canonicalization LLM call.
+    # Bounds prompt cost as the novel grows; <= 0 disables the cap.
+    canonicalizer_max_roster: int = field(
+        default_factory=lambda: int(os.getenv("CANONICALIZER_MAX_ROSTER", "80"))
+    )
 
 
 settings = Settings()

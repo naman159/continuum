@@ -52,14 +52,17 @@ class EntityResolver:
         if cached:
             return ResolvedEntity(cached[0], cached[1], created=False)
 
-        # Check existing entity in entities table directly.
+        # Check existing entity in entities table directly (by name, then alias).
         if hasattr(self.db, "entities"):
             entity = next(
                 (
                     e for e in self.db.entities
                     if str(e.get("novel_id")) == str(self.novel_id)
                     and str(e.get("entity_type")) == entity_type
-                    and str(e.get("name", "")).lower() == normalized_name.lower()
+                    and (
+                        str(e.get("name", "")).lower() == normalized_name.lower()
+                        or normalized_name.lower() in {str(a).lower() for a in (e.get("aliases") or [])}
+                    )
                 ),
                 None,
             )
@@ -71,10 +74,16 @@ class EntityResolver:
             row = self.db.fetchone(
                 """
                 SELECT id FROM entities
-                WHERE novel_id = %s AND entity_type = %s AND lower(name) = lower(%s)
+                WHERE novel_id = %s AND entity_type = %s
+                  AND (
+                      lower(name) = lower(%s)
+                      OR EXISTS (
+                          SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
+                      )
+                  )
                 LIMIT 1
                 """,
-                (self.novel_id, entity_type, normalized_name),
+                (self.novel_id, entity_type, normalized_name, normalized_name),
             )
             if row:
                 uid = str(row[0])
@@ -98,9 +107,11 @@ class EntityResolver:
     def resolve_any_entity(self, name: str) -> str:
         """Return the universal entity ID for any entity type.
 
-        Looks up the entities table by name first. Falls back to
-        resolve_character if not found, preserving backward-compat for
-        purely character-to-character relationships.
+        Lookup order: entities table by name or alias, then each typed table by
+        name or alias (catches entities referenced by an alias that only the
+        typed table knows about). Only if nothing matches anywhere does it fall
+        back to creating a character — previously an aliased faction/location/
+        object reference would silently create a phantom character here.
         """
         normalized = (name or "").strip()
         if not normalized:
@@ -116,7 +127,10 @@ class EntityResolver:
                 (
                     e for e in self.db.entities
                     if str(e.get("novel_id")) == str(self.novel_id)
-                    and str(e.get("name", "")).lower() == normalized.lower()
+                    and (
+                        str(e.get("name", "")).lower() == normalized.lower()
+                        or normalized.lower() in {str(a).lower() for a in (e.get("aliases") or [])}
+                    )
                 ),
                 None,
             )
@@ -128,15 +142,27 @@ class EntityResolver:
             row = self.db.fetchone(
                 """
                 SELECT id FROM entities
-                WHERE novel_id = %s AND lower(name) = lower(%s)
+                WHERE novel_id = %s
+                  AND (
+                      lower(name) = lower(%s)
+                      OR EXISTS (
+                          SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
+                      )
+                  )
                 LIMIT 1
                 """,
-                (self.novel_id, normalized),
+                (self.novel_id, normalized, normalized, ),
             )
             if row:
                 uid = str(row[0])
                 self._cache[cache_key] = (uid, uid)
                 return uid
+
+            for entity_type in ("character", "faction", "location", "object"):
+                found = self._lookup_typed(entity_type, normalized)
+                if found:
+                    self._cache[cache_key] = found
+                    return found[1]
 
         resolved = self.resolve_character(normalized)
         self._cache[cache_key] = (resolved.entity_id, resolved.universal_id)
@@ -152,43 +178,17 @@ class EntityResolver:
         if cached:
             return ResolvedEntity(cached[0], cached[1], created=False)
 
-        table = _table_for(entity_type)
-        name_row = self.db.fetchone(
-            f"""
-            SELECT id, entity_id
-            FROM {table}
-            WHERE novel_id = %s AND lower(name) = lower(%s)
-            LIMIT 1
-            """,
-            (self.novel_id, normalized_name),
-        )
-        if name_row:
-            entity_id = str(name_row[0])
-            universal_id = str(name_row[1]) if name_row[1] else entity_id
-            self._cache[cache_key] = (entity_id, universal_id)
-            return ResolvedEntity(entity_id, universal_id, created=False)
-
-        alias_row = self.db.fetchone(
-            f"""
-            SELECT id, entity_id
-            FROM {table}
-            WHERE novel_id = %s
-              AND EXISTS (
-                  SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
-              )
-            LIMIT 1
-            """,
-            (self.novel_id, normalized_name),
-        )
-        if alias_row:
-            entity_id = str(alias_row[0])
-            universal_id = str(alias_row[1]) if alias_row[1] else entity_id
-            self._cache[cache_key] = (entity_id, universal_id)
-            return ResolvedEntity(entity_id, universal_id, created=False)
+        found = self._lookup_typed(entity_type, normalized_name)
+        if found:
+            self._cache[cache_key] = found
+            return ResolvedEntity(found[0], found[1], created=False)
 
         if entity_type == "character":
             # Partial-name match: "Jane" <-> "Jane Bennet" (one name is a word-boundary
             # prefix of the other). The shorter form becomes an alias of the longer one.
+            like_safe = (
+                normalized_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
             partial_row = self.db.fetchone(
                 """
                 SELECT id, entity_id, name, aliases
@@ -200,7 +200,7 @@ class EntityResolver:
                   )
                 LIMIT 1
                 """,
-                (self.novel_id, normalized_name, normalized_name),
+                (self.novel_id, like_safe, normalized_name),
             )
             if partial_row:
                 entity_id = str(partial_row[0])
@@ -221,6 +221,44 @@ class EntityResolver:
         entity_id, universal_id = self._create_entity(entity_type, normalized_name, metadata)
         self._cache[cache_key] = (entity_id, universal_id)
         return ResolvedEntity(entity_id, universal_id, created=True)
+
+    def _lookup_typed(self, entity_type: str, name: str) -> tuple[str, str] | None:
+        """Find an existing row in the typed table by exact name or alias.
+
+        Returns (entity_id, universal_id) or None. Never creates anything.
+        """
+        table = _table_for(entity_type)
+        name_row = self.db.fetchone(
+            f"""
+            SELECT id, entity_id
+            FROM {table}
+            WHERE novel_id = %s AND lower(name) = lower(%s)
+            LIMIT 1
+            """,
+            (self.novel_id, name),
+        )
+        if name_row:
+            entity_id = str(name_row[0])
+            universal_id = str(name_row[1]) if name_row[1] else entity_id
+            return entity_id, universal_id
+
+        alias_row = self.db.fetchone(
+            f"""
+            SELECT id, entity_id
+            FROM {table}
+            WHERE novel_id = %s
+              AND EXISTS (
+                  SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
+              )
+            LIMIT 1
+            """,
+            (self.novel_id, name),
+        )
+        if alias_row:
+            entity_id = str(alias_row[0])
+            universal_id = str(alias_row[1]) if alias_row[1] else entity_id
+            return entity_id, universal_id
+        return None
 
     def _create_entity(self, entity_type: str, name: str, metadata: dict[str, Any]) -> tuple[str, str]:
         universal_id = str(self.db.fetchval(

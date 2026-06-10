@@ -45,9 +45,17 @@ export default function CharacterList() {
       { nodes, edges },
       {
         physics: { stabilization: { iterations: 200 } },
-        nodes: { shape: "dot", size: 16, font: { size: 14 } },
+        nodes: {
+          shape: "dot",
+          size: 16,
+          borderWidth: 2,
+          color: { background: "#60a5fa", border: "#1f2235" },
+          // Light label text + dark halo for AAA legibility on the dark canvas.
+          font: { size: 14, color: "#e2ddef", strokeWidth: 3, strokeColor: "#0b0d14" },
+        },
         edges: {
-          font: { size: 11, align: "middle" },
+          font: { size: 11, align: "middle", color: "#e2ddef", strokeWidth: 3, strokeColor: "#0b0d14" },
+          color: { color: "#8c89a6", highlight: "#60a5fa" },
           smooth: { enabled: true, type: "continuous", roundness: 0.5 },
         },
       }
@@ -64,9 +72,9 @@ export default function CharacterList() {
     };
   }, [graphData, navigate, novelId]);
 
-  if (isLoading) return <p>Loading…</p>;
-  if (error) return <p>Error: {(error as Error).message}</p>;
-  if (!data || data.length === 0) return <p>No characters.</p>;
+  if (isLoading) return <p className="muted">Loading…</p>;
+  if (error) return <p style={{ color: "var(--red-text)" }}>Error: {(error as Error).message}</p>;
+  if (!data || data.length === 0) return <div className="empty-state"><p>No characters. Process a chapter to extract them.</p></div>;
 
   return (
     <div>
@@ -97,8 +105,8 @@ export default function CharacterList() {
         <p>Loading graph…</p>
       ) : (
         <>
-          <p className="muted">Double-click a node to open an entity. Hover for description.</p>
-          <div ref={containerRef} style={{ height: 600, border: "1px solid #ddd" }} />
+          <p className="graph-caption">Double-click a node to open an entity. Hover for description.</p>
+          <div ref={containerRef} className="graph-container" />
           <h3>All relationships ({graphData?.edges.length ?? 0})</h3>
           <table>
             <thead>

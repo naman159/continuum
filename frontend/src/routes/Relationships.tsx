@@ -38,9 +38,17 @@ export default function Relationships() {
       { nodes, edges },
       {
         physics: { stabilization: { iterations: 200 } },
-        nodes: { shape: "dot", size: 16, font: { size: 14 } },
+        nodes: {
+          shape: "dot",
+          size: 16,
+          borderWidth: 2,
+          color: { background: "#60a5fa", border: "#1f2235" },
+          // Light label text + dark halo for AAA legibility on the dark canvas.
+          font: { size: 14, color: "#e2ddef", strokeWidth: 3, strokeColor: "#0b0d14" },
+        },
         edges: {
-          font: { size: 11, align: "middle" },
+          font: { size: 11, align: "middle", color: "#e2ddef", strokeWidth: 3, strokeColor: "#0b0d14" },
+          color: { color: "#8c89a6", highlight: "#60a5fa" },
           smooth: { enabled: true, type: "continuous", roundness: 0.5 },
         },
       }
@@ -61,7 +69,7 @@ export default function Relationships() {
   return (
     <div>
       <h1>Relationships</h1>
-      <p className="muted">Double-click a node to open a character. Hover for description.</p>
+      <p className="graph-caption">Double-click a node to open a character. Hover for description.</p>
       <div ref={containerRef} style={{ height: 600, border: "1px solid #ddd" }} />
       <h2>All relationships ({data?.edges.length ?? 0})</h2>
       <table>

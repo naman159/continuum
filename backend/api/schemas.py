@@ -305,7 +305,8 @@ class CommitmentRow(BaseModel):
     foreshadow_chapter: int
     payoff_text: str | None
     payoff_chapter: int | None
-    trigger_predicate: dict | None
+    # JSONB column: the extractor may store a plain string, an object, or null.
+    trigger_predicate: Any | None = None
     status: str
     weight: float | None
     related_entity_names: list[str]

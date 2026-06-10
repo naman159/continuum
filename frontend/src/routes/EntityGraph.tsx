@@ -6,13 +6,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useChapterCap } from "../hooks/useChapterCap";
 
+// AAA-accessible node palette. Bright, high-luminance hues (drawn from the
+// design-system *-text tokens) so each fill clears WCAG non-text contrast
+// (≥3:1) against the dark #12141f canvas while staying mutually distinct.
 const TYPE_COLORS: Record<string, string> = {
-  character: "#4e9af1",
-  location: "#52c41a",
-  object: "#fa8c16",
-  faction: "#9254de",
+  character: "#60a5fa", // blue-text
+  location: "#34d399", // green-text
+  object: "#fbbf24", // amber-text
+  faction: "#c084fc", // accent-text
 };
-const CUSTOM_COLOR = "#13c2c2";
+const CUSTOM_COLOR = "#22d3ee"; // bright cyan
 
 function nodeColor(entityType: string): string {
   return TYPE_COLORS[entityType] ?? CUSTOM_COLOR;
@@ -80,8 +83,8 @@ export default function EntityGraph() {
         arrows: e.edge_kind === "relationship" ? "to" : undefined,
         dashes: e.edge_kind !== "relationship",
         color: e.edge_kind === "relationship"
-          ? { color: "#4e9af1", opacity: 1 }
-          : { color: "#666", opacity: 0.7 },
+          ? { color: "#60a5fa", opacity: 1 }
+          : { color: "#8c89a6", opacity: 0.9 },
         width: e.edge_kind === "relationship" ? 2 : 1,
       }))
     );
@@ -91,9 +94,16 @@ export default function EntityGraph() {
       { nodes, edges },
       {
         physics: { stabilization: { iterations: 200 } },
-        nodes: { shape: "dot", size: 16, font: { size: 14 } },
+        nodes: {
+          shape: "dot",
+          size: 16,
+          borderWidth: 2,
+          // Light label text with a dark halo so names stay readable (AAA,
+          // ~13:1 on the canvas) even when they overlap bright nodes/edges.
+          font: { size: 14, color: "#e2ddef", strokeWidth: 3, strokeColor: "#0b0d14" },
+        },
         edges: {
-          font: { size: 11, align: "middle" },
+          font: { size: 11, align: "middle", color: "#e2ddef", strokeWidth: 3, strokeColor: "#0b0d14" },
           smooth: { enabled: true, type: "continuous", roundness: 0.5 },
         },
       }
@@ -154,9 +164,9 @@ export default function EntityGraph() {
       )}
       {data.edges.length > 0 ? (
         <>
-          <p className="muted">Double-click a node to open · Hover for description</p>
-          <div ref={containerRef} style={{ height: 600, border: "1px solid #ddd" }} />
-          <p className="muted">{data.nodes.length} nodes · {data.edges.length} edges</p>
+          <p className="graph-caption">Double-click a node to open · Hover for description</p>
+          <div ref={containerRef} className="graph-container" />
+          <p className="graph-caption">{data.nodes.length} nodes · {data.edges.length} edges</p>
         </>
       ) : (
         <p>No relationships yet. Process some chapters to populate the graph.</p>
