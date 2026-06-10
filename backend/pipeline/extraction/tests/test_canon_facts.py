@@ -61,3 +61,25 @@ def test_merge_extractions_dedupes_canon_by_subject_predicate_keeping_confidence
     facts = {(f["subject_name"].lower(), f["predicate"]): f for f in merged["canon_facts"]}
     assert len(facts) == 2
     assert facts[("jake", "eye_color")]["value"] == "emerald green"  # higher confidence wins
+
+
+from pipeline.extraction.canonicalizer import collect_names_by_type, _apply_rename_map
+
+
+def test_canon_subjects_collected_and_renamed():
+    extracted = {
+        "canon_facts": [
+            {"subject_name": "Jane", "subject_type": "character", "predicate": "eye_color", "value": "blue"},
+            {"subject_name": "Netherfield", "subject_type": "location", "predicate": "region", "value": "north"},
+        ],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert "Jane" in by_type["character"]
+    assert "Netherfield" in by_type["location"]
+
+    renamed = _apply_rename_map(
+        extracted,
+        {"character": {"jane": "Jane Bennet"}, "location": {"netherfield": "Netherfield Park"}},
+    )
+    assert renamed["canon_facts"][0]["subject_name"] == "Jane Bennet"
+    assert renamed["canon_facts"][1]["subject_name"] == "Netherfield Park"

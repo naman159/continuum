@@ -273,6 +273,12 @@ def _apply_rename_map(
             learning.get("shared_with_character_names"), char_map
         )
 
+    for fact in data.get("canon_facts", []) or []:
+        if not isinstance(fact, dict):
+            continue
+        subject_type = str(fact.get("subject_type", "")).strip().lower()
+        fact["subject_name"] = _r(str(fact.get("subject_name", "")), rename_map.get(subject_type, {}))
+
     # Custom entities: rename per their own type map, then dedupe by (type, name).
     custom_entities = data.get("custom_entities")
     if isinstance(custom_entities, list):
@@ -712,6 +718,13 @@ def collect_names_by_type(extracted: dict[str, Any]) -> dict[str, set[str]]:
         _add_name(str(learning.get("source_character_name") or ""), "character", result)
         for n in learning.get("shared_with_character_names", []) or []:
             _add_name(str(n), "character", result)
+
+    for fact in extracted.get("canon_facts", []) or []:
+        if not isinstance(fact, dict):
+            continue
+        subject_type = str(fact.get("subject_type", "")).strip().lower()
+        if subject_type in result:
+            _add_name(str(fact.get("subject_name", "")), subject_type, result)
 
     for item in extracted.get("custom_entities", []) or []:
         if not isinstance(item, dict):
