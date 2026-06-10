@@ -377,3 +377,8 @@ class CanonFactCreate(BaseModel):
 class EntityMergeRequest(BaseModel):
     source_entity_id: UUID
     target_entity_id: UUID
+
+
+class GenerateRequest(BaseModel):
+    number: int
+    ingest: bool = False
