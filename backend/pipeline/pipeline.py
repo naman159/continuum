@@ -260,6 +260,9 @@ def process_chapter(
         if progress is not None:
             progress.on_pass_done("intra_dedup")
 
+        # Canonicalizer alias writes are intentionally OUTSIDE the transaction
+        # below: they're additive metadata, harmless if persistence later fails,
+        # and re-processing resolves onto them.
         if progress is not None:
             progress.on_pass_start("canonicalization")
         canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
@@ -271,6 +274,8 @@ def process_chapter(
             progress.on_pass_done("canonicalization")
 
         # ---- everything below is one transaction ----
+        # The session pins one pooled connection across the embedding network
+        # calls below; bounded today by jobs.py max_workers=2 vs pool max_size=5.
         with client.session() as s:
             if replace:
                 delete_chapter_data(s, novel_id=novel_id, chapter_number=chapter_number)
