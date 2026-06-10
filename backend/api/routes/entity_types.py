@@ -5,7 +5,14 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 
 from api import queries
-from api.schemas import NovelEntityType, CustomEntitySummary, CustomEntityDetail
+from api.schemas import (
+    CustomEntityDetail,
+    CustomEntitySummary,
+    EntityMergeRequest,
+    NovelEntityType,
+)
+from pipeline.db.client import DBClient
+from pipeline.db.entity_merge import EntityMergeError, merge_entities
 from pipeline.extraction.presets import list_genres
 
 router = APIRouter(tags=["entity_types"])
@@ -40,3 +47,25 @@ def get_custom_entity(novel_id: UUID, entity_id: UUID) -> CustomEntityDetail:
     if row is None:
         raise HTTPException(status_code=404, detail="Entity not found")
     return CustomEntityDetail(**row)
+
+
+def _merge_db() -> DBClient:
+    """Separate factory so tests can stub the merge connection."""
+    return DBClient()
+
+
+@router.post("/api/novels/{novel_id}/entities/merge")
+def merge_novel_entities(novel_id: UUID, body: EntityMergeRequest) -> dict:
+    db = _merge_db()
+    try:
+        return merge_entities(
+            db,
+            novel_id=str(novel_id),
+            source_entity_id=str(body.source_entity_id),
+            target_entity_id=str(body.target_entity_id),
+        )
+    except EntityMergeError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    finally:
+        if hasattr(db, "close"):
+            db.close()
