@@ -93,9 +93,36 @@ def merge_entities(
         src, tgt = str(source["id"]), str(target["id"])
 
         # ---- entity-level references (apply to every type) ----
+        # A pre-existing src<->tgt relationship would become a self-pair during
+        # the repoint and trip CHECK (entity_a_id <> entity_b_id) at UPDATE
+        # time — remove those rows first.
+        cur.execute(
+            """
+            DELETE FROM relationships
+             WHERE (entity_a_id = %s AND entity_b_id = %s)
+                OR (entity_a_id = %s AND entity_b_id = %s)
+            """,
+            (src, tgt, tgt, src),
+        )
         cur.execute("UPDATE relationships SET entity_a_id = %s WHERE entity_a_id = %s", (tgt, src))
         cur.execute("UPDATE relationships SET entity_b_id = %s WHERE entity_b_id = %s", (tgt, src))
-        cur.execute("DELETE FROM relationships WHERE entity_a_id = entity_b_id", None)
+        # Repointing can leave duplicate (pair, rel_type) edges (one originally
+        # tgt<->X, one src<->X). Keep the oldest, drop the rest, matching the
+        # persist-time dedupe invariant.
+        cur.execute(
+            """
+            DELETE FROM relationships a
+             USING relationships b
+             WHERE a.id <> b.id
+               AND a.rel_type IS NOT DISTINCT FROM b.rel_type
+               AND LEAST(a.entity_a_id::text, a.entity_b_id::text) = LEAST(b.entity_a_id::text, b.entity_b_id::text)
+               AND GREATEST(a.entity_a_id::text, a.entity_b_id::text) = GREATEST(b.entity_a_id::text, b.entity_b_id::text)
+               AND (a.entity_a_id = %s OR a.entity_b_id = %s)
+               AND (b.entity_a_id = %s OR b.entity_b_id = %s)
+               AND a.created_at > b.created_at
+            """,
+            (tgt, tgt, tgt, tgt),
+        )
 
         # shared_dynamics: UNIQUE(a, b, chapter) — handle collisions row by row.
         cur.execute(
@@ -126,6 +153,21 @@ def merge_entities(
                 )
 
         # canon_facts: drop source facts whose predicate the target already has.
+        # knows_edges.fact_id references canon_facts with NO ACTION; repoint
+        # edges from soon-to-be-deleted source facts to the target's
+        # same-predicate twin before the collision delete below.
+        cur.execute(
+            """
+            UPDATE knows_edges k
+               SET fact_id = t.id
+              FROM canon_facts s
+              JOIN canon_facts t
+                ON t.subject_entity_id = %s AND t.predicate = s.predicate
+             WHERE s.subject_entity_id = %s
+               AND k.fact_id = s.id
+            """,
+            (tgt, src),
+        )
         cur.execute(
             """
             DELETE FROM canon_facts s

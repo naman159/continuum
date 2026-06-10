@@ -114,7 +114,7 @@ def test_character_merge_repoints_and_deletes_source():
 
     sql = [q for q, _ in db.statements]
     assert any("UPDATE relationships" in q and "entity_a_id" in q for q in sql)
-    assert any("DELETE FROM relationships" in q and "entity_a_id = entity_b_id" in q for q in sql)
+    assert any("DELETE FROM relationships" in q and "entity_b_id = %s" in q for q in sql)
     assert any("UPDATE character_states" in q for q in sql)
     assert any("UPDATE knows_edges" in q for q in sql)
     assert any("involved_characters" in q for q in sql)
@@ -122,3 +122,36 @@ def test_character_merge_repoints_and_deletes_source():
     assert any("DELETE FROM characters WHERE id" in q for q in sql)
     assert any("DELETE FROM entities WHERE id" in q for q in sql)
     assert result["source_entity_id"] == SRC
+
+
+def test_src_tgt_relationship_deleted_before_repoint():
+    """A pre-existing src<->tgt edge must be deleted BEFORE the UPDATEs, or the
+    CHECK (entity_a_id <> entity_b_id) constraint aborts the transaction."""
+    db = _db_for_character_merge()
+    calls = {"n": 0}
+    orig = db.script_response
+
+    def script(query, params):
+        if "FROM entities WHERE id" in query:
+            calls["n"] += 1
+            return [{"id": params[0], "entity_type": "character",
+                     "name": "Jane" if calls["n"] == 1 else "Jane Bennet",
+                     "aliases": []}]
+        if "FROM characters WHERE entity_id" in query:
+            typed = SRC_TYPED if str(params[0]) == SRC else TGT_TYPED
+            return [{"id": typed, "name": "x", "aliases": []}]
+        return orig(query, params)
+
+    db.script_response = script
+    merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+
+    sql = [q for q, _ in db.statements]
+    pair_delete_idx = next(
+        i for i, q in enumerate(sql)
+        if "DELETE FROM relationships" in q and "entity_b_id = %s" in q
+    )
+    first_update_idx = next(i for i, q in enumerate(sql) if "UPDATE relationships" in q)
+    assert pair_delete_idx < first_update_idx
+    # post-repoint pair dedupe + knows_edges fact repoint present
+    assert any("GREATEST" in q and "DELETE FROM relationships" in q for q in sql)
+    assert any("UPDATE knows_edges" in q and "fact_id = t.id" in q for q in sql)
