@@ -382,6 +382,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>novel-wiki-commitments</code></td><td><code>cli.commitments:main</code></td><td>Query foreshadow/payoff commitments <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>novel-wiki-canon</code></td><td><code>cli.canon:main</code></td><td>Query canon facts <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>novel-wiki-knowledge</code></td><td><code>cli.knowledge:main</code></td><td>Query knows_edges <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>novel-wiki-merge-entity</code></td><td><code>cli.merge:main</code></td><td>Merge a duplicate entity into its canonical twin (<code>--novel-id --source --target</code>, universal entity ids)</td></tr>
         <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
       </tbody>
     </table>
@@ -1260,6 +1261,11 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{novel_id}/custom-entities/{entity_id}</code></td>
           <td>Get detail for a single custom entity. Returns <code>CustomEntityDetail</code> — id, name, entity_type, description, relationships[].</td>
+        </tr>
+        <tr>
+          <td><span class="badge blue">POST</span></td>
+          <td><code>/api/novels/{novel_id}/entities/merge</code></td>
+          <td>Merge a duplicate entity into its canonical twin. Body: <code>{"source_entity_id": uuid, "target_entity_id": uuid}</code> (universal entity ids, same entity_type). Repoints every reference in one transaction, absorbs the source's name+aliases as target aliases, deletes the source. 400 on same-id/type-mismatch/missing entity.</td>
         </tr>
       </tbody>
     </table>

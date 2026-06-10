@@ -764,6 +764,23 @@ flowchart TD
       The resolver maintains an <strong>in-memory cache per pipeline run</strong> — so the second time
       "Jane Bennet" appears in the same chapter, it skips the DB lookup.
     </p>
+
+    <h3>Relationship dedupe &amp; repair</h3>
+    <p>
+      Persisting a relationship first checks for an existing <em>active</em> edge with the same
+      unordered entity pair and rel_type (<code>superseded_by_id IS NULL</code>) and skips the insert
+      when found — so "Jake–Sara: rival" re-extracted in ten chapters stays one edge. Different
+      rel_types between the same pair coexist by design.
+    </p>
+    <p>
+      <strong>Repair: entity merge.</strong> When dedup gets it wrong, <code>merge_entities</code>
+      (<code>pipeline/db/entity_merge.py</code>) merges a duplicate entity into its canonical twin in
+      one transaction: every reference is repointed (relationships, dynamics, canon facts, commitments,
+      events arrays, states, scenes, knowledge and possession edges), the source's name and aliases
+      become aliases of the target (so old references keep resolving), and the source rows are deleted.
+      Exposed as <code>POST /api/novels/{id}/entities/merge</code> and the
+      <code>novel-wiki-merge-entity</code> CLI.
+    </p>
   </section>
 
 
