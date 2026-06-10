@@ -185,3 +185,14 @@ def test_persist_skips_unknown_subject_type():
         facts=[bad], resolver=FakeResolver(),
     )
     assert counts["skipped"] == 1
+
+
+def test_persist_never_downgrades_confidence_on_same_value():
+    db = CanonFakeDB(existing={"id": "f1", "value": "green", "locked": False, "confidence": 0.9})
+    weak = dict(FACT, confidence=0.3)  # same value "green", weaker confidence
+    counts = persist_canon_facts(
+        db, novel_id="n1", chapter_id="ch1", chapter_number=3,
+        facts=[weak], resolver=FakeResolver(),
+    )
+    assert counts["skipped"] == 1
+    assert not any("UPDATE canon_facts" in q for q, _ in db.calls)
