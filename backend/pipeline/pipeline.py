@@ -486,6 +486,23 @@ def _persist_extraction(
             continue
         a_universal = resolver.resolve_any_entity(a_name)
         b_universal = resolver.resolve_any_entity(b_name)
+        # Identical active relationship already recorded -> don't re-insert.
+        # Different rel_types between the same pair coexist by design.
+        duplicate = db.fetchone(
+            """
+            SELECT id FROM relationships
+             WHERE rel_type IS NOT DISTINCT FROM %s
+               AND superseded_by_id IS NULL
+               AND (
+                     (entity_a_id = %s AND entity_b_id = %s)
+                  OR (entity_a_id = %s AND entity_b_id = %s)
+               )
+             LIMIT 1
+            """,
+            (rel.get("rel_type"), a_universal, b_universal, b_universal, a_universal),
+        )
+        if duplicate:
+            continue
         db.execute(
             """
             INSERT INTO relationships (
