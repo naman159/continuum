@@ -26,6 +26,7 @@ from pipeline.extraction.persist_extras import (
     persist_scenes,
 )
 from pipeline.extraction.resolver import EntityResolver
+from pipeline.generation.style import compute_style_fingerprint
 from pipeline.ingestion.ingest import delete_chapter_data, ingest_chapter
 
 logger = logging.getLogger(__name__)
@@ -338,6 +339,10 @@ def process_chapter(
                 WHERE id = %s
                 """,
                 (extracted.get("summary", ""), chapter_id),
+            )
+            s.execute(
+                "UPDATE chapters SET style_fingerprint = %s::jsonb WHERE id = %s",
+                (json.dumps(compute_style_fingerprint(raw_text)), chapter_id),
             )
 
             persist_multi_summaries(
