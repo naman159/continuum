@@ -228,6 +228,13 @@ ALTER TABLE relationships ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFEREN
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS evidence_event_ids UUID[] DEFAULT '{}';
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
 
+-- ---- Ingestion provenance + replayability ----
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'human';
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS generation_meta JSONB;
+-- relationships become traceable to the chapter that asserted them, and are
+-- cascade-deleted when that chapter is replaced.
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS chapter_id UUID REFERENCES chapters(id) ON DELETE CASCADE;
+
 -- ---- Scene-level segmentation ----
 CREATE TABLE IF NOT EXISTS scenes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
