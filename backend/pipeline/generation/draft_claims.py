@@ -71,8 +71,9 @@ def extract_draft_claims(
             content = "".join(str(p) for p in content)
         data = json.loads(str(content))
     except Exception as exc:
-        logger.warning("draft_claims: extraction failed: %s", exc)
-        return {k: [] for k in _EMPTY}
+        # Empty claims would make the critic pass vacuously and let an
+        # unchecked draft through the ingest gate — fail loudly instead.
+        raise RuntimeError(f"draft_claims: extraction failed: {exc}") from exc
     return {k: data.get(k) if isinstance(data.get(k), list) else [] for k in _EMPTY}
 
 
