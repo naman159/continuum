@@ -1544,6 +1544,11 @@ def list_canon_facts(novel_id: UUID, locked_only: bool) -> list[dict[str, Any]]:
 def update_canon_fact(
     novel_id: UUID, fact_id: UUID, *, locked: bool | None, value: str | None
 ) -> bool:
+    """Patch a canon fact's lock state and/or value in one atomic statement.
+
+    value edits reset confidence to 1.0 (manual entry is authoritative).
+    Returns False when the fact doesn't exist in this novel.
+    """
     db = _get_db()
     existing = db.fetchone(
         "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
@@ -1552,16 +1557,16 @@ def update_canon_fact(
     )
     if existing is None:
         return False
-    if locked is not None:
-        db.execute(
-            "UPDATE canon_facts SET locked = %s WHERE id = %s AND novel_id = %s",
-            (locked, str(fact_id), str(novel_id)),
-        )
-    if value is not None:
-        db.execute(
-            "UPDATE canon_facts SET value = %s, confidence = 1.0 WHERE id = %s AND novel_id = %s",
-            (value, str(fact_id), str(novel_id)),
-        )
+    db.execute(
+        """
+        UPDATE canon_facts
+           SET locked = COALESCE(%s, locked),
+               value = COALESCE(%s, value),
+               confidence = CASE WHEN %s::text IS NULL THEN confidence ELSE 1.0 END
+         WHERE id = %s AND novel_id = %s
+        """,
+        (locked, value, value, str(fact_id), str(novel_id)),
+    )
     return True
 
 
@@ -1574,6 +1579,11 @@ def create_canon_fact(
     kind: str = "other",
     locked: bool = False,
 ) -> dict[str, Any] | None:
+    """Upsert a canon fact; on conflict OVERWRITES value/locked/confidence.
+
+    Manual entry is authoritative — unlike the pipeline's ON CONFLICT DO
+    NOTHING, an admin create deliberately replaces what extraction stored.
+    """
     db = _get_db()
     row = db.fetchone(
         """
