@@ -42,6 +42,7 @@ def empty_extraction() -> dict[str, Any]:
         "foreshadows_introduced": [],
         "payoffs_delivered": [],
         "custom_entities": [],
+        "canon_facts": [],
     }
 
 
@@ -158,6 +159,16 @@ def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
         output["custom_entities"] = [
             item for item in custom_entities
             if isinstance(item, dict) and item.get("name") and item.get("type")
+        ]
+
+    canon_facts = raw.get("canon_facts", [])
+    if isinstance(canon_facts, list):
+        output["canon_facts"] = [
+            item for item in canon_facts
+            if isinstance(item, dict)
+            and str(item.get("subject_name", "")).strip()
+            and str(item.get("predicate", "")).strip()
+            and str(item.get("value", "")).strip()
         ]
 
     return output
@@ -359,6 +370,33 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             seen_custom.add(key)
             merged["custom_entities"].append(ce)
 
+    # Canon facts: dedupe by (subject, predicate); highest confidence wins.
+    best_canon: dict[tuple[str, str], dict[str, Any]] = {}
+    for extraction in extractions:
+        for fact in extraction.get("canon_facts", []):
+            if not isinstance(fact, dict):
+                continue
+            subj = str(fact.get("subject_name", "")).strip().lower()
+            pred = str(fact.get("predicate", "")).strip().lower()
+            if not subj or not pred:
+                continue
+            key = (subj, pred)
+            current = best_canon.get(key)
+            try:
+                new_conf = float(fact.get("confidence") or 0.0)
+            except (ValueError, TypeError):
+                new_conf = 0.0
+            if current is None:
+                best_canon[key] = fact
+            else:
+                try:
+                    cur_conf = float(current.get("confidence") or 0.0)
+                except (ValueError, TypeError):
+                    cur_conf = 0.0
+                if new_conf > cur_conf:
+                    best_canon[key] = fact
+    merged["canon_facts"] = list(best_canon.values())
+
     return merged
 
 
@@ -453,6 +491,7 @@ class ChapterExtractor:
         multi_summaries = pass_payload.get("multi_granularity_summaries", {})
         knowledge_state = pass_payload.get("knowledge_state_deltas", {})
         commitments = pass_payload.get("commitments", {})
+        canon = pass_payload.get("canon_facts", {})
 
         return {
             "summary": chapter_summary.get("summary", ""),
@@ -471,6 +510,7 @@ class ChapterExtractor:
             "foreshadows_introduced": commitments.get("foreshadows_introduced", []),
             "payoffs_delivered": commitments.get("payoffs_delivered", []),
             "custom_entities": new_entities.get("custom_entities", []),
+            "canon_facts": canon.get("canon_facts", []),
         }
 
     def _mock_extract(self, chunk: str, context: dict[str, Any]) -> dict[str, Any]:
