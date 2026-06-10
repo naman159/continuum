@@ -11,6 +11,9 @@ def run() -> None:
             "ALTER TABLE relationships ADD COLUMN IF NOT EXISTS chapter_id "
             "UUID REFERENCES chapters(id) ON DELETE CASCADE"
         )
+        db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_relationships_chapter ON relationships(chapter_id)"
+        )
     print("Migration complete: chapters.source/generation_meta + relationships.chapter_id added.")
 
 
