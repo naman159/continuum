@@ -163,6 +163,7 @@
   <a href="#resolver">EntityResolver</a>
   <a href="#embeddings">EmbeddingService</a>
   <a href="#persist-extras">persist_extras</a>
+  <a href="#db-client">DBClient / DBSession</a>
 
   <div class="sidebar-section">Database Schema</div>
   <a href="#schema-novels">novels</a>
@@ -723,6 +724,54 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
 
+  <!-- ══════════ DB CLIENT ══════════ -->
+
+  <section id="db-client">
+    <h2>DBClient / DBSession</h2>
+    <p>
+      Lives in <code>backend/pipeline/db/client.py</code>. Wraps a <code>psycopg_pool.ConnectionPool</code>
+      and exposes a small query API (<code>execute</code>, <code>fetchone</code>, <code>fetchall</code>,
+      <code>fetchval</code>, <code>execute_many</code>). Used as a context manager
+      (<code>with DBClient() as db:</code>) — <code>__exit__</code> closes the pool.
+    </p>
+
+    <h3>DBClient.session()</h3>
+    <div class="method-sig">
+      <span class="fn-name">DBClient.session</span>() <span class="ret">→ contextmanager[DBSession]</span>
+    </div>
+    <p>
+      Yields a <code>DBSession</code> bound to one pooled connection. All statements issued through the
+      session run on that single connection and therefore inside one implicit transaction.
+      On a clean exit the connection is <strong>committed</strong>; on any exception it is
+      <strong>rolled back</strong> and the exception is re-raised.
+    </p>
+    <p>
+      <code>process_chapter()</code> uses <code>session()</code> for its entire persistence phase — every
+      write (ingest, entities, events, relationships, summaries, scenes, knows-edges, commitments) is
+      atomic. The LLM extraction and canonicalization phases run <em>outside</em> the transaction.
+    </p>
+
+    <h3>DBSession</h3>
+    <p>
+      A thin wrapper around a single <code>psycopg</code> connection. Exposes the same query methods as
+      <code>DBClient</code> (<code>execute</code>, <code>fetchone</code>, <code>fetchall</code>,
+      <code>fetchval</code>). The <code>commit=</code> keyword argument accepted by those methods is
+      silently ignored — commit/rollback ownership stays with the enclosing
+      <code>DBClient.session()</code> context manager. This means existing persistence helpers work
+      unchanged whether they receive a <code>DBClient</code> or a <code>DBSession</code>.
+    </p>
+
+    <div class="callout info">
+      <strong>Usage pattern:</strong>
+      <pre style="margin: 6px 0 0 0; background: none; padding: 0;"><code>with DBClient() as db:
+    with db.session() as s:
+        helper_a(s, ...)   # same connection
+        helper_b(s, ...)   # same connection, same transaction
+# committed if no exception, rolled back otherwise</code></pre>
+    </div>
+  </section>
+
+
   <!-- ══════════ SCHEMA TABLES ══════════ -->
 
   <section id="schema-novels">
@@ -751,6 +800,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   style_fingerprint <span class="sql-type">TEXT</span>,                                     <span class="sql-comment">-- author's voice notes</span>
   embedding       <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,                    <span class="sql-comment">-- pgvector</span>
   processed_at    <span class="sql-type">TIMESTAMPTZ</span>,
+  source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'generated' | ...</span>
+  generation_meta <span class="sql-type">JSONB</span>,                                        <span class="sql-comment">-- arbitrary metadata (model, temperature, etc.)</span>
   created_at      <span class="sql-type">TIMESTAMPTZ</span>  <span class="sql-constraint">NOT NULL DEFAULT</span> now(),
   <span class="sql-constraint">UNIQUE</span>(novel_id, number)
 );</code></pre>
@@ -759,6 +810,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       from config at init-db time.
       The <code>summary</code> / <code>summary_short</code> / <code>summary_long</code> fields support
       three different granularities for different UI use cases.
+      <code>source</code> stores provenance (<code>"human"</code> for user-supplied text, <code>"generated"</code>
+      for LLM-authored text, or any custom tag); <code>generation_meta</code> stores arbitrary JSON (e.g. model
+      name, temperature) and is <code>NULL</code> for human-sourced chapters.
     </p>
   </section>
 
