@@ -600,7 +600,7 @@ graph LR
     </ol>
 
     <div class="callout warn">
-      <strong>Note on idempotency:</strong> Processing the same chapter twice is not safe — ingest rejects duplicate chapter numbers, but the later persistence steps don't check for duplicates. Don't call <code>process_chapter()</code> twice on the same chapter.
+      <strong>Note on idempotency:</strong> Re-processing a chapter requires passing <code>replace=True</code> (API: <code>"replace": true</code> in the <code>ProcessRequest</code> body). Without it, ingest rejects duplicate chapter numbers. With <code>replace=True</code>, all previously extracted data for that chapter is deleted before re-processing.
     </div>
   </section>
 
