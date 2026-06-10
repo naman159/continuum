@@ -712,7 +712,7 @@ graph LR
     </table>
 
     <div class="callout info">
-      <strong>Persistence via persist_extras.py:</strong> Passes 9–13 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers in <code>persist_extras.py</code> (<code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_multi_summaries()</code>, <code>persist_canon_facts()</code>), which handle the extra logic needed for those tables (embedding, entity linking, deduplication). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>: if the existing row is <strong>locked</strong>, the incoming value is not overwritten — instead a <code>continuity_flag</code> of type <code>canon_contradiction</code> is raised.
+      <strong>Persistence via persist_extras.py and persist_canon.py:</strong> Passes 9–13 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers: <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, and <code>persist_multi_summaries()</code> in <code>persist_extras.py</code>, and <code>persist_canon_facts()</code> in <code>persist_canon.py</code>. These handle the extra logic needed for those tables (embedding, entity linking, deduplication). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>: if the existing row is <strong>locked</strong>, the incoming value is not overwritten — instead a <code>continuity_flag</code> of type <code>canon_contradiction</code> is raised.
     </div>
 
     <div class="callout tip">

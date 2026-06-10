@@ -56,7 +56,8 @@ def delete_chapter_data(db: DBClient, *, novel_id: str, chapter_number: int) -> 
     rows with a non-NULL chapter_id. Tables keyed by chapter *number* instead
     of a FK need explicit handling. Known non-undoable residue: plot_threads
     upserts and entity rows created by this chapter remain — re-processing
-    resolves back onto them.
+    resolves back onto them. canon_facts updates from the prior run also persist
+    (keyed by source_chapter int, no FK).
 
     located_in_edges/possesses_edges evidence pointers into this chapter are
     NULLed (their rows are projections; materialize_state rebuilds them).
