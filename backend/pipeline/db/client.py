@@ -60,6 +60,18 @@ class DBClient:
             finally:
                 cur.close()
 
+    @contextmanager
+    def session(self):
+        """Yield a DBSession bound to one connection; commit on success,
+        roll back on exception."""
+        with self._pool.connection() as conn:
+            try:
+                yield DBSession(conn)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
     def execute(self, query: str, params: Sequence[Any] | None = None) -> None:
         with self.cursor(commit=True) as cur:
             cur.execute(query, params)
@@ -106,4 +118,56 @@ class DBClient:
         self._pool.close()
 
 
-__all__ = ["DBClient"]
+class DBSession:
+    """Single-connection view of the DBClient query API.
+
+    Every statement issued through a session runs on one pooled connection and
+    therefore inside one transaction; commit/rollback is owned by
+    ``DBClient.session()``. The ``commit`` kwargs accepted by DBClient methods
+    are accepted here and ignored so existing persistence helpers work
+    unchanged when handed a session instead of a client.
+    """
+
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def execute(self, query: str, params: Sequence[Any] | None = None) -> None:
+        with self._conn.cursor() as cur:
+            cur.execute(query, params)
+
+    def fetchone(
+        self,
+        query: str,
+        params: Sequence[Any] | None = None,
+        *,
+        dict_rows: bool = False,
+        commit: bool = False,
+    ) -> Any:
+        factory = dict_row if dict_rows else None
+        with self._conn.cursor(row_factory=factory) as cur:
+            cur.execute(query, params)
+            return cur.fetchone()
+
+    def fetchall(
+        self,
+        query: str,
+        params: Sequence[Any] | None = None,
+        *,
+        dict_rows: bool = False,
+        commit: bool = False,
+    ) -> list[Any]:
+        factory = dict_row if dict_rows else None
+        with self._conn.cursor(row_factory=factory) as cur:
+            cur.execute(query, params)
+            return list(cur.fetchall())
+
+    def fetchval(
+        self, query: str, params: Sequence[Any] | None = None, *, commit: bool = False
+    ) -> Any:
+        row = self.fetchone(query, params)
+        if row is None:
+            return None
+        return row[0]
+
+
+__all__ = ["DBClient", "DBSession"]
