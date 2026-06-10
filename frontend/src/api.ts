@@ -410,4 +410,13 @@ export const api = {
     fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
   customEntity: (novelId: string, entityId: string) =>
     fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
+  generateChapter: async (novelId: string, number: number, ingest: boolean) => {
+    const res = await fetch(`/api/novels/${novelId}/chapters/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ number, ingest }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ job_id: string }>;
+  },
 };
