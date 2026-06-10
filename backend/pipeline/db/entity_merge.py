@@ -119,7 +119,8 @@ def merge_entities(
                AND GREATEST(a.entity_a_id::text, a.entity_b_id::text) = GREATEST(b.entity_a_id::text, b.entity_b_id::text)
                AND (a.entity_a_id = %s OR a.entity_b_id = %s)
                AND (b.entity_a_id = %s OR b.entity_b_id = %s)
-               AND a.created_at > b.created_at
+               AND (a.created_at > b.created_at
+                    OR (a.created_at = b.created_at AND a.id::text > b.id::text))
             """,
             (tgt, tgt, tgt, tgt),
         )
