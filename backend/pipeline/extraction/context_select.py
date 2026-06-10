@@ -8,6 +8,7 @@ Pure function — DB access stays in load_story_context.
 """
 
 import re
+import unicodedata
 from typing import Any
 
 from pipeline.extraction.canonicalizer import normalize_name
@@ -44,7 +45,11 @@ def select_context_entities(
     if cap <= 0 or len(roster) <= cap:
         return list(roster)
 
-    text_lower = (chapter_text or "").lower()
+    # Normalize the text the same way normalize_name treats roster names
+    # (NFKC + curly->straight apostrophes), so e.g. "D'Arcy" in epub text
+    # matches the roster's "D'Arcy".
+    text_lower = unicodedata.normalize("NFKC", chapter_text or "")
+    text_lower = text_lower.replace("‘", "'").replace("’", "'").lower()
     mentioned = [e for e in roster if _mentioned(text_lower, e)]
     if len(mentioned) >= cap:
         return mentioned[:cap]
