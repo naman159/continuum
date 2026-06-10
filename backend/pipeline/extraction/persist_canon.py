@@ -104,7 +104,7 @@ def persist_canon_facts(
                 counts["contradictions"] += 1
             continue
 
-        if same_value or confidence >= float(existing.get("confidence") or 0.0):
+        if confidence >= float(existing.get("confidence") or 0.0):
             db.execute(
                 """
                 UPDATE canon_facts
@@ -115,6 +115,8 @@ def persist_canon_facts(
             )
             counts["updated"] += 1
         else:
+            # Never weaken an existing record: lower-confidence re-statements
+            # (same or different value) are dropped.
             counts["skipped"] += 1
     return counts
 
