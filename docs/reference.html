@@ -1334,7 +1334,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels/{id}/chapters/process</code></td>
-          <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "..."}</code>. Returns <code>{"job_id": "..."}</code></td>
+          <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "...", "replace": false}</code>. Pass <code>"replace": true</code> to delete previously extracted data before re-processing. Returns <code>{"job_id": "..."}</code></td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>

@@ -40,6 +40,7 @@ def test_submit_job_returns_202_with_job_id():
         novel_id=novel_id,
         chapter_number=2,
         text="Chapter text here.",
+        replace=False,
     )
 
 
@@ -84,3 +85,23 @@ def test_get_job_404_for_unknown():
     with patch("api.routes.process.get_job", return_value=None):
         response = client.get("/api/jobs/unknown")
     assert response.status_code == 404
+
+
+def test_process_accepts_replace_flag(monkeypatch):
+    from api.tests.conftest import make_novel
+
+    novel = make_novel()
+    captured: dict = {}
+
+    def fake_submit(**kwargs):
+        captured.update(kwargs)
+        return "job-123"
+
+    monkeypatch.setattr("api.routes.process.submit_job", fake_submit)
+    with patch("api.routes.process.queries.get_novel", return_value=novel):
+        response = client.post(
+            f"/api/novels/{novel['id']}/chapters/process",
+            json={"number": 2, "text": "chapter text", "replace": True},
+        )
+    assert response.status_code == 202
+    assert captured["replace"] is True

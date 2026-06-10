@@ -215,6 +215,7 @@ class EntityGraph(BaseModel):
 class ProcessRequest(BaseModel):
     number: int
     text: str
+    replace: bool = False
 
 
 class JobStatusResponse(BaseModel):
