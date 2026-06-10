@@ -17,6 +17,7 @@ PASS_ORDER = [
     "multi_granularity_summaries",
     "knowledge_state_deltas",
     "commitments",
+    "canon_facts",
 ]
 
 
@@ -163,6 +164,19 @@ PASS_SCHEMAS = {
                 "matches_foreshadow": "string (text of the original foreshadow if identifiable, else empty)",
             }
         ],
+    },
+    "canon_facts": {
+        "canon_facts": [
+            {
+                "subject_name": "string  # entity the fact is about, exactly as named in the chapter",
+                "subject_type": "character|location|object|faction",
+                "predicate": "string  # stable snake_case key, e.g. eye_color, home_town, weapon, title, sibling_of",
+                "value": "string  # the fact's value, concise",
+                "kind": "physical|relational|world_rule|backstory|other",
+                "confidence": "number 0.0-1.0",
+                "quote": "string  # verbatim supporting sentence from the chapter",
+            }
+        ]
     },
 }
 
@@ -344,6 +358,27 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
             it satisfies, if identifiable; empty string otherwise.
 
         Be conservative. Do not flag everyday descriptions. Return JSON only.
+        """
+    ).strip(),
+    "canon_facts": dedent(
+        """
+        Extract DURABLE, objective facts that future chapters must not
+        contradict — physical traits (eye_color, hair_color, height), fixed
+        relations (sibling_of, parent_of), origins (home_town, birthplace),
+        possessions with identity (signature weapon), and hard world rules
+        (magic costs, physical laws of the setting).
+
+        Rules:
+        - predicate must be a stable snake_case key; reuse common predicates
+          (eye_color, hair_color, title, home_town, weapon, sibling_of,
+          parent_of, species, age) rather than inventing synonyms.
+        - Only facts explicitly stated or unambiguously shown in this chunk.
+        - SKIP transient state (mood, current location, temporary injuries),
+          opinions, and speculation. Those belong to other passes.
+        - quote must be a verbatim sentence from the chunk supporting the fact.
+        - confidence: 1.0 for directly stated, lower for strongly implied.
+
+        Return JSON only.
         """
     ).strip(),
     "continuity_flags": dedent(
