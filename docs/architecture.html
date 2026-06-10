@@ -333,7 +333,7 @@
 
   <div class="sidebar-section">Core Pipeline</div>
   <a href="#pipeline-overview">Pipeline Overview</a>
-  <a href="#extraction-passes">12 Extraction Passes</a>
+  <a href="#extraction-passes">13 Extraction Passes</a>
   <a href="#entity-resolution">Entity Resolution</a>
   <a href="#chapter-cap">Chapter Cap</a>
 
@@ -393,7 +393,7 @@
       </div>
       <div class="card">
         <h4>Extract</h4>
-        <p>12-pass LLM extraction of entities, events, threads, flags, scenes, dynamics, knowledge, commitments</p>
+        <p>13-pass LLM extraction of entities, events, threads, flags, scenes, dynamics, knowledge, commitments, canon facts</p>
       </div>
       <div class="card">
         <h4>Query</h4>
@@ -476,7 +476,7 @@ graph LR
     C --> D["load_story_context\n(pipeline.py)"]
     D --> E["sliding_window_chunks\n(chunker.py)"]
     E --> F["ChapterExtractor\n(extractor.py)"]
-    F -->|12 passes| G["LLM\n(LiteLLM)"]
+    F -->|13 passes| G["LLM\n(LiteLLM)"]
     G --> F
     F --> H["IntraExtractionDeduplicator\n(canonicalizer.py)"]
     H --> H2["EntityCanonicalizer\n(canonicalizer.py)"]
@@ -512,7 +512,7 @@ graph LR
 │   │   │   ├── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
 │   │   │   └── migrate_*.py      <span class="cmt"># One-shot migration helpers</span>
 │   │   ├── <span class="dir">extraction/</span>
-│   │   │   ├── <span class="key">extractor.py</span>      <span class="cmt"># ChapterExtractor — drives 12 LLM passes</span>
+│   │   │   ├── <span class="key">extractor.py</span>      <span class="cmt"># ChapterExtractor — drives 13 LLM passes</span>
 │   │   │   ├── <span class="key">prompts.py</span>        <span class="cmt"># All prompt templates + JSON schemas</span>
 │   │   │   ├── <span class="key">presets.py</span>        <span class="cmt"># Genre presets for custom entity types</span>
 │   │   │   ├── canonicalizer.py  <span class="cmt"># Intra-extraction dedup + cross-chapter canonicalizer</span>
@@ -574,7 +574,7 @@ graph LR
         <strong>Chunk the text</strong> — <code>sliding_window_chunks()</code> splits the chapter into 2,000-token windows with 200-token overlap using tiktoken (falls back to whitespace split). Each chunk is processed independently.
       </li>
       <li>
-        <strong>LLM extraction (12 passes per chunk)</strong> — <code>ChapterExtractor</code> runs 12 sequential LLM calls per chunk. See <a href="#extraction-passes">Extraction Passes</a> for details.
+        <strong>LLM extraction (13 passes per chunk)</strong> — <code>ChapterExtractor</code> runs 13 sequential LLM calls per chunk. See <a href="#extraction-passes">Extraction Passes</a> for details.
       </li>
       <li>
         <strong>Merge across chunks</strong> — <code>merge_extractions()</code> deduplicates the results from all chunks by name/description (naïve string matching at this stage; objects are keyed by name + owner so same-named items with different owners survive the merge).
@@ -595,7 +595,7 @@ graph LR
         <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for each event description, plus the chapter summary only when no medium summary exists (otherwise <code>persist_multi_summaries()</code> embeds the chapter from <code>summary_medium</code>, so the extra call is skipped).
       </li>
       <li>
-        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code> fill the newer tables added in the SOTA branch.
+        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_canon_facts()</code> fill the newer tables added in the SOTA branch. Canon facts upsert unless locked — a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) rather than an overwrite.
       </li>
     </ol>
 
@@ -613,7 +613,7 @@ graph LR
 
   <!-- EXTRACTION PASSES -->
   <section id="extraction-passes">
-    <h2>12 Extraction Passes</h2>
+    <h2>13 Extraction Passes</h2>
     <p>
       Each pass is a separate LLM call. The schema for what each pass returns is in
       <code>prompts.py → PASS_SCHEMAS</code>. The order matters — later passes can reference entities
@@ -702,11 +702,17 @@ graph LR
           <td>Foreshadow → payoff pairs (Chekhov's guns), trigger predicates, weight</td>
           <td><code>commitments</code></td>
         </tr>
+        <tr>
+          <td><span class="badge blue">13</span></td>
+          <td><code>canon_facts</code></td>
+          <td>Lockable world-facts: kind, subject entity, predicate, value, confidence. Upserts on (novel_id, subject_entity_id, predicate) — skips update if the existing row is locked; a locked fact contradicted by new extraction creates a <code>continuity_flag</code> of type <code>canon_contradiction</code> instead.</td>
+          <td><code>canon_facts</code>, <code>continuity_flags</code></td>
+        </tr>
       </tbody>
     </table>
 
     <div class="callout info">
-      <strong>Persistence via persist_extras.py:</strong> Passes 9–12 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers in <code>persist_extras.py</code> (<code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_multi_summaries()</code>), which handle the extra logic needed for those tables (embedding, entity linking, deduplication).
+      <strong>Persistence via persist_extras.py:</strong> Passes 9–13 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers in <code>persist_extras.py</code> (<code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_multi_summaries()</code>, <code>persist_canon_facts()</code>), which handle the extra logic needed for those tables (embedding, entity linking, deduplication). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>: if the existing row is <strong>locked</strong>, the incoming value is not overwritten — instead a <code>continuity_flag</code> of type <code>canon_contradiction</code> is raised.
     </div>
 
     <div class="callout tip">

@@ -369,6 +369,15 @@ export const api = {
     const qs = params.toString();
     return fetchJson<CanonFactRow[]>(`/api/novels/${novelId}/canon${qs ? `?${qs}` : ""}`);
   },
+  patchCanonFact: async (novelId: string, factId: string, patch: { locked?: boolean; value?: string }) => {
+    const res = await fetch(`/api/novels/${novelId}/canon/${factId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ ok: boolean }>;
+  },
   knows: (novelId: string, cap: number | null, characterId: string | null) => {
     const params = new URLSearchParams();
     if (cap != null) params.set("cap", String(cap));

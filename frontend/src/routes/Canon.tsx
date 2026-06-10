@@ -1,15 +1,24 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 
 export default function Canon() {
   const { novelId } = useParams();
+  const queryClient = useQueryClient();
   const [lockedOnly, setLockedOnly] = useState(false);
   const { data, isLoading } = useQuery({
     queryKey: ["canon", novelId, lockedOnly],
     queryFn: () => api.canon(novelId!, lockedOnly),
     enabled: Boolean(novelId),
+  });
+
+  const lockMutation = useMutation({
+    mutationFn: ({ factId, locked }: { factId: string; locked: boolean }) =>
+      api.patchCanonFact(novelId!, factId, { locked }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["canon", novelId, lockedOnly] });
+    },
   });
 
   if (isLoading) return <p>Loading…</p>;
@@ -69,7 +78,16 @@ export default function Canon() {
                   </td>
                   <td>{f.source_chapter ?? "—"}</td>
                   <td>{f.confidence?.toFixed(2) ?? "—"}</td>
-                  <td>{f.locked ? "🔒" : "—"}</td>
+                  <td>
+                    <button
+                      type="button"
+                      title={f.locked ? "Unlock (allow extraction to update)" : "Lock (contradictions become flags)"}
+                      onClick={() => lockMutation.mutate({ factId: f.id, locked: !f.locked })}
+                      style={{ background: "none", border: "1px solid var(--border)", borderRadius: 4, padding: "2px 8px", cursor: "pointer", color: f.locked ? "var(--accent)" : "var(--text-muted)", fontSize: 12 }}
+                    >
+                      {f.locked ? "🔒 Locked" : "🔓 Lock"}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
