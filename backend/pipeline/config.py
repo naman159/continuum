@@ -40,6 +40,15 @@ class Settings:
     canonicalizer_max_roster: int = field(
         default_factory=lambda: int(os.getenv("CANONICALIZER_MAX_ROSTER", "80"))
     )
+    # Caps for the entity roster injected into extraction prompts. Entities
+    # mentioned in the chapter text are always preferred; the remainder is
+    # back-filled by recency. <= 0 disables the cap.
+    context_max_characters: int = field(
+        default_factory=lambda: int(os.getenv("CONTEXT_MAX_CHARACTERS", "40"))
+    )
+    context_max_locations: int = field(
+        default_factory=lambda: int(os.getenv("CONTEXT_MAX_LOCATIONS", "30"))
+    )
 
 
 settings = Settings()
