@@ -600,7 +600,13 @@ graph LR
     </ol>
 
     <div class="callout warn">
-      <strong>Note on idempotency:</strong> Re-processing a chapter requires passing <code>replace=True</code> (API: <code>"replace": true</code> in the <code>ProcessRequest</code> body). Without it, ingest rejects duplicate chapter numbers. With <code>replace=True</code>, all previously extracted data for that chapter is deleted before re-processing.
+      <strong>Note on idempotency:</strong> Re-processing a chapter requires passing <code>replace=True</code> (API: <code>"replace": true</code> in the <code>ProcessRequest</code> body). Without it, ingest rejects duplicate chapter numbers. With <code>replace=True</code>, <code>delete_chapter_data()</code> removes the following chapter-scoped derived rows before re-processing begins:
+      <ul style="margin: 8px 0 0 0; padding-left: 20px; color: var(--text-muted);">
+        <li><code>events</code>, <code>scenes</code>, <code>character_states</code>, <code>continuity_flags</code>, <code>shared_dynamics</code> — deleted by <code>chapter_id</code></li>
+        <li><code>relationships</code> rows that carry a <code>chapter_id</code> (i.e. those written during this chapter's ingest)</li>
+        <li><code>knows_edges</code> and <code>commitments</code> keyed by chapter number — deleted by <code>chapter_number</code></li>
+      </ul>
+      Entity rows introduced by the chapter (<code>characters</code>, <code>locations</code>, <code>factions</code>, <code>objects</code>, <code>entities</code>) and plot-thread upserts are <strong>not</strong> deleted — they survive and are resolved against on re-processing, so entity identity remains stable across replace runs.
     </div>
   </section>
 
@@ -840,7 +846,7 @@ flowchart TD
         <tr>
           <td><code>chapters</code></td>
           <td>One row per chapter. Stores raw text, multi-granularity summaries, and embeddings.</td>
-          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (JSONB), embedding, search_tsv</code></td>
+          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (JSONB), embedding, search_tsv, source TEXT DEFAULT 'human', generation_meta JSONB</code></td>
         </tr>
         <tr>
           <td><code>entities</code></td>
