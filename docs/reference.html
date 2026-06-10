@@ -253,11 +253,18 @@ npm run build      <span class="cmt"># builds to frontend/dist/ (served by FastA
     <h3>Process a chapter</h3>
     <pre><code><span class="cmt"># Via CLI</span>
 cd backend
-python -m pipeline process \
+novel-pipeline process-chapter \
   --novel-id &lt;uuid&gt; \
-  --chapter-number 1 \
+  --number 1 \
   --title "Chapter 1: The Beginning" \
   --file chapter1.txt
+
+<span class="cmt"># Re-process (delete old extraction, then re-run)</span>
+novel-pipeline process-chapter \
+  --novel-id &lt;uuid&gt; \
+  --number 1 \
+  --file chapter1.txt \
+  --replace
 
 <span class="cmt"># Via API (multipart form)</span>
 curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
@@ -383,31 +390,51 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>Main pipeline orchestration function in <code>backend/pipeline/pipeline.py</code>.</p>
 
     <div class="method-sig">
-      <span class="kw">async def</span> <span class="fn-name">process_chapter</span>(
-        <span class="param">db</span>: <span class="ptype">DBClient</span>,
-        <span class="param">novel_id</span>: <span class="ptype">UUID</span>,
+      <span class="kw">def</span> <span class="fn-name">process_chapter</span>(
+        <span class="param">*</span>,
+        <span class="param">novel_id</span>: <span class="ptype">str</span>,
         <span class="param">chapter_number</span>: <span class="ptype">int</span>,
-        <span class="param">title</span>: <span class="ptype">str</span>,
-        <span class="param">text</span>: <span class="ptype">str</span>,
-        <span class="param">settings</span>: <span class="ptype">Settings</span>
-      ) <span class="ret">→ None</span>
+        <span class="param">raw_text</span>: <span class="ptype">str</span>,
+        <span class="param">chapter_title</span>: <span class="ptype">str | None</span>,
+        <span class="param">use_mock_llm</span>: <span class="ptype">bool | None</span>,
+        <span class="param">chunk_size</span>: <span class="ptype">int</span>,
+        <span class="param">chunk_overlap</span>: <span class="ptype">int</span>,
+        <span class="param">progress</span>: <span class="ptype">Any | None</span> = None,
+        <span class="param">db</span>: <span class="ptype">DBClient | None</span> = None,
+        <span class="param">replace</span>: <span class="ptype">bool</span> = False,
+        <span class="param">source</span>: <span class="ptype">str</span> = <span class="str">"human"</span>,
+        <span class="param">generation_meta</span>: <span class="ptype">dict | None</span> = None
+      ) <span class="ret">→ dict[str, Any]</span>
     </div>
 
     <table class="param-table">
       <tbody>
-        <tr><td>db</td><td>DBClient</td><td>Database connection pool wrapper</td></tr>
-        <tr><td>novel_id</td><td>UUID</td><td>The novel to process this chapter under</td></tr>
-        <tr><td>chapter_number</td><td>int</td><td>Chapter number (1-indexed). Must be unique per novel.</td></tr>
-        <tr><td>title</td><td>str</td><td>Display title for this chapter</td></tr>
-        <tr><td>text</td><td>str</td><td>Full raw chapter text</td></tr>
-        <tr><td>settings</td><td>Settings</td><td>Configuration (model, chunk size, etc.)</td></tr>
+        <tr><td>novel_id</td><td>str</td><td>The novel to process this chapter under</td></tr>
+        <tr><td>chapter_number</td><td>int</td><td>Chapter number (1-indexed). Must be unique per novel unless <code>replace=True</code>.</td></tr>
+        <tr><td>raw_text</td><td>str</td><td>Full raw chapter text</td></tr>
+        <tr><td>chapter_title</td><td>str | None</td><td>Display title for this chapter</td></tr>
+        <tr><td>use_mock_llm</td><td>bool | None</td><td>Use deterministic mock LLM (for tests/dev). None uses real LLM.</td></tr>
+        <tr><td>chunk_size</td><td>int</td><td>Token size of each sliding-window chunk</td></tr>
+        <tr><td>chunk_overlap</td><td>int</td><td>Token overlap between adjacent chunks</td></tr>
+        <tr><td>progress</td><td>Any | None</td><td>Optional progress callback object with <code>on_pass_start</code>/<code>on_pass_done</code> methods</td></tr>
+        <tr><td>db</td><td>DBClient | None</td><td>Injectable DB client. If None, a new <code>DBClient</code> is created and closed on exit.</td></tr>
+        <tr><td>replace</td><td>bool</td><td>If True, delete all previously extracted data for this chapter before re-processing. Default False.</td></tr>
+        <tr><td>source</td><td>str</td><td>Provenance tag stored on the chapter row (e.g. <code>"human"</code>, <code>"generated"</code>). Default <code>"human"</code>.</td></tr>
+        <tr><td>generation_meta</td><td>dict | None</td><td>Arbitrary JSON metadata stored on the chapter row (e.g. model name, temperature). Default None.</td></tr>
       </tbody>
     </table>
 
-    <div class="callout warn">
-      <strong>Not idempotent.</strong> Calling this twice on the same chapter_number will fail at the
-      ingest step (duplicate constraint), but if the ingest is somehow skipped, later steps will
-      insert duplicate data. Always check before calling.
+    <div class="callout info">
+      <strong>Duplicate check happens before LLM extraction.</strong> If the chapter already exists
+      and <code>replace=False</code>, a <code>ValueError</code> is raised immediately — no LLM calls
+      are made.
+    </div>
+
+    <div class="callout info">
+      <strong>Transactional persistence.</strong> All DB writes (ingest, entities, events,
+      relationships, summaries, scenes, knows-edges, commitments) run inside a single
+      <code>client.session()</code> transaction. The LLM extraction and canonicalization phases run
+      outside the transaction; only persistence is atomic.
     </div>
 
     <h3>load_story_context()</h3>
@@ -419,19 +446,25 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <li>All existing character names (for entity recognition)</li>
       <li>All existing location names</li>
       <li>Open plot threads (title + description)</li>
-      <li>Last 20 events (descriptions)</li>
+      <li>Recent events from the last 3 chapters (up to 200)</li>
+      <li>Custom entity lists per registered type</li>
     </ul>
 
     <h3>_persist_extraction()</h3>
     <p>
-      Writes a fully resolved extraction result to the DB. Called once per chapter.
-      Transaction-safe: uses a single connection context.
+      Writes a fully resolved extraction result to the DB. Called once per chapter inside the
+      session transaction. Receives a <code>DBSession</code> (not a <code>DBClient</code>).
     </p>
     <p>
       Writes to (in order): <code>characters</code>, <code>locations</code>, <code>factions</code>,
-      <code>objects</code>, <code>character_states</code>, <code>events</code>,
-      <code>relationships</code>, <code>shared_dynamics</code>, <code>plot_threads</code>,
-      <code>thread_events</code>, <code>continuity_flags</code>.
+      <code>objects</code>, <code>entities</code> (custom), <code>character_states</code>,
+      <code>relationships</code> (with <code>chapter_id</code>), <code>shared_dynamics</code>,
+      <code>events</code>, <code>plot_threads</code>, <code>thread_events</code>,
+      <code>continuity_flags</code>.
+    </p>
+    <p>
+      The <code>relationships</code> INSERT now carries a <code>chapter_id</code> column, enabling
+      cascade deletion when <code>replace=True</code> re-processes a chapter.
     </p>
   </section>
 
