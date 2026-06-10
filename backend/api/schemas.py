@@ -359,3 +359,16 @@ class PossessionEdgeRow(BaseModel):
     since_chapter: int
     until_chapter: int | None
     certainty: float | None
+
+
+class CanonFactPatch(BaseModel):
+    locked: bool | None = None
+    value: str | None = None
+
+
+class CanonFactCreate(BaseModel):
+    subject_entity_id: UUID
+    predicate: str
+    value: str
+    kind: str = "other"
+    locked: bool = False

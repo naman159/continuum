@@ -1541,6 +1541,71 @@ def list_canon_facts(novel_id: UUID, locked_only: bool) -> list[dict[str, Any]]:
     ]
 
 
+def update_canon_fact(
+    novel_id: UUID, fact_id: UUID, *, locked: bool | None, value: str | None
+) -> bool:
+    db = _get_db()
+    existing = db.fetchone(
+        "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+        (str(fact_id), str(novel_id)),
+        dict_rows=True,
+    )
+    if existing is None:
+        return False
+    if locked is not None:
+        db.execute(
+            "UPDATE canon_facts SET locked = %s WHERE id = %s AND novel_id = %s",
+            (locked, str(fact_id), str(novel_id)),
+        )
+    if value is not None:
+        db.execute(
+            "UPDATE canon_facts SET value = %s, confidence = 1.0 WHERE id = %s AND novel_id = %s",
+            (value, str(fact_id), str(novel_id)),
+        )
+    return True
+
+
+def create_canon_fact(
+    novel_id: UUID,
+    *,
+    subject_entity_id: UUID,
+    predicate: str,
+    value: str,
+    kind: str = "other",
+    locked: bool = False,
+) -> dict[str, Any] | None:
+    db = _get_db()
+    row = db.fetchone(
+        """
+        INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked)
+        VALUES (%s, %s, %s, %s, %s, 1.0, %s)
+        ON CONFLICT (novel_id, subject_entity_id, predicate)
+        DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0
+        RETURNING id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked
+        """,
+        (str(novel_id), kind, str(subject_entity_id), predicate.strip().lower(), value, locked),
+        dict_rows=True,
+        commit=True,
+    )
+    return dict(row) if row else None
+
+
+def delete_canon_fact(novel_id: UUID, fact_id: UUID) -> bool:
+    db = _get_db()
+    existing = db.fetchone(
+        "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+        (str(fact_id), str(novel_id)),
+        dict_rows=True,
+    )
+    if existing is None:
+        return False
+    db.execute(
+        "DELETE FROM canon_facts WHERE id = %s AND novel_id = %s",
+        (str(fact_id), str(novel_id)),
+    )
+    return True
+
+
 def list_knows_edges(
     novel_id: UUID,
     cap: int | None,
