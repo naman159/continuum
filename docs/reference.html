@@ -348,6 +348,21 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><code>30</code></td>
           <td>Max locations injected into extraction prompts (same selection rules as characters).</td>
         </tr>
+        <tr>
+          <td><code>DRAFT_MODEL</code></td>
+          <td><code>DEFAULT_MODEL</code></td>
+          <td>LiteLLM model for chapter drafting (the generation loop). Falls back to DEFAULT_MODEL.</td>
+        </tr>
+        <tr>
+          <td><code>DRAFT_TEMPERATURE</code></td>
+          <td><code>0.8</code></td>
+          <td>Temperature for drafting calls (higher than extraction — prose wants variety).</td>
+        </tr>
+        <tr>
+          <td><code>GENERATION_MAX_REVISIONS</code></td>
+          <td><code>2</code></td>
+          <td>How many critic-driven redrafts <code>generate_chapter</code> attempts before giving up (the failing draft is returned, never ingested).</td>
+        </tr>
       </tbody>
     </table>
 
@@ -383,6 +398,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>novel-wiki-canon</code></td><td><code>cli.canon:main</code></td><td>Query canon facts <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>novel-wiki-knowledge</code></td><td><code>cli.knowledge:main</code></td><td>Query knows_edges <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>novel-wiki-merge-entity</code></td><td><code>cli.merge:main</code></td><td>Merge a duplicate entity into its canonical twin (<code>--novel-id --source --target</code>, universal entity ids)</td></tr>
+        <tr><td><code>novel-pipeline generate-chapter</code></td><td><code>pipeline.pipeline:main</code></td><td>Plan, draft, critique, and optionally ingest the next chapter (<code>--novel-id --number [--ingest] [--mock-llm] [--out FILE]</code>) <span class="badge purple">GEN</span></td></tr>
         <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
       </tbody>
     </table>
@@ -1464,9 +1480,14 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "...", "replace": false}</code>. Pass <code>"replace": true</code> to delete previously extracted data before re-processing. Returns <code>{"job_id": "..."}</code></td>
         </tr>
         <tr>
+          <td><span class="badge blue">POST</span></td>
+          <td><code>/api/novels/{id}/chapters/generate</code></td>
+          <td>Generate the next chapter as an async job (HTTP 202). Body <code>GenerateRequest</code>: <code>{"number": N, "ingest": false}</code>. With <code>"ingest": true</code> the chapter is ingested back into Continuum <em>only if the continuity critic passes</em> (<code>source='generated'</code>). The job result includes <code>{text, passed, fails, warns, iterations, ingested, chapter_id}</code>. Returns <code>{"job_id": "..."}</code></td>
+        </tr>
+        <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/jobs/{job_id}</code></td>
-          <td>Poll job status (note: not nested under the novel). Returns <code>JobStatusResponse</code> — <code>{job_id, status: "pending|running|done|error", current_pass, passes_done, total_passes, result, error}</code></td>
+          <td>Poll job status (note: not nested under the novel). Returns <code>JobStatusResponse</code> — <code>{job_id, status: "pending|running|done|error", current_pass, passes_done, total_passes, result, error}</code>. Generation jobs report label-only progress (<code>total_passes = 0</code>).</td>
         </tr>
       </tbody>
     </table>
