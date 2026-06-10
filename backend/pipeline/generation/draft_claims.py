@@ -5,15 +5,11 @@ ids READ-ONLY (unknown names drop the claim; critiquing a draft must never
 create entities)."""
 
 import json
-import logging
 from textwrap import dedent
 from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.critic.types import DraftChapter
-
-logger = logging.getLogger(__name__)
-
 
 def _load_completion():
     try:
