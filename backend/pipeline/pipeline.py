@@ -17,6 +17,7 @@ from pipeline.extraction.canonicalizer import (
 )
 from pipeline.extraction.chunker import sliding_window_chunks
 from pipeline.extraction.extractor import ChapterExtractor
+from pipeline.extraction.persist_canon import persist_canon_facts
 from pipeline.extraction.persist_extras import (
     persist_commitments,
     persist_knows_edges,
@@ -348,6 +349,14 @@ def process_chapter(
                 payoffs=extracted.get("payoffs_delivered", []),
                 resolver=resolver,
                 embedder=embedding_service,
+            )
+            persist_canon_facts(
+                s,
+                novel_id=novel_id,
+                chapter_id=chapter_id,
+                chapter_number=chapter_number,
+                facts=extracted.get("canon_facts", []),
+                resolver=resolver,
             )
 
         return {

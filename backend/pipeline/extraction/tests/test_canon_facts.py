@@ -104,3 +104,84 @@ def test_canon_rename_leaves_unmapped_types_untouched():
     }
     renamed = _apply_rename_map(extracted, {"character": {"jane": "Jane Bennet"}})
     assert renamed["canon_facts"][0]["subject_name"] == "The Order"
+
+
+import uuid
+
+from pipeline.extraction.persist_canon import persist_canon_facts
+
+
+class FakeResolver:
+    def __init__(self):
+        self.uid = str(uuid.uuid4())
+
+    def resolve_character(self, name, metadata=None):
+        from pipeline.extraction.resolver import ResolvedEntity
+        return ResolvedEntity(entity_id="typed-id", universal_id=self.uid, created=False)
+
+    resolve_location = resolve_object = resolve_faction = resolve_character
+
+
+class CanonFakeDB:
+    """Scripts fetchone for the existing-fact lookup; records writes."""
+
+    def __init__(self, existing=None):
+        self.existing = existing  # dict row or None
+        self.calls: list[tuple[str, tuple]] = []
+
+    def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+        self.calls.append((query, tuple(params or ())))
+        if "FROM canon_facts" in query:
+            return self.existing
+        return None
+
+    def execute(self, query, params=None):
+        self.calls.append((query, tuple(params or ())))
+
+
+FACT = {
+    "subject_name": "Jake", "subject_type": "character",
+    "predicate": "eye_color", "value": "green",
+    "kind": "physical", "confidence": 0.9, "quote": "His green eyes narrowed.",
+}
+
+
+def test_persist_inserts_new_fact():
+    db = CanonFakeDB(existing=None)
+    counts = persist_canon_facts(
+        db, novel_id="n1", chapter_id="ch1", chapter_number=3,
+        facts=[FACT], resolver=FakeResolver(),
+    )
+    assert counts == {"inserted": 1, "updated": 0, "contradictions": 0, "skipped": 0}
+    assert any("INSERT INTO canon_facts" in q for q, _ in db.calls)
+
+
+def test_persist_updates_unlocked_when_confidence_not_lower():
+    db = CanonFakeDB(existing={"id": "f1", "value": "blue", "locked": False, "confidence": 0.5})
+    counts = persist_canon_facts(
+        db, novel_id="n1", chapter_id="ch1", chapter_number=3,
+        facts=[FACT], resolver=FakeResolver(),
+    )
+    assert counts["updated"] == 1
+    assert any("UPDATE canon_facts" in q for q, _ in db.calls)
+
+
+def test_persist_flags_contradiction_of_locked_fact():
+    db = CanonFakeDB(existing={"id": "f1", "value": "blue", "locked": True, "confidence": 1.0})
+    counts = persist_canon_facts(
+        db, novel_id="n1", chapter_id="ch1", chapter_number=3,
+        facts=[FACT], resolver=FakeResolver(),
+    )
+    assert counts["contradictions"] == 1
+    assert any("INSERT INTO continuity_flags" in q for q, _ in db.calls)
+    assert not any("UPDATE canon_facts" in q for q, _ in db.calls)
+
+
+def test_persist_skips_unknown_subject_type():
+    db = CanonFakeDB()
+    bad = dict(FACT, subject_type="spaceship")
+    counts = persist_canon_facts(
+        db, novel_id="n1", chapter_id="ch1", chapter_number=3,
+        facts=[bad], resolver=FakeResolver(),
+    )
+    assert counts["skipped"] == 1
