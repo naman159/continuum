@@ -64,5 +64,7 @@ def test_delete_chapter_data_covers_non_cascading_tables():
     assert any("UPDATE commitments" in q and "'pending'" in q for q in queries)
     assert any("DELETE FROM commitments" in q for q in queries)
     assert any("DELETE FROM chapters" in q for q in queries)
+    assert any("UPDATE located_in_edges" in q and "evidence_event_id = NULL" in q for q in queries)
+    assert any("UPDATE possesses_edges" in q and "evidence_event_id = NULL" in q for q in queries)
     # chapter delete must come last (everything else references it or its scope)
     assert "DELETE FROM chapters" in queries[-1]
