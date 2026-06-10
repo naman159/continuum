@@ -69,3 +69,38 @@ def test_curly_apostrophe_in_text_still_matches():
     text = "D’Arcy smiled."  # typographic apostrophe, as in epub/Word sources
     out = select_context_entities(text, roster, cap=1)
     assert out[0]["name"] == "D'Arcy"
+
+
+def test_load_story_context_applies_caps(monkeypatch):
+    import dataclasses
+
+    from pipeline import pipeline as pipeline_mod
+
+    # Settings is a frozen dataclass with instance-level values; patch the
+    # module-global with a modified copy so call-time reads see the caps.
+    patched = dataclasses.replace(pipeline_mod.settings)
+    object.__setattr__(patched, "context_max_characters", 1)
+    object.__setattr__(patched, "context_max_locations", 1)
+    monkeypatch.setattr(pipeline_mod, "settings", patched)
+
+    class CtxFakeDB:
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            if "FROM characters" in query:
+                return [
+                    {"id": "c1", "name": "Alice", "aliases": [], "emotional_state": None,
+                     "goals": None, "physical_state": None, "last_chapter": 1},
+                    {"id": "c2", "name": "Bob", "aliases": [], "emotional_state": None,
+                     "goals": None, "physical_state": None, "last_chapter": 9},
+                ]
+            if "FROM locations" in query:
+                return [
+                    {"id": "l1", "name": "Harbor", "description": None, "first_appearance_chapter": 1},
+                    {"id": "l2", "name": "Castle", "description": None, "first_appearance_chapter": 5},
+                ]
+            return []
+
+    ctx = pipeline_mod.load_story_context(
+        CtxFakeDB(), "novel-1", 10, chapter_text="Alice sailed into the Harbor."
+    )
+    assert [c["name"] for c in ctx["characters"]] == ["Alice"]   # mentioned beats recency
+    assert [l["name"] for l in ctx["locations"]] == ["Harbor"]

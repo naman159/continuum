@@ -16,6 +16,7 @@ from pipeline.extraction.canonicalizer import (
     collect_names_by_type,
 )
 from pipeline.extraction.chunker import sliding_window_chunks
+from pipeline.extraction.context_select import select_context_entities
 from pipeline.extraction.extractor import ChapterExtractor
 from pipeline.extraction.persist_canon import persist_canon_facts
 from pipeline.extraction.persist_extras import (
@@ -119,14 +120,15 @@ def load_story_context(
     novel_id: str,
     chapter_number: int,
     custom_entity_types: list[dict] | None = None,
+    chapter_text: str = "",
 ) -> dict[str, Any]:
     characters = db.fetchall(
         """
         SELECT c.id, c.name, c.aliases,
-               ls.emotional_state, ls.goals, ls.physical_state
+               ls.emotional_state, ls.goals, ls.physical_state, ls.last_chapter
         FROM characters c
         LEFT JOIN LATERAL (
-            SELECT cs.emotional_state, cs.goals, cs.physical_state
+            SELECT cs.emotional_state, cs.goals, cs.physical_state, ch.number AS last_chapter
             FROM character_states cs
             JOIN chapters ch ON ch.id = cs.chapter_id
             WHERE cs.character_id = c.id
@@ -143,7 +145,7 @@ def load_story_context(
 
     locations = db.fetchall(
         """
-        SELECT id, name, description
+        SELECT id, name, description, first_appearance_chapter
         FROM locations
         WHERE novel_id = %s
         ORDER BY name
@@ -194,9 +196,21 @@ def load_story_context(
         )
         custom_entities[type_name] = [{"name": r["name"]} for r in rows]
 
+    character_rows = [dict(row) for row in characters]
+    location_rows = [dict(row) for row in locations]
+    if chapter_text:
+        # Mentioned-in-chapter entities first, recency backfill, capped — keeps
+        # prompt size bounded as the cast grows.
+        character_rows = select_context_entities(
+            chapter_text, character_rows, cap=settings.context_max_characters
+        )
+        location_rows = select_context_entities(
+            chapter_text, location_rows, cap=settings.context_max_locations
+        )
+
     return {
-        "characters": [dict(row) for row in characters],
-        "locations": [dict(row) for row in locations],
+        "characters": character_rows,
+        "locations": location_rows,
         "open_threads": [dict(row) for row in open_threads],
         "recent_events": [dict(row) for row in recent_events],
         "custom_entities": custom_entities,
@@ -241,7 +255,13 @@ def process_chapter(
             )
         ]
 
-        context = load_story_context(client, novel_id, chapter_number, custom_entity_types=custom_entity_types)
+        context = load_story_context(
+            client,
+            novel_id,
+            chapter_number,
+            custom_entity_types=custom_entity_types,
+            chapter_text=raw_text,
+        )
         chunks = sliding_window_chunks(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
         extractor = ChapterExtractor(use_mock=use_mock_llm)
         extracted = extractor.extract_chapter(
