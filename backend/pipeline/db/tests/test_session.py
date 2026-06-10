@@ -34,8 +34,10 @@ class FakeConn:
         self.rolled_back = 0
         self.next_row = ("value",)
         self.rows: list = []
+        self.row_factories: list = []
 
     def cursor(self, row_factory=None):
+        self.row_factories.append(row_factory)
         return FakeCursor(self)
 
     def commit(self):
@@ -91,3 +93,16 @@ def test_session_accepts_and_ignores_commit_kwarg():
     s.fetchone("SELECT 1", dict_rows=False, commit=True)
     s.fetchall("SELECT 1", dict_rows=False, commit=True)
     assert conn.committed == 0  # session never commits on its own
+
+
+def test_session_forwards_dict_row_factory_when_dict_rows_true():
+    """Persistence helpers rely on dict_rows=True returning dict-like rows;
+    the session must forward psycopg's dict_row factory to the cursor."""
+    from psycopg.rows import dict_row
+
+    conn = FakeConn()
+    s = DBSession(conn)
+    s.fetchone("SELECT 1", dict_rows=True)
+    s.fetchall("SELECT 1", dict_rows=True)
+    s.fetchone("SELECT 1", dict_rows=False)
+    assert conn.row_factories == [dict_row, dict_row, None]
