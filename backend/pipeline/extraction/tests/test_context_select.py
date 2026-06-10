@@ -59,3 +59,13 @@ def test_short_names_do_not_false_positive_inside_words():
     # "Ann" appears only inside "cannon" — not a mention.
     out = select_context_entities("The cannon fired.", roster, cap=1)
     assert out[0]["name"] == "Zed"
+
+
+def test_curly_apostrophe_in_text_still_matches():
+    roster = [
+        {"name": "D'Arcy", "aliases": [], "last_chapter": 1},
+        {"name": "Zed", "aliases": [], "last_chapter": 9},
+    ]
+    text = "D’Arcy smiled."  # typographic apostrophe, as in epub/Word sources
+    out = select_context_entities(text, roster, cap=1)
+    assert out[0]["name"] == "D'Arcy"
