@@ -24,7 +24,7 @@ from pipeline.extraction.persist_extras import (
     persist_scenes,
 )
 from pipeline.extraction.resolver import EntityResolver
-from pipeline.ingestion.ingest import ingest_chapter
+from pipeline.ingestion.ingest import delete_chapter_data, ingest_chapter
 
 logger = logging.getLogger(__name__)
 
@@ -212,26 +212,35 @@ def process_chapter(
     chunk_size: int,
     chunk_overlap: int,
     progress: Any | None = None,
+    db: DBClient | None = None,
+    replace: bool = False,
+    source: str = "human",
+    generation_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    with DBClient() as db:
-        chapter_id = ingest_chapter(
-            db,
-            novel_id=novel_id,
-            chapter_number=chapter_number,
-            title=chapter_title,
-            raw_text=raw_text,
+    owned = db is None
+    client = db if db is not None else DBClient()
+    try:
+        # Fail fast on duplicates before paying for LLM extraction.
+        existing = client.fetchval(
+            "SELECT id FROM chapters WHERE novel_id = %s AND number = %s",
+            (novel_id, chapter_number),
         )
+        if existing is not None and not replace:
+            raise ValueError(
+                f"Chapter {chapter_number} already exists for novel {novel_id}. "
+                "Pass replace=True to re-process it."
+            )
 
         custom_entity_types = [
             dict(r)
-            for r in db.fetchall(
+            for r in client.fetchall(
                 "SELECT name, description FROM novel_entity_types WHERE novel_id = %s ORDER BY name",
                 (novel_id,),
                 dict_rows=True,
             )
         ]
 
-        context = load_story_context(db, novel_id, chapter_number, custom_entity_types=custom_entity_types)
+        context = load_story_context(client, novel_id, chapter_number, custom_entity_types=custom_entity_types)
         chunks = sliding_window_chunks(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
         extractor = ChapterExtractor(use_mock=use_mock_llm)
         extracted = extractor.extract_chapter(
@@ -253,7 +262,7 @@ def process_chapter(
 
         if progress is not None:
             progress.on_pass_start("canonicalization")
-        canonicalizer = EntityCanonicalizer(db, novel_id=novel_id, use_mock=use_mock_llm)
+        canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
         canonicalizer.canonicalize(
             chapter_text=raw_text,
             candidate_names_by_type=collect_names_by_type(extracted),
@@ -261,70 +270,80 @@ def process_chapter(
         if progress is not None:
             progress.on_pass_done("canonicalization")
 
-        resolver = EntityResolver(db, novel_id=novel_id, chapter_number=chapter_number)
-        event_rows = _persist_extraction(
-            db,
-            resolver=resolver,
-            chapter_id=chapter_id,
-            chapter_number=chapter_number,
-            extracted=extracted,
-        )
+        # ---- everything below is one transaction ----
+        with client.session() as s:
+            if replace:
+                delete_chapter_data(s, novel_id=novel_id, chapter_number=chapter_number)
+            chapter_id = ingest_chapter(
+                s,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                title=chapter_title,
+                raw_text=raw_text,
+                source=source,
+                generation_meta=generation_meta,
+            )
+            resolver = EntityResolver(s, novel_id=novel_id, chapter_number=chapter_number)
+            event_rows = _persist_extraction(
+                s,
+                resolver=resolver,
+                chapter_id=chapter_id,
+                chapter_number=chapter_number,
+                extracted=extracted,
+            )
 
-        embedding_service = EmbeddingService(use_mock=use_mock_llm)
-        embed_chapter_and_events(
-            db,
-            chapter_id=chapter_id,
-            chapter_summary=extracted.get("summary", ""),
-            event_rows=event_rows,
-            service=embedding_service,
-            # persist_multi_summaries re-embeds the chapter from summary_medium;
-            # skip the throwaway embedding when that will happen.
-            embed_chapter=not (extracted.get("summary_medium") or "").strip(),
-        )
+            embedding_service = EmbeddingService(use_mock=use_mock_llm)
+            embed_chapter_and_events(
+                s,
+                chapter_id=chapter_id,
+                chapter_summary=extracted.get("summary", ""),
+                event_rows=event_rows,
+                service=embedding_service,
+                # persist_multi_summaries re-embeds the chapter from summary_medium;
+                # skip the throwaway embedding when that will happen.
+                embed_chapter=not (extracted.get("summary_medium") or "").strip(),
+            )
 
-        db.execute(
-            """
-            UPDATE chapters
-            SET summary = %s,
-                processed_at = now()
-            WHERE id = %s
-            """,
-            (extracted.get("summary", ""), chapter_id),
-        )
+            s.execute(
+                """
+                UPDATE chapters
+                SET summary = %s,
+                    processed_at = now()
+                WHERE id = %s
+                """,
+                (extracted.get("summary", ""), chapter_id),
+            )
 
-        persist_multi_summaries(
-            db,
-            chapter_id=chapter_id,
-            summary_short=extracted.get("summary_short", ""),
-            summary_medium=extracted.get("summary_medium", ""),
-            summary_long=extracted.get("summary_long", ""),
-            embedder=embedding_service,
-        )
-
-        persist_scenes(
-            db,
-            chapter_id=chapter_id,
-            scenes_data=extracted.get("scenes", []),
-            resolver=resolver,
-            embedder=embedding_service,
-        )
-
-        persist_knows_edges(
-            db,
-            chapter_number=chapter_number,
-            learnings=extracted.get("learnings", []),
-            resolver=resolver,
-        )
-
-        persist_commitments(
-            db,
-            novel_id=novel_id,
-            chapter_number=chapter_number,
-            foreshadows=extracted.get("foreshadows_introduced", []),
-            payoffs=extracted.get("payoffs_delivered", []),
-            resolver=resolver,
-            embedder=embedding_service,
-        )
+            persist_multi_summaries(
+                s,
+                chapter_id=chapter_id,
+                summary_short=extracted.get("summary_short", ""),
+                summary_medium=extracted.get("summary_medium", ""),
+                summary_long=extracted.get("summary_long", ""),
+                embedder=embedding_service,
+            )
+            persist_scenes(
+                s,
+                chapter_id=chapter_id,
+                scenes_data=extracted.get("scenes", []),
+                resolver=resolver,
+                embedder=embedding_service,
+            )
+            persist_knows_edges(
+                s,
+                chapter_number=chapter_number,
+                learnings=extracted.get("learnings", []),
+                resolver=resolver,
+            )
+            persist_commitments(
+                s,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                foreshadows=extracted.get("foreshadows_introduced", []),
+                payoffs=extracted.get("payoffs_delivered", []),
+                resolver=resolver,
+                embedder=embedding_service,
+            )
 
         return {
             "chapter_id": chapter_id,
@@ -336,6 +355,9 @@ def process_chapter(
             "thread_updates": len(extracted.get("thread_updates", [])),
             "continuity_flags": len(extracted.get("continuity_flags", [])),
         }
+    finally:
+        if owned:
+            client.close()
 
 
 def _persist_extraction(
@@ -433,9 +455,9 @@ def _persist_extraction(
         db.execute(
             """
             INSERT INTO relationships (
-                entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes
+                entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes, chapter_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 a_universal,
@@ -444,6 +466,7 @@ def _persist_extraction(
                 rel.get("from_chapter"),
                 rel.get("to_chapter"),
                 rel.get("notes"),
+                chapter_id,
             ),
         )
 
@@ -654,6 +677,10 @@ def build_parser() -> argparse.ArgumentParser:
     process_parser.add_argument("--mock-llm", action="store_true", help="Use deterministic mock extraction")
     process_parser.add_argument("--chunk-size", type=int, default=settings.chunk_size)
     process_parser.add_argument("--chunk-overlap", type=int, default=settings.chunk_overlap)
+    process_parser.add_argument(
+        "--replace", action="store_true",
+        help="Delete this chapter's previously extracted data and re-process it",
+    )
 
     return parser
 
@@ -689,6 +716,7 @@ def main() -> None:
             use_mock_llm=True if args.mock_llm else None,
             chunk_size=args.chunk_size,
             chunk_overlap=args.chunk_overlap,
+            replace=args.replace,
         )
         print(json.dumps(result, indent=2))
         return
