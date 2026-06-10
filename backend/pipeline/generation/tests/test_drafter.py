@@ -56,12 +56,16 @@ def test_real_draft_returns_completion_text_and_prompt_carries_context():
     assert "response_format" not in captured  # prose, not JSON
 
 
-def test_llm_failure_falls_back_to_mock():
+def test_llm_failure_raises_in_real_mode():
+    """A real-mode LLM failure must never degrade to placeholder prose —
+    silent mock output could pass the critic and be ingested as canon."""
+    import pytest
+
     def boom(**kwargs):
         raise RuntimeError("network down")
 
     drafter = SceneDrafter(use_mock=False, completion_fn=boom)
-    text = drafter.draft_scene(
-        scene=_scene(), plan=_plan(), context_block="", prior_text_tail="", style=None
-    )
-    assert "[mock scene 1]" in text
+    with pytest.raises(RuntimeError, match="LLM call failed"):
+        drafter.draft_scene(
+            scene=_scene(), plan=_plan(), context_block="", prior_text_tail="", style=None
+        )

@@ -84,8 +84,10 @@ class SceneDrafter:
                 content = "".join(str(p) for p in content)
             return str(content).strip()
         except Exception as exc:
-            logger.warning("drafter: LLM call failed, falling back to mock: %s", exc)
-            return self._mock_scene(scene, plan)
+            # Never degrade to placeholder prose in a real run: a silent mock
+            # fallback would sail through the critic and could be ingested as
+            # canon. Fail the generation loudly instead.
+            raise RuntimeError(f"drafter: LLM call failed for scene {scene.scene_index}: {exc}") from exc
 
     @staticmethod
     def _build_user_prompt(

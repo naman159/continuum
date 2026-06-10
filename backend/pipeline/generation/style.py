@@ -11,7 +11,7 @@ from typing import Any
 
 _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _DIALOGUE = re.compile(r"[\"“”][^\"“”]+[\"“”]")
-_FIRST_PERSON = re.compile(r"\b(I|me|my|mine|we|our)\b")
+_FIRST_PERSON = re.compile(r"\b(I|me|my|mine|we|our)\b", re.IGNORECASE)
 _THIRD_PERSON = re.compile(r"\b(he|she|they|his|her|their|him|them)\b", re.IGNORECASE)
 
 

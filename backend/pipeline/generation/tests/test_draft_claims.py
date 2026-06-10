@@ -74,11 +74,14 @@ def test_extract_draft_claims_mock_is_empty():
                    "possession_claims": [], "events": []}
 
 
-def test_extract_draft_claims_bad_json_safe():
+def test_extract_draft_claims_bad_json_raises_in_real_mode():
+    """Empty claims would make the critic pass vacuously — real-mode failures
+    must surface instead of letting unchecked drafts through the ingest gate."""
+    import pytest
+
     def fake_completion(**kwargs):
         msg = SimpleNamespace(content="not json")
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
-    out = extract_draft_claims("prose", use_mock=False, completion_fn=fake_completion)
-    assert out == {k: [] for k in ("mentions", "knowledge_claims", "location_claims",
-                                   "possession_claims", "events")}
+    with pytest.raises(RuntimeError, match="extraction failed"):
+        extract_draft_claims("prose", use_mock=False, completion_fn=fake_completion)
