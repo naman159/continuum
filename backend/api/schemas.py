@@ -372,3 +372,8 @@ class CanonFactCreate(BaseModel):
     value: str
     kind: str = "other"
     locked: bool = False
+
+
+class EntityMergeRequest(BaseModel):
+    source_entity_id: UUID
+    target_entity_id: UUID

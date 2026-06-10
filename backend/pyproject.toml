@@ -26,6 +26,7 @@ novel-wiki-scenes = "cli.scenes:main"
 novel-wiki-commitments = "cli.commitments:main"
 novel-wiki-canon = "cli.canon:main"
 novel-wiki-knowledge = "cli.knowledge:main"
+novel-wiki-merge-entity = "cli.merge:main"
 novel-webapp = "api.app:run"
 
 [tool.setuptools]
