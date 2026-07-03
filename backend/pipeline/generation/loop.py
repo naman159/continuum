@@ -65,6 +65,46 @@ def _load_recent_style(db: Any, novel_id: str) -> dict[str, Any] | None:
     return average_fingerprints(fingerprints)
 
 
+def _resolve_planned_ids(
+    db: Any, novel_id: str, plan: ChapterPlan
+) -> tuple[list[str], list[str]]:
+    """The planner speaks in plot-thread titles and commitment foreshadow
+    texts; the critic's SQL expects row uuids. Resolve read-only, dropping
+    (with a warning) anything that doesn't match an existing row."""
+    titles = [t for s in plan.scenes for t in s.threads_to_advance]
+    texts = [
+        c
+        for s in plan.scenes
+        for c in (s.commitments_to_plant + s.commitments_to_satisfy)
+    ]
+
+    thread_ids: list[str] = []
+    for title in dict.fromkeys(t.strip() for t in titles if t and t.strip()):
+        row = db.fetchone(
+            "SELECT id FROM plot_threads WHERE novel_id = %s AND lower(title) = lower(%s) LIMIT 1",
+            (novel_id, title),
+        )
+        if row:
+            thread_ids.append(str(row[0]))
+        else:
+            logger.warning("generation: planned thread %r not found, skipping", title)
+
+    commitment_ids: list[str] = []
+    for text in dict.fromkeys(t.strip() for t in texts if t and t.strip()):
+        row = db.fetchone(
+            "SELECT id FROM commitments WHERE novel_id = %s AND lower(foreshadow_text) = lower(%s) LIMIT 1",
+            (novel_id, text),
+        )
+        if row:
+            commitment_ids.append(str(row[0]))
+        else:
+            logger.warning(
+                "generation: planned commitment %r not found, skipping", text[:80]
+            )
+
+    return thread_ids, commitment_ids
+
+
 def _context_block_for_scene(
     retriever: HybridRetriever | None, novel_id: str, chapter_number: int, scene
 ) -> str:
@@ -122,6 +162,15 @@ def generate_chapter(
         else:
             plan = ScenePlanner(client).plan(novel_id, chapter_number)
 
+        if not plan.scenes:
+            raise ValueError(
+                f"generation: planner returned no scenes for chapter {chapter_number}; "
+                "refusing to draft an empty chapter"
+            )
+        planned_thread_ids, planned_commitment_ids = _resolve_planned_ids(
+            client, novel_id, plan
+        )
+
         retriever = None
         if not mock:
             retriever = HybridRetriever(client, EmbeddingService(use_mock=mock))
@@ -156,19 +205,14 @@ def generate_chapter(
 
             _tick("critique")
             raw_claims = extract_draft_claims(text, use_mock=mock)
-            planned_commitments = [
-                c
-                for s in plan.scenes
-                for c in (s.commitments_to_plant + s.commitments_to_satisfy)
-            ]
             draft = build_draft_chapter(
                 client,
                 novel_id=novel_id,
                 chapter_number=chapter_number,
                 text=text,
                 raw_claims=raw_claims,
-                planned_thread_ids=[t for s in plan.scenes for t in s.threads_to_advance],
-                planned_commitment_ids=planned_commitments,
+                planned_thread_ids=planned_thread_ids,
+                planned_commitment_ids=planned_commitment_ids,
             )
             report = critic.critique(draft)
             if report.passed:

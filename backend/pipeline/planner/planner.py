@@ -145,11 +145,12 @@ class ScenePlanner:
         if settings.use_mock_llm:
             return _mock_plan(ctx)
 
+        # Real mode fails loudly: a silently substituted mock plan would let a
+        # placeholder-planned chapter be drafted and ingested as canon.
         try:
             from litellm import completion
         except Exception as exc:
-            logger.warning("litellm unavailable, falling back to mock plan: %s", exc)
-            return _mock_plan(ctx)
+            raise RuntimeError(f"planner: litellm unavailable in real mode: {exc}") from exc
 
         system = build_system_prompt()
         user = build_user_prompt(ctx)
@@ -163,13 +164,11 @@ class ScenePlanner:
             )
             raw_text = response["choices"][0]["message"]["content"]
         except Exception as exc:
-            logger.warning("planner LLM call failed, falling back to mock: %s", exc)
-            return _mock_plan(ctx)
+            raise RuntimeError(f"planner: LLM call failed: {exc}") from exc
 
         data = _safe_json(raw_text)
         if not data:
-            logger.warning("planner LLM returned unparseable JSON; using mock plan")
-            return _mock_plan(ctx)
+            raise RuntimeError("planner: LLM returned unparseable JSON")
         plan = _plan_from_json(novel_id, chapter_number, data)
         plan.debug["model"] = self.model
         return plan

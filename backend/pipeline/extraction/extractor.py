@@ -292,23 +292,22 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             seen_dynamics.add(key)
             merged["dynamics_updates"].append(dyn)
 
-    # Scenes: dedupe across chunks by (scene_index, starts_at_excerpt) and
-    # renumber so scene_index is unique and ordered across the merged result.
-    seen_scenes: set[tuple[int, str]] = set()
+    # Scenes: dedupe across chunks by starts_at_excerpt (a scene re-reported
+    # by an overlapping chunk shares its verbatim anchor; scene_index is
+    # per-chunk so it cannot disambiguate) and renumber so scene_index is
+    # unique and ordered across the merged result. An empty excerpt carries
+    # no identity, so those scenes are always kept.
+    seen_scenes: set[str] = set()
     collected_scenes: list[dict[str, Any]] = []
     for extraction in extractions:
         for scene in extraction.get("scenes", []):
             if not isinstance(scene, dict):
                 continue
-            try:
-                idx = int(scene.get("scene_index", 0))
-            except (TypeError, ValueError):
-                idx = 0
             excerpt = str(scene.get("starts_at_excerpt", "")).strip().lower()
-            key = (idx, excerpt)
-            if key in seen_scenes:
-                continue
-            seen_scenes.add(key)
+            if excerpt:
+                if excerpt in seen_scenes:
+                    continue
+                seen_scenes.add(excerpt)
             collected_scenes.append(scene)
     # Re-index sequentially based on appearance order.
     for new_idx, scene in enumerate(collected_scenes):

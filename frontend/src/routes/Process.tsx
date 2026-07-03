@@ -241,10 +241,14 @@ export default function Process() {
                 </div>
               )}
 
-              <progress
-                value={job?.passes_done ?? 0}
-                max={job?.total_passes ?? 1}
-              />
+              {job && job.total_passes > 0 ? (
+                <progress value={job.passes_done} max={job.total_passes} />
+              ) : (
+                // Generation jobs report total_passes=0 (label-only progress);
+                // a value-less <progress> renders as indeterminate instead of
+                // a bar pegged at an invalid max of 0.
+                <progress />
+              )}
             </div>
           )}
 

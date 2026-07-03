@@ -999,7 +999,7 @@ flowchart TD
     </table>
 
     <div class="callout info">
-      <strong>Bitemporal edges</strong> (<code>since_chapter</code>, <code>until_chapter</code>) allow tracking "Asha had the sword from chapter 2 to chapter 7, then Kira had it from chapter 7 onward" — without storing multiple snapshots. A <code>NULL until_chapter</code> means "still true."
+      <strong>Bitemporal edges</strong> (<code>since_chapter</code>, <code>until_chapter</code>) allow tracking "Asha had the sword from chapter 2 to chapter 7, then Kira had it from chapter 7 onward" — without storing multiple snapshots. A <code>NULL until_chapter</code> means "still true." <code>until_chapter</code> is <em>inclusive</em> (the materializer stitches it as the next fact's <code>since_chapter − 1</code>), so every "active at chapter N" filter uses <code>until_chapter &gt;= N</code> — the list endpoints, the entity graph, and the critic's location/possession check all share this convention.
     </div>
   </section>
 
@@ -1441,7 +1441,7 @@ flowchart LR
       <tbody>
         <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN</td></tr>
         <tr><td>Location &amp; possession</td><td><code>location_possession_check.py</code></td><td>Character location/possession claims don't contradict active bitemporal edges</td></tr>
-        <tr><td>Knowledge state</td><td><code>knowledge_state_check.py</code></td><td>Knows-edges don't contradict existing theory-of-mind state</td></tr>
+        <tr><td>Knowledge state</td><td><code>knowledge_state_check.py</code></td><td>Knows-edges don't contradict existing theory-of-mind state. Claims the draft marks as learned this chapter (<code>learned_this_chapter</code>, an explicit boolean from the claims extractor) are exempt; the rest are matched against <code>knows_edges</code> by word overlap, since the stored and claimed phrasings come from independent LLM calls</td></tr>
         <tr><td>Temporal consistency</td><td><code>temporal_check.py</code></td><td>Event ordering respects <code>temporal_constraints</code></td></tr>
         <tr><td>Commitments</td><td><code>commitment_check.py</code></td><td>Pending commitments are either advanced or acknowledged</td></tr>
         <tr><td>Thread coverage</td><td><code>thread_coverage_check.py</code></td><td>Open plot threads from prior chapters receive some mention</td></tr>
@@ -1492,7 +1492,7 @@ flowchart LR
       "Generate chapter" mode on the Process page.
     </p>
     <ol>
-      <li><strong>Plan</strong> — <code>ScenePlanner</code> produces the <code>ChapterPlan</code> (forced to the deterministic mock plan when mocking, so <code>--mock-llm</code> never hits the network).</li>
+      <li><strong>Plan</strong> — <code>ScenePlanner</code> produces the <code>ChapterPlan</code> (forced to the deterministic mock plan when mocking, so <code>--mock-llm</code> never hits the network; in real mode planner failures <em>raise</em> rather than silently substituting the mock plan). The loop rejects a plan with no scenes, and resolves the plan's thread titles and commitment foreshadow texts to row uuids (read-only; unresolvable ones are dropped with a warning) before they reach the critic's SQL.</li>
       <li><strong>Retrieve</strong> — per scene, the <code>HybridRetriever</code> pulls the top chapters/scenes/events matching the scene goal + cast (capped at chapter N−1, no spoilers).</li>
       <li><strong>Draft</strong> — <code>SceneDrafter</code> writes prose per scene with the retrieved context, the plan's key facts, the prior text tail, and the novel's voice (averaged <code>style_fingerprint</code> of the last 3 chapters).</li>
       <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its six typed checks.</li>
@@ -1525,8 +1525,10 @@ flowchart LR
       <code>EventReplay</code> scans all events for a novel up to a given chapter, infers
       <code>StateSnapshot</code>, <code>LocationFact</code>, and <code>PossessionFact</code> objects
       by reading event descriptions, then <code>StateMaterializer</code> persists them in a single
-      transaction. Re-running for the same <code>(novel_id, through_chapter)</code> is safe — it
-      won't produce duplicate rows.
+      transaction. Each run deletes the novel's entire <code>located_in_edges</code> /
+      <code>possesses_edges</code> projection and re-derives it from the event log, so re-running is
+      idempotent <em>and</em> edges whose source events have since been removed (e.g. a chapter
+      re-processed with <code>replace=true</code>) disappear instead of surviving as stale rows.
     </p>
 
     <p>

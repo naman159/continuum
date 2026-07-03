@@ -473,10 +473,10 @@ flowchart TB
   <table>
     <thead><tr><th>Subsystem</th><th>Engineering quality</th><th>Why it is stuck</th></tr></thead>
     <tbody>
-      <tr><td><code>planner/</code></td><td>Clean types, mock fallback, JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
+      <tr><td><code>planner/</code></td><td>Clean types, mock mode for tests (real-mode failures raise), JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
       <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Now serves the drafter's per-scene context queries</td></tr>
       <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Now fed by <code>generation/draft_claims.py</code> and gates generated-chapter ingestion</td></tr>
-      <tr><td><code>state/</code></td><td>Idempotent replay, invalidate-don't-delete edges</td><td>Reachable only via an unregistered CLI nothing calls</td></tr>
+      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Reachable only via an unregistered CLI nothing calls</td></tr>
     </tbody>
   </table>
 
@@ -682,8 +682,9 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <h2>Deep Dive — State Materializer <span class="badge orange">Orphaned</span></h2>
   <p><code>EventReplay</code> walks events in story order and derives character snapshots plus
      <code>located_in</code> and <code>possesses</code> facts; <code>StateMaterializer</code> persists them
-     in a single transaction with the invalidate-don't-delete pattern (close the prior edge, chain
-     <code>superseded_by_id</code>), and is idempotent. This is the event-sourcing core the research asks
+     in a single transaction as a full novel-scoped rebuild (delete the novel's edge projection,
+     re-derive from the event log, chain <code>superseded_by_id</code>), and is idempotent — stale
+     edges from removed events do not survive. This is the event-sourcing core the research asks
      for, and it is well done.</p>
 
   <p>But it is reachable only through <code>python -m pipeline.state.cli</code> — and that entry point is

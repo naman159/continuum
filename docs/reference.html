@@ -291,7 +291,12 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><code>DATABASE_URL</code></td>
           <td><code>postgresql://localhost/novel_wiki</code></td>
-          <td>PostgreSQL connection string (psycopg3 format)</td>
+          <td>PostgreSQL connection string (psycopg3 format). Can be overridden per git branch:
+          <code>backend/scripts/branch_db.sh use</code> writes a gitignored
+          <code>backend/.env.branch</code> pointing at a branch-specific database, which
+          <code>pipeline/config.py</code> loads with <code>override=true</code> (anchored to the
+          <code>backend/</code> directory, regardless of the process CWD).
+          <code>branch_db.sh clear</code> reverts to plain <code>.env</code>.</td>
         </tr>
         <tr>
           <td><code>OPENAI_API_KEY</code></td>
@@ -649,7 +654,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>resolve_location</code> folds sub-locations into their parent when <code>parent_location</code>
       is set in entity metadata. If <code>metadata["parent_location"]</code> is non-empty, the parent name
       is resolved (or created) instead of the sub-location, preventing floor/corridor/room entries from
-      polluting the locations table.
+      polluting the locations table. The sub-location's name is appended to the parent's
+      <code>aliases</code>, so later metadata-less resolutions of the same name (event and scene
+      resolution) fold to the same row instead of creating a standalone duplicate; a newly created
+      parent does <em>not</em> inherit the sub-location's description.
     </p>
 
     <h4>Resolution cascade</h4>
@@ -1482,7 +1490,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels/{id}/chapters/generate</code></td>
-          <td>Generate the next chapter as an async job (HTTP 202). Body <code>GenerateRequest</code>: <code>{"number": N, "ingest": false}</code>. With <code>"ingest": true</code> the chapter is ingested back into Continuum <em>only if the continuity critic passes</em> (<code>source='generated'</code>). The job result includes <code>{text, passed, fails, warns, iterations, ingested, chapter_id}</code>. Returns <code>{"job_id": "..."}</code></td>
+          <td>Generate the next chapter as an async job (HTTP 202). Body <code>GenerateRequest</code>: <code>{"number": N, "ingest": false}</code>. Returns HTTP 409 if chapter <code>N</code> already exists (generation never overwrites; the check runs before any LLM spend). With <code>"ingest": true</code> the chapter is ingested back into Continuum <em>only if the continuity critic passes</em> (<code>source='generated'</code>). The job result includes <code>{text, passed, fails, warns, iterations, ingested, chapter_id}</code>. Returns <code>{"job_id": "..."}</code></td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
