@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()
 # Per-branch overrides: if scripts/branch_db.sh wrote a .env.branch (gitignored),
 # load it with override=true so this branch's DATABASE_URL takes precedence
-# without ever touching the user's .env file.
-load_dotenv(".env.branch", override=True)
+# without ever touching the user's .env file. branch_db.sh writes the file next
+# to backend/ — anchor there, not to the CWD, or the override silently vanishes
+# when the process starts from any other directory (and writes hit the main DB).
+load_dotenv(Path(__file__).resolve().parents[1] / ".env.branch", override=True)
 
 
 def _bool_env(name: str, default: bool = False) -> bool:

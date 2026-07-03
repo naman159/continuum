@@ -9,9 +9,11 @@ they shouldn't.
 Inputs:
     knowledge_claims: [{character_id, fact_description, source_type, quote}]
 
-We do not use semantic similarity here — the resolver/extractor is
-expected to produce stable fact_descriptions. If two phrasings drift
-apart, embedding-similarity matching would be a future improvement.
+The stored fact_description (written at ingest) and the draft claim's
+fact_description come from two independent LLM calls, so they rarely match
+verbatim. Matching therefore uses word overlap (the same heuristic as
+commitment_check); embedding-similarity matching would be a future
+improvement.
 """
 
 from __future__ import annotations
@@ -22,6 +24,22 @@ from pipeline.db.client import DBClient
 
 def _normalize(text: str) -> str:
     return " ".join((text or "").lower().split())
+
+
+def _fact_is_known(fact: str, known_facts: set[str]) -> bool:
+    """Exact, containment, or word-overlap match against known facts."""
+    if fact in known_facts:
+        return True
+    claim_words = set(fact.split())
+    if not claim_words:
+        return False
+    for known in known_facts:
+        if fact in known or known in fact:
+            return True
+        overlap = claim_words & set(known.split())
+        if len(overlap) >= max(2, int(len(claim_words) * 0.5)):
+            return True
+    return False
 
 
 def check_knowledge_state(
@@ -75,7 +93,7 @@ def check_knowledge_state(
         if learning_in_chapter:
             continue
         # Otherwise the character must already know the fact.
-        if fact not in known.get(cid, set()):
+        if not _fact_is_known(fact, known.get(cid, set())):
             findings.append(
                 Finding(
                     check="knowledge_state",

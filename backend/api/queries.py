@@ -2001,7 +2001,7 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
             until = pe.get("until_chapter")
             if since is not None and since > effective_cap:
                 continue
-            if until is not None and until <= effective_cap:
+            if until is not None and until < effective_cap:
                 continue
             raw_story.append({
                 "from": str(char["entity_id"]),
@@ -2019,7 +2019,7 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
             until = lie.get("until_chapter")
             if since is not None and since > effective_cap:
                 continue
-            if until is not None and until <= effective_cap:
+            if until is not None and until < effective_cap:
                 continue
             raw_story.append({
                 "from": str(eid),
@@ -2144,7 +2144,7 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
         JOIN entities eb ON eb.id = o.entity_id AND eb.novel_id = %s
         WHERE (pe.since_chapter IS NULL OR pe.since_chapter <= %s)
-          AND (pe.until_chapter IS NULL OR pe.until_chapter > %s)
+          AND (pe.until_chapter IS NULL OR pe.until_chapter >= %s)
         """,
         (str(novel_id), str(novel_id), effective_cap, effective_cap),
         dict_rows=True,
@@ -2162,7 +2162,7 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
         JOIN entities ea ON ea.id = lie.entity_id AND ea.novel_id = %s
         JOIN entities eb ON eb.id = l.entity_id   AND eb.novel_id = %s
         WHERE (lie.since_chapter IS NULL OR lie.since_chapter <= %s)
-          AND (lie.until_chapter IS NULL OR lie.until_chapter > %s)
+          AND (lie.until_chapter IS NULL OR lie.until_chapter >= %s)
         """,
         (str(novel_id), str(novel_id), effective_cap, effective_cap),
         dict_rows=True,

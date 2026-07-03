@@ -122,23 +122,22 @@ class StateMaterializer:
     def _write_location_edges(
         self, cur: Any, novel_id: str, facts: list[LocationFact]
     ) -> int:
-        if not facts:
-            return 0
-
-        # For idempotency, we rebuild the projection for the affected entities.
-        # Collect all entity_ids touched by this materialize run.
-        entity_ids = sorted({f.entity_id for f in facts})
-
-        # Delete any existing edges for these entities that came from a prior
-        # materialize run. This is safe because the events table is the
-        # ground truth and we are re-deriving from scratch.
+        # Rebuild the whole novel's projection: delete before the empty-facts
+        # return, and scope by novel rather than by the entities present in
+        # the new facts — otherwise edges whose source events disappeared
+        # (e.g. a chapter re-processed with replace=True) survive as stale
+        # rows. Safe because the events table is the ground truth and we are
+        # re-deriving from scratch.
         cur.execute(
             """
             DELETE FROM located_in_edges
-             WHERE entity_id = ANY(%s::uuid[])
+             WHERE entity_id IN (SELECT id FROM entities WHERE novel_id = %s)
             """,
-            (entity_ids,),
+            (novel_id,),
         )
+
+        if not facts:
+            return 0
 
         # Group facts per entity in arrival order, then chain them so that
         # each prior fact's until_chapter == next.since_chapter - 1 and
@@ -195,19 +194,18 @@ class StateMaterializer:
     def _write_possession_edges(
         self, cur: Any, novel_id: str, facts: list[PossessionFact]
     ) -> int:
-        if not facts:
-            return 0
-
-        # Rebuild projection for the affected characters/objects.
-        char_ids = sorted({f.character_id for f in facts})
-
+        # Same novel-scoped rebuild as _write_location_edges: stale edges for
+        # characters absent from the new facts must not survive.
         cur.execute(
             """
             DELETE FROM possesses_edges
-             WHERE character_id = ANY(%s::uuid[])
+             WHERE character_id IN (SELECT id FROM characters WHERE novel_id = %s)
             """,
-            (char_ids,),
+            (novel_id,),
         )
+
+        if not facts:
+            return 0
 
         # Insert. The replay layer already closed loss events, so we just
         # persist the facts as-is.

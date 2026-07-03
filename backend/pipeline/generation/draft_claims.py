@@ -29,6 +29,7 @@ _CLAIMS_SCHEMA = {
                   "predicate": "string snake_case", "claimed_value": "string", "quote": "string"}],
     "knowledge_claims": [{"character_name": "string", "fact_description": "string",
                           "source_type": "dialogue|observation|inference|witnessed|told|assumed",
+                          "learned_this_chapter": "boolean — true only if the character acquires this fact within this draft; false if they act on knowledge from before",
                           "quote": "string"}],
     "location_claims": [{"character_name": "string", "location_name": "string", "quote": "string"}],
     "possession_claims": [{"character_name": "string", "object_name": "string", "quote": "string"}],
@@ -135,10 +136,14 @@ def build_draft_chapter(
         cid = _char(str(k.get("character_name", "")))
         if cid is None:
             continue
+        learned = k.get("learned_this_chapter")
         knowledge_claims.append({
             "character_id": cid,
             "fact_description": str(k.get("fact_description", "")).strip(),
             "source_type": k.get("source_type"),
+            # Lenient when the model omitted the flag; a non-bool must not
+            # silently disable the knowledge check via truthiness.
+            "learned_this_chapter": learned if isinstance(learned, bool) else True,
             "quote": k.get("quote"),
         })
 

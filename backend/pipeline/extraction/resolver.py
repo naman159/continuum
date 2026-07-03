@@ -27,11 +27,38 @@ class EntityResolver:
     def resolve_location(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
         meta = metadata or {}
         parent_name = str(meta.get("parent_location") or "").strip()
-        if parent_name:
-            # This is a sub-location — always resolve (or create) the parent instead.
-            parent_meta = {"description": meta.get("description")}
-            return self._resolve("location", parent_name, parent_meta)
-        return self._resolve("location", name, meta)
+        normalized = (name or "").strip()
+        if parent_name and parent_name.lower() != normalized.lower():
+            # This is a sub-location — always resolve (or create) the parent
+            # instead. The description belongs to the sub-location, so a newly
+            # created parent must not inherit it; and the sub-location name
+            # becomes an alias of the parent so metadata-less callers (event
+            # and scene resolution) fold to the same row instead of creating a
+            # standalone duplicate location.
+            parent = self._resolve("location", parent_name, {})
+            self._append_location_alias(parent.entity_id, normalized)
+            self._cache[("location", normalized.lower())] = (
+                parent.entity_id,
+                parent.universal_id,
+            )
+            return parent
+        return self._resolve("location", normalized, meta)
+
+    def _append_location_alias(self, location_id: str, alias: str) -> None:
+        row = self.db.fetchone(
+            "SELECT name, aliases FROM locations WHERE id = %s LIMIT 1",
+            (location_id,),
+        )
+        if not row:
+            return
+        name = str(row[0] or "")
+        aliases = list(row[1] or [])
+        if alias.lower() == name.lower() or alias.lower() in {a.lower() for a in aliases}:
+            return
+        self.db.execute(
+            "UPDATE locations SET aliases = %s WHERE id = %s",
+            (aliases + [alias], location_id),
+        )
 
     def resolve_faction(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
         return self._resolve("faction", name, metadata or {})
@@ -190,13 +217,15 @@ class EntityResolver:
                 normalized_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
             partial_row = self.db.fetchone(
-                """
+                r"""
                 SELECT id, entity_id, name, aliases
                 FROM characters
                 WHERE novel_id = %s
                   AND (
                       lower(name) LIKE lower(%s || ' %%')
-                      OR lower(%s) LIKE lower(name || ' %%')
+                      OR lower(%s) LIKE lower(
+                          replace(replace(replace(name, '\', '\\'), '%%', '\%%'), '_', '\_') || ' %%'
+                      )
                   )
                 LIMIT 1
                 """,
