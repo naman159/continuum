@@ -6,12 +6,10 @@ from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.extraction.prompts import PASS_ORDER, build_system_prompt, build_user_prompt
-
-logger = logging.getLogger(__name__)
-
-
 from pipeline.llm import load_completion as _load_completion
 from pipeline.llm import safe_json_loads as _safe_json_loads
+
+logger = logging.getLogger(__name__)
 
 
 def empty_extraction() -> dict[str, Any]:

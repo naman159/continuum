@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { api, postJson } from "../api";
+import { api, fetchJson, postJson } from "../api";
 
 type JobStatus = {
   job_id: string;
@@ -18,10 +18,8 @@ function postChapter(novelId: string, number: number, text: string): Promise<{ j
   return postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/process`, { number, text });
 }
 
-async function fetchJob(jobId: string): Promise<JobStatus> {
-  const res = await fetch(`/api/jobs/${jobId}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+function fetchJob(jobId: string): Promise<JobStatus> {
+  return fetchJson<JobStatus>(`/api/jobs/${jobId}`);
 }
 
 const PASS_LABELS: Record<string, string> = {

@@ -13,6 +13,7 @@ from pipeline.critic.types import DraftChapter
 from pipeline.entity_tables import TYPED_TABLES
 from pipeline.extraction.resolver import lookup_typed
 from pipeline.llm import load_completion as _load_completion
+from pipeline.llm import safe_json_loads
 
 
 _EMPTY: dict[str, list] = {
@@ -62,11 +63,13 @@ def extract_draft_claims(
         content = response.choices[0].message.content
         if isinstance(content, list):
             content = "".join(str(p) for p in content)
-        data = json.loads(str(content))
+        data = safe_json_loads(str(content))
     except Exception as exc:
         # Empty claims would make the critic pass vacuously and let an
         # unchecked draft through the ingest gate — fail loudly instead.
         raise RuntimeError(f"draft_claims: extraction failed: {exc}") from exc
+    if not data:
+        raise RuntimeError("draft_claims: extraction returned unparseable JSON")
     return {k: data.get(k) if isinstance(data.get(k), list) else [] for k in _EMPTY}
 
 

@@ -10,6 +10,8 @@ from typing import Any
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.db.client import DBClient
 from pipeline.entity_tables import TYPED_TABLES
+from pipeline.llm import load_completion as _load_completion
+from pipeline.llm import safe_json_loads as _safe_json_loads
 from pipeline.extraction.prompts import (
     build_canonicalization_system_prompt,
     build_canonicalization_user_prompt,
@@ -43,31 +45,56 @@ def normalize_name(name: str) -> str:
     return n or str(name or "").strip().lower()
 
 
-from pipeline.llm import load_completion as _load_completion
-from pipeline.llm import safe_json_loads as _safe_json_loads
+# Similarity at or above this bar counts as lexical evidence for a merge.
+# One constant shared with roster-subset ranking so the roster the LLM sees
+# and the evidence bar for persisting its answer stay calibrated together.
+LEXICAL_MATCH_RATIO = 0.85
 
 
-def _names_lexically_close(candidate: str, target: dict[str, Any]) -> bool:
-    """True when the candidate is plausibly the same entity as the target's
-    name or an alias on lexical evidence alone: token subset ("Empire" <->
-    "Galactic Empire") or high sequence similarity ("Kings Landing" <->
-    "King's Landing")."""
+def _name_pair_similarity(a: str, b: str) -> float:
+    """Similarity of two normalize_name'd strings: the max of sequence ratio
+    and token-overlap/min (a token subset like "empire" ⊂ "galactic empire"
+    scores 1.0)."""
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    score = difflib.SequenceMatcher(None, a, b).ratio()
+    ta, tb = set(a.split()), set(b.split())
+    if ta and tb:
+        score = max(score, len(ta & tb) / min(len(ta), len(tb)))
+    return score
+
+
+def _entry_similarity(candidate_norm: str, entry: dict[str, Any]) -> float:
+    return max(
+        (
+            _name_pair_similarity(candidate_norm, normalize_name(str(raw)))
+            for raw in [entry.get("name", ""), *(entry.get("aliases") or [])]
+        ),
+        default=0.0,
+    )
+
+
+def _names_lexically_close(
+    candidate: str, target: dict[str, Any], roster: list[dict[str, Any]]
+) -> bool:
+    """True when the candidate is lexically close to the target AND to no
+    other roster entry. The ambiguity guard mirrors the deterministic pass's
+    _AMBIGUOUS refusal: a generic candidate ("the Empire") that is close to
+    two roster entries must not be permanently welded to whichever one the
+    LLM happened to pick."""
     nc = normalize_name(candidate)
     if not nc:
         return False
-    c_tokens = set(nc.split())
-    for raw in [target.get("name", ""), *(target.get("aliases") or [])]:
-        nn = normalize_name(str(raw))
-        if not nn:
+    if _entry_similarity(nc, target) < LEXICAL_MATCH_RATIO:
+        return False
+    for entry in roster:
+        if entry is target:
             continue
-        if nc == nn:
-            return True
-        t_tokens = set(nn.split())
-        if c_tokens and t_tokens and (c_tokens <= t_tokens or t_tokens <= c_tokens):
-            return True
-        if difflib.SequenceMatcher(None, nc, nn).ratio() >= 0.85:
-            return True
-    return False
+        if _entry_similarity(nc, entry) >= LEXICAL_MATCH_RATIO:
+            return False
+    return True
 
 
 class IntraExtractionDeduplicator:
@@ -299,7 +326,6 @@ def _apply_rename_map(
 
 
 class EntityCanonicalizer:
-    _TABLE = TYPED_TABLES
 
     def __init__(
         self,
@@ -365,7 +391,7 @@ class EntityCanonicalizer:
         return all_merges
 
     def _load_roster(self, entity_type: str) -> list[dict[str, Any]]:
-        table = self._TABLE.get(entity_type)
+        table = TYPED_TABLES.get(entity_type)
         if table is None:
             # Custom entity type: roster lives in the generic entities table.
             rows = self.db.fetchall(
@@ -539,7 +565,7 @@ class EntityCanonicalizer:
         if candidate.lower() in existing_lower or candidate.lower() == str(target.get("name", "")).lower():
             return
         new_aliases = [*existing_aliases, candidate]
-        table = self._TABLE.get(entity_type, "entities")
+        table = TYPED_TABLES.get(entity_type, "entities")
         self.db.execute(
             f"UPDATE {table} SET aliases = %s WHERE id = %s AND novel_id = %s",
             (new_aliases, target["id"], self.novel_id),
@@ -569,27 +595,26 @@ class EntityCanonicalizer:
             reasoning = str(resolution.get("reasoning") or "").strip()
 
             # Characters always require a verbatim anchor in the chapter text.
-            # Other types tier the evidence: an anchor or lexical closeness to
-            # the target's name/aliases makes the merge permanent (alias
+            # Other types tier the evidence: an anchor, or unambiguous lexical
+            # closeness to the target, makes the merge permanent (alias
             # written); reasoning alone — a required schema field, so its mere
-            # presence proves nothing — merges for this chapter only, because
-            # a hallucinated alias would reroute every future mention.
+            # presence proves nothing — merges for this chapter only (via the
+            # rename map the pipeline applies), because a hallucinated alias
+            # would reroute every future mention.
             target = roster_by_id[str(target_id)]
             anchor_valid = bool(anchor) and anchor in chapter_text
-            if entity_type == "character":
-                if not anchor_valid:
-                    logger.info(
-                        "entity_canonicalizer: rejected character merge (anchor missing or not in text): %s -> %s",
-                        candidate,
-                        target_id,
-                    )
-                    continue
-                persist_alias = True
-            elif anchor_valid or _names_lexically_close(candidate, target):
-                persist_alias = True
-            elif reasoning:
-                persist_alias = False
-            else:
+            if entity_type == "character" and not anchor_valid:
+                logger.info(
+                    "entity_canonicalizer: rejected character merge (anchor missing or not in text): %s -> %s",
+                    candidate,
+                    target_id,
+                )
+                continue
+            persist_alias = anchor_valid or (
+                entity_type != "character"
+                and _names_lexically_close(candidate, target, roster)
+            )
+            if not persist_alias and not reasoning:
                 logger.info(
                     "entity_canonicalizer: rejected %s merge (no anchor and no reasoning): %s -> %s",
                     entity_type,
@@ -619,6 +644,39 @@ class EntityCanonicalizer:
 _AMBIGUOUS = object()
 
 
+def rename_map_for_merges(
+    db: Any, merges: dict[str, dict[str, str]]
+) -> dict[str, dict[str, str]]:
+    """Translate canonicalize()'s merges ({entity_type: {candidate: target_id}})
+    into the lowercased-name rename map _apply_rename_map consumes
+    ({entity_type: {candidate_lower: canonical_name}}).
+
+    Applying this to the extraction is what makes a merge take effect for the
+    current chapter even when the alias was not persisted (the reasoning-only
+    evidence tier) — the resolver then sees the target's canonical name.
+    """
+    rename_map: dict[str, dict[str, str]] = {}
+    for entity_type, candidate_to_id in merges.items():
+        if not candidate_to_id:
+            continue
+        table = TYPED_TABLES.get(entity_type, "entities")
+        target_ids = sorted({str(tid) for tid in candidate_to_id.values()})
+        rows = db.fetchall(
+            f"SELECT id, name FROM {table} WHERE id = ANY(%s::uuid[])",
+            (target_ids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(r["id"]): str(r["name"] or "") for r in rows or []}
+        type_map: dict[str, str] = {}
+        for candidate, target_id in candidate_to_id.items():
+            canonical = name_by_id.get(str(target_id), "")
+            if canonical and canonical.lower() != candidate.strip().lower():
+                type_map[candidate.strip().lower()] = canonical
+        if type_map:
+            rename_map[entity_type] = type_map
+    return rename_map
+
+
 def _select_roster_subset(
     candidates: list[str],
     roster: list[dict[str, Any]],
@@ -631,22 +689,12 @@ def _select_roster_subset(
         return roster
 
     normalized_candidates = [normalize_name(c) for c in candidates]
-    candidate_tokens = [set(nc.split()) for nc in normalized_candidates]
 
     def best_score(entry: dict[str, Any]) -> float:
-        best = 0.0
-        for raw in [entry.get("name", ""), *(entry.get("aliases") or [])]:
-            nn = normalize_name(str(raw))
-            tokens = set(nn.split())
-            for nc, ct in zip(normalized_candidates, candidate_tokens):
-                ratio = difflib.SequenceMatcher(None, nc, nn).ratio()
-                if ratio > best:
-                    best = ratio
-                if ct and tokens:
-                    overlap = len(ct & tokens) / min(len(ct), len(tokens))
-                    if overlap > best:
-                        best = overlap
-        return best
+        return max(
+            (_entry_similarity(nc, entry) for nc in normalized_candidates),
+            default=0.0,
+        )
 
     ranked = sorted(range(len(roster)), key=lambda i: best_score(roster[i]), reverse=True)
     kept = sorted(ranked[:cap])  # keep original roster order for prompt stability

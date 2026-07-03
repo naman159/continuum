@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import replace
 from typing import Any
 
 from pipeline.config import settings
+from pipeline.llm import load_completion as _load_completion
+from pipeline.llm import safe_json_loads
 from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
 
 
 logger = logging.getLogger(__name__)
-
-
-from pipeline.llm import load_completion as _load_completion
 
 
 _RERANK_SYSTEM = (
@@ -107,14 +104,9 @@ class LLMReranker:
 
 def _parse_scores(content: str, expected: int) -> list[float]:
     """Parse model output as JSON {"scores": [...]} with robust fallback."""
-    try:
-        data = json.loads(content)
-    except Exception:
-        # Try to extract a JSON object substring.
-        match = re.search(r"\{.*\}", content, re.DOTALL)
-        if not match:
-            raise ValueError(f"Could not parse rerank output: {content[:200]}")
-        data = json.loads(match.group(0))
+    data = safe_json_loads(content)
+    if not data:
+        raise ValueError(f"Could not parse rerank output: {content[:200]}")
 
     scores_obj = data.get("scores") if isinstance(data, dict) else None
     if not isinstance(scores_obj, list):
