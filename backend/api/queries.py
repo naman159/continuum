@@ -9,6 +9,58 @@ from pipeline.db.client import DBClient
 
 _db: DBClient | None = None
 
+_STORY_KIND_PRECEDENCE = ["dynamic", "event", "possession", "location"]
+
+
+def _merge_story_edges(raw: list[dict]) -> list[dict]:
+    """Collapse multiple raw story records between the same entity pair into one edge.
+
+    Each item in raw must have: from (str), to (str), edge_kind (str), description (str|None).
+    Returns one dict per canonical pair with keys: id, from, to, label, chapter_number,
+    edge_kind, tooltip.
+    """
+    grouped: dict[tuple[str, str], dict] = {}
+    for item in raw:
+        a, b = item["from"], item["to"]
+        pair = (min(a, b), max(a, b))
+        desc = item.get("description") or ""
+        if pair not in grouped:
+            grouped[pair] = {
+                "from": a,
+                "to": b,
+                "edge_kind": item["edge_kind"],
+                "descriptions": [desc] if desc else [],
+            }
+        else:
+            existing = grouped[pair]
+            cur_prec = _STORY_KIND_PRECEDENCE.index(existing["edge_kind"])
+            new_prec = _STORY_KIND_PRECEDENCE.index(item["edge_kind"])
+            if new_prec < cur_prec:
+                existing["edge_kind"] = item["edge_kind"]
+            if desc:
+                existing["descriptions"].append(desc)
+
+    result = []
+    for data in grouped.values():
+        n = len(data["descriptions"])
+        kind = data["edge_kind"]
+        kind_plural = {
+            "dynamic": "dynamics", "event": "events",
+            "possession": "possessions", "location": "locations",
+        }.get(kind, kind)
+        label = data["descriptions"][0] if n == 1 else (f"{n} {kind_plural}" if n > 0 else None)
+        tooltip = "\n".join(data["descriptions"]) or None
+        result.append({
+            "id": str(uuid4()),
+            "from": data["from"],
+            "to": data["to"],
+            "label": label,
+            "chapter_number": None,
+            "edge_kind": kind,
+            "tooltip": tooltip,
+        })
+    return result
+
 
 def _get_db() -> DBClient:
     """DB factory; tests patch this to return a FakeDB."""
@@ -74,7 +126,12 @@ def get_novel(novel_id: UUID) -> dict[str, Any] | None:
     }
 
 
-def create_novel(title: str, author: str | None, language: str | None) -> dict[str, Any]:
+def create_novel(
+    title: str,
+    author: str | None,
+    language: str | None,
+    custom_entity_types: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     db = _get_db()
     if hasattr(db, "novels"):
         novel: dict[str, Any] = {
@@ -85,11 +142,24 @@ def create_novel(title: str, author: str | None, language: str | None) -> dict[s
             "created_at": datetime.now(timezone.utc),
         }
         db.novels.append(novel)
+        for et in (custom_entity_types or []):
+            db.novel_entity_types.append({
+                "id": uuid4(),
+                "novel_id": novel["id"],
+                "name": et["name"],
+                "description": et.get("description"),
+            })
         return {**novel, "max_chapter": 0}
-    return _create_novel_real(db, title, author, language)
+    return _create_novel_real(db, title, author, language, custom_entity_types or [])
 
 
-def _create_novel_real(db: DBClient, title: str, author: str | None, language: str | None) -> dict[str, Any]:
+def _create_novel_real(
+    db: DBClient,
+    title: str,
+    author: str | None,
+    language: str | None,
+    custom_entity_types: list[dict[str, Any]],
+) -> dict[str, Any]:
     row = db.fetchone(
         """
         INSERT INTO novels (id, title, author, language, created_at)
@@ -100,6 +170,17 @@ def _create_novel_real(db: DBClient, title: str, author: str | None, language: s
         dict_rows=True,
         commit=True,
     )
+    novel_id = str(row["id"])
+    for et in custom_entity_types:
+        db.execute(
+            """
+            INSERT INTO novel_entity_types (novel_id, name, description)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (novel_id, name) DO NOTHING
+            """,
+            (novel_id, et["name"], et.get("description")),
+            commit=True,
+        )
     return {**dict(row), "max_chapter": 0}
 
 
@@ -446,7 +527,8 @@ def list_chapters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     else:
         rows = [
             dict(r) for r in db.fetchall(
-                "SELECT id, number, title, summary, processed_at FROM chapters WHERE novel_id = %s AND number <= %s ORDER BY number",
+                "SELECT id, number, title, summary, summary_short, summary_long, processed_at "
+                "FROM chapters WHERE novel_id = %s AND number <= %s ORDER BY number",
                 (str(novel_id), effective_cap),
                 dict_rows=True,
             )
@@ -458,6 +540,8 @@ def list_chapters(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
             "number": r["number"],
             "title": r.get("title"),
             "summary": r.get("summary"),
+            "summary_short": r.get("summary_short"),
+            "summary_long": r.get("summary_long"),
             "processed_at": r.get("processed_at"),
         }
         for r in rows
@@ -1018,14 +1102,18 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
         characters = sorted(char_name.get(cid, str(cid)) for cid in involved_char_ids)
         relationships = [
             {
-                "character_name": char_entity_name.get(r["entity_a_id"], str(r["entity_a_id"])),
+                "character_name": char_entity_name.get(
+                    r["entity_a_id"] if r.get("entity_b_id") == obj_entity_id else r["entity_b_id"],
+                    str(r["entity_a_id"] if r.get("entity_b_id") == obj_entity_id else r["entity_b_id"]),
+                ),
                 "rel_type": r.get("rel_type"),
                 "from_chapter": r.get("from_chapter"),
                 "to_chapter": r.get("to_chapter"),
                 "notes": r.get("notes"),
             }
             for r in db.relationships
-            if r.get("entity_b_id") == obj_entity_id and obj_entity_id is not None
+            if obj_entity_id is not None
+            and (r.get("entity_b_id") == obj_entity_id or r.get("entity_a_id") == obj_entity_id)
         ]
     else:
         row = db.fetchone(
@@ -1088,13 +1176,17 @@ def get_object_detail(novel_id: UUID, object_id: UUID, cap: int | None) -> dict[
             """
             SELECT c.name AS character_name, r.rel_type, r.from_chapter, r.to_chapter, r.notes
             FROM relationships r
-            JOIN characters c ON c.entity_id = r.entity_a_id AND c.novel_id = %s
-            WHERE r.entity_b_id = (
-                SELECT entity_id FROM objects WHERE id = %s AND novel_id = %s
-            )
+            JOIN objects ob ON ob.id = %s AND ob.novel_id = %s
+            JOIN characters c
+              ON c.novel_id = %s
+             AND c.entity_id = CASE
+                   WHEN r.entity_a_id = ob.entity_id THEN r.entity_b_id
+                   ELSE r.entity_a_id
+                 END
+            WHERE r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id
             ORDER BY r.from_chapter NULLS LAST
             """,
-            (str(novel_id), str(object_id), str(novel_id)),
+            (str(object_id), str(novel_id), str(novel_id)),
             dict_rows=True,
         )
         relationships = [dict(r) for r in rel_rows]
@@ -1194,43 +1286,36 @@ def get_faction_detail(novel_id: UUID, faction_id: UUID) -> dict[str, Any] | Non
         obj_name = {r["id"]: r["name"] for r in obj_name_rows}
         faction_name_map = {r["id"]: r["name"] for r in faction_name_rows}
 
-        faction_row = db.fetchone(
-            "SELECT entity_id FROM factions WHERE id = %s AND novel_id = %s",
-            (str(faction_id), str(novel_id)),
+        # events.involved_factions stores factions.id (the typed-table id the
+        # resolver returns), not entities.id — query with the faction id itself.
+        event_rows = db.fetchall(
+            """
+            SELECT e.id, e.description, e.event_type, e.impact_level,
+                   ch.number AS chapter_number,
+                   e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
+            FROM events e
+            JOIN chapters ch ON ch.id = e.chapter_id
+            WHERE ch.novel_id = %s
+              AND %s::uuid = ANY(e.involved_factions)
+            ORDER BY ch.number
+            """,
+            (str(novel_id), str(faction_id)),
+            dict_rows=True,
         )
-        faction_entity_id = str(faction_row[0]) if faction_row else None
-
-        if faction_entity_id:
-            event_rows = db.fetchall(
-                """
-                SELECT e.id, e.description, e.event_type, e.impact_level,
-                       ch.number AS chapter_number,
-                       e.involved_characters, e.involved_locations, e.involved_objects, e.involved_factions
-                FROM events e
-                JOIN chapters ch ON ch.id = e.chapter_id
-                WHERE ch.novel_id = %s
-                  AND %s::uuid = ANY(e.involved_factions)
-                ORDER BY ch.number
-                """,
-                (str(novel_id), faction_entity_id),
-                dict_rows=True,
-            )
-            events = [
-                {
-                    "id": r["id"],
-                    "chapter_number": r["chapter_number"],
-                    "description": r["description"],
-                    "event_type": r.get("event_type"),
-                    "impact_level": r.get("impact_level"),
-                    "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
-                    "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
-                    "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
-                    "involved_factions": [faction_name_map.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
-                }
-                for r in event_rows
-            ]
-        else:
-            events = []
+        events = [
+            {
+                "id": r["id"],
+                "chapter_number": r["chapter_number"],
+                "description": r["description"],
+                "event_type": r.get("event_type"),
+                "impact_level": r.get("impact_level"),
+                "involved_characters": [char_name.get(cid, str(cid)) for cid in (r.get("involved_characters") or [])],
+                "involved_locations": [loc_name.get(lid, str(lid)) for lid in (r.get("involved_locations") or [])],
+                "involved_objects": [obj_name.get(oid, str(oid)) for oid in (r.get("involved_objects") or [])],
+                "involved_factions": [faction_name_map.get(fid, str(fid)) for fid in (r.get("involved_factions") or [])],
+            }
+            for r in event_rows
+        ]
 
     return {
         "identity": {
@@ -1297,3 +1382,792 @@ def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]
         }
         for r in raw
     ]
+
+
+# ============================================================================
+# SOTA-upgrade queries: scenes, knows, commitments, canon, location/possession.
+# These use the real DB only (the in-memory fake DB used by some tests does not
+# know about these tables).
+# ============================================================================
+
+
+def list_scenes(
+    novel_id: UUID, cap: int | None, chapter_number: int | None
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["ch.novel_id = %s", "ch.number <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if chapter_number is not None:
+        where.append("ch.number = %s")
+        params.append(chapter_number)
+    rows = db.fetchall(
+        f"""
+        SELECT s.id, s.chapter_id, ch.number AS chapter_number, s.scene_index,
+               s.pov_character_id, pov.name AS pov_character_name,
+               s.location_id, loc.name AS location_name,
+               s.time_anchor, s.story_time_ordinal, s.summary,
+               s.present_characters
+          FROM scenes s
+          JOIN chapters ch ON ch.id = s.chapter_id
+          LEFT JOIN characters pov ON pov.id = s.pov_character_id
+          LEFT JOIN locations loc ON loc.id = s.location_id
+         WHERE {' AND '.join(where)}
+         ORDER BY ch.number, s.scene_index
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    if not rows:
+        return []
+    # Resolve present_characters UUID[] -> names via a single batch.
+    all_char_ids = sorted({str(cid) for r in rows for cid in (r["present_characters"] or [])})
+    name_by_id: dict[str, str] = {}
+    if all_char_ids:
+        chars = db.fetchall(
+            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
+            (all_char_ids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(c["id"]): c["name"] for c in chars}
+    return [
+        {
+            "id": r["id"],
+            "chapter_id": r["chapter_id"],
+            "chapter_number": r["chapter_number"],
+            "scene_index": r["scene_index"],
+            "pov_character_id": r["pov_character_id"],
+            "pov_character_name": r["pov_character_name"],
+            "location_id": r["location_id"],
+            "location_name": r["location_name"],
+            "time_anchor": r["time_anchor"],
+            "story_time_ordinal": r["story_time_ordinal"],
+            "summary": r["summary"],
+            "present_character_names": [
+                name_by_id.get(str(cid), str(cid))
+                for cid in (r["present_characters"] or [])
+            ],
+        }
+        for r in rows
+    ]
+
+
+def list_commitments(
+    novel_id: UUID,
+    cap: int | None,
+    status_filter: str,
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["novel_id = %s", "foreshadow_chapter <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if status_filter != "all":
+        where.append("status = %s")
+        params.append(status_filter)
+    rows = db.fetchall(
+        f"""
+        SELECT id, foreshadow_text, foreshadow_chapter, payoff_text, payoff_chapter,
+               trigger_predicate, status, weight, related_entity_ids
+          FROM commitments
+         WHERE {' AND '.join(where)}
+         ORDER BY status, foreshadow_chapter
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    # Resolve related entity names.
+    all_eids = sorted({str(eid) for r in rows for eid in (r["related_entity_ids"] or [])})
+    name_by_id: dict[str, str] = {}
+    if all_eids:
+        ents = db.fetchall(
+            "SELECT id, name FROM entities WHERE id = ANY(%s::uuid[])",
+            (all_eids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(e["id"]): e["name"] for e in ents}
+    return [
+        {
+            "id": r["id"],
+            "foreshadow_text": r["foreshadow_text"],
+            "foreshadow_chapter": r["foreshadow_chapter"],
+            "payoff_text": r["payoff_text"],
+            "payoff_chapter": r["payoff_chapter"],
+            "trigger_predicate": r["trigger_predicate"],
+            "status": r["status"],
+            "weight": float(r["weight"]) if r["weight"] is not None else None,
+            "related_entity_names": [
+                name_by_id.get(str(eid), str(eid))
+                for eid in (r["related_entity_ids"] or [])
+            ],
+            "age_chapters": effective_cap - r["foreshadow_chapter"]
+            if r["status"] == "pending"
+            else None,
+        }
+        for r in rows
+    ]
+
+
+def list_canon_facts(novel_id: UUID, locked_only: bool) -> list[dict[str, Any]]:
+    db = _get_db()
+    where = ["cf.novel_id = %s"]
+    params: list[Any] = [str(novel_id)]
+    if locked_only:
+        where.append("cf.locked = true")
+    rows = db.fetchall(
+        f"""
+        SELECT cf.id, cf.kind, cf.subject_entity_id, e.name AS subject_name,
+               cf.predicate, cf.value, cf.source_chapter, cf.confidence, cf.locked
+          FROM canon_facts cf
+          LEFT JOIN entities e ON e.id = cf.subject_entity_id
+         WHERE {' AND '.join(where)}
+         ORDER BY cf.locked DESC, e.name NULLS LAST, cf.predicate
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "kind": r["kind"],
+            "subject_entity_id": r["subject_entity_id"],
+            "subject_name": r["subject_name"],
+            "predicate": r["predicate"],
+            "value": r["value"],
+            "source_chapter": r["source_chapter"],
+            "confidence": float(r["confidence"]) if r["confidence"] is not None else None,
+            "locked": bool(r["locked"]),
+        }
+        for r in rows
+    ]
+
+
+def update_canon_fact(
+    novel_id: UUID, fact_id: UUID, *, locked: bool | None, value: str | None
+) -> bool:
+    """Patch a canon fact's lock state and/or value in one atomic statement.
+
+    value edits reset confidence to 1.0 (manual entry is authoritative).
+    Returns False when the fact doesn't exist in this novel.
+    """
+    db = _get_db()
+    existing = db.fetchone(
+        "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+        (str(fact_id), str(novel_id)),
+        dict_rows=True,
+    )
+    if existing is None:
+        return False
+    db.execute(
+        """
+        UPDATE canon_facts
+           SET locked = COALESCE(%s, locked),
+               value = COALESCE(%s, value),
+               confidence = CASE WHEN %s::text IS NULL THEN confidence ELSE 1.0 END
+         WHERE id = %s AND novel_id = %s
+        """,
+        (locked, value, value, str(fact_id), str(novel_id)),
+    )
+    return True
+
+
+def create_canon_fact(
+    novel_id: UUID,
+    *,
+    subject_entity_id: UUID,
+    predicate: str,
+    value: str,
+    kind: str = "other",
+    locked: bool = False,
+) -> dict[str, Any] | None:
+    """Upsert a canon fact; on conflict OVERWRITES value/locked/confidence.
+
+    Manual entry is authoritative — unlike the pipeline's ON CONFLICT DO
+    NOTHING, an admin create deliberately replaces what extraction stored.
+    """
+    db = _get_db()
+    row = db.fetchone(
+        """
+        INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked)
+        VALUES (%s, %s, %s, %s, %s, 1.0, %s)
+        ON CONFLICT (novel_id, subject_entity_id, predicate)
+        DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0
+        RETURNING id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked
+        """,
+        (str(novel_id), kind, str(subject_entity_id), predicate.strip().lower(), value, locked),
+        dict_rows=True,
+        commit=True,
+    )
+    return dict(row) if row else None
+
+
+def delete_canon_fact(novel_id: UUID, fact_id: UUID) -> bool:
+    db = _get_db()
+    existing = db.fetchone(
+        "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+        (str(fact_id), str(novel_id)),
+        dict_rows=True,
+    )
+    if existing is None:
+        return False
+    db.execute(
+        "DELETE FROM canon_facts WHERE id = %s AND novel_id = %s",
+        (str(fact_id), str(novel_id)),
+    )
+    return True
+
+
+def list_knows_edges(
+    novel_id: UUID,
+    cap: int | None,
+    character_id: UUID | None,
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["c.novel_id = %s", "k.learned_chapter <= %s", "k.superseded_by_id IS NULL"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if character_id is not None:
+        where.append("k.character_id = %s")
+        params.append(str(character_id))
+    rows = db.fetchall(
+        f"""
+        SELECT k.id, k.character_id, c.name AS character_name,
+               k.fact_description, k.learned_chapter, k.source_type,
+               k.source_event_id, k.certainty, k.shared_with
+          FROM knows_edges k
+          JOIN characters c ON c.id = k.character_id
+         WHERE {' AND '.join(where)}
+         ORDER BY k.learned_chapter, c.name
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    all_shared_ids = sorted({str(cid) for r in rows for cid in (r["shared_with"] or [])})
+    name_by_id: dict[str, str] = {}
+    if all_shared_ids:
+        chars = db.fetchall(
+            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
+            (all_shared_ids,),
+            dict_rows=True,
+        )
+        name_by_id = {str(c["id"]): c["name"] for c in chars}
+    return [
+        {
+            "id": r["id"],
+            "character_id": r["character_id"],
+            "character_name": r["character_name"],
+            "fact_description": r["fact_description"],
+            "learned_chapter": r["learned_chapter"],
+            "source_type": r["source_type"],
+            "source_event_id": r["source_event_id"],
+            "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
+            "shared_with_names": [
+                name_by_id.get(str(cid), str(cid)) for cid in (r["shared_with"] or [])
+            ],
+        }
+        for r in rows
+    ]
+
+
+def list_location_edges(
+    novel_id: UUID, cap: int | None, only_active: bool
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["e.novel_id = %s", "le.since_chapter <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if only_active:
+        where.append("(le.until_chapter IS NULL OR le.until_chapter >= %s)")
+        params.append(effective_cap)
+    rows = db.fetchall(
+        f"""
+        SELECT le.id, le.entity_id, e.name AS entity_name, e.entity_type,
+               le.location_id, loc.name AS location_name,
+               le.since_chapter, le.until_chapter, le.certainty
+          FROM located_in_edges le
+          JOIN entities e ON e.id = le.entity_id
+          LEFT JOIN locations loc ON loc.id = le.location_id
+         WHERE {' AND '.join(where)}
+         ORDER BY le.since_chapter, e.name
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "entity_id": r["entity_id"],
+            "entity_name": r["entity_name"],
+            "entity_type": r["entity_type"],
+            "location_id": r["location_id"],
+            "location_name": r["location_name"],
+            "since_chapter": r["since_chapter"],
+            "until_chapter": r["until_chapter"],
+            "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
+        }
+        for r in rows
+    ]
+
+
+def list_possession_edges(
+    novel_id: UUID, cap: int | None, only_active: bool
+) -> list[dict[str, Any]]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+    where = ["c.novel_id = %s", "pe.since_chapter <= %s"]
+    params: list[Any] = [str(novel_id), effective_cap]
+    if only_active:
+        where.append("(pe.until_chapter IS NULL OR pe.until_chapter >= %s)")
+        params.append(effective_cap)
+    rows = db.fetchall(
+        f"""
+        SELECT pe.id, pe.character_id, c.name AS character_name,
+               pe.object_id, o.name AS object_name,
+               pe.since_chapter, pe.until_chapter, pe.certainty
+          FROM possesses_edges pe
+          JOIN characters c ON c.id = pe.character_id
+          LEFT JOIN objects o ON o.id = pe.object_id
+         WHERE {' AND '.join(where)}
+         ORDER BY pe.since_chapter, c.name
+        """,
+        tuple(params),
+        dict_rows=True,
+    )
+    return [
+        {
+            "id": r["id"],
+            "character_id": r["character_id"],
+            "character_name": r["character_name"],
+            "object_id": r["object_id"],
+            "object_name": r["object_name"],
+            "since_chapter": r["since_chapter"],
+            "until_chapter": r["until_chapter"],
+            "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
+        }
+        for r in rows
+    ]
+
+
+def list_entity_types(novel_id: UUID) -> list[dict[str, Any]]:
+    db = _get_db()
+    if hasattr(db, "novel_entity_types"):
+        return [
+            {
+                "id": str(et["id"]),
+                "novel_id": str(et["novel_id"]),
+                "name": et["name"],
+                "description": et.get("description"),
+            }
+            for et in db.novel_entity_types
+            if et["novel_id"] == novel_id
+        ]
+    rows = db.fetchall(
+        "SELECT id, novel_id, name, description FROM novel_entity_types WHERE novel_id = %s ORDER BY name",
+        (str(novel_id),),
+        dict_rows=True,
+    )
+    return [dict(r) for r in rows]
+
+
+def list_custom_entities(novel_id: UUID, entity_type: str) -> list[dict[str, Any]]:
+    db = _get_db()
+    if hasattr(db, "entities"):
+        return [
+            {
+                "id": str(e["id"]),
+                "name": e["name"],
+                "entity_type": e["entity_type"],
+                "description": e.get("description"),
+            }
+            for e in db.entities
+            if e.get("novel_id") == novel_id and e.get("entity_type") == entity_type
+        ]
+    rows = db.fetchall(
+        """
+        SELECT id, name, entity_type, NULL AS description
+        FROM entities
+        WHERE novel_id = %s AND entity_type = %s
+        ORDER BY name
+        """,
+        (str(novel_id), entity_type),
+        dict_rows=True,
+    )
+    return [
+        {"id": str(r["id"]), "name": r["name"], "entity_type": r["entity_type"], "description": r.get("description")}
+        for r in rows
+    ]
+
+
+def get_custom_entity_detail(novel_id: UUID, entity_id: UUID) -> dict[str, Any] | None:
+    db = _get_db()
+    if hasattr(db, "entities"):
+        entity = next(
+            (e for e in db.entities if e["id"] == entity_id and e.get("novel_id") == novel_id),
+            None,
+        )
+        if entity is None:
+            return None
+        entity_id_str = str(entity_id)
+        rels = [
+            r for r in db.relationships
+            if str(r["entity_a_id"]) == entity_id_str or str(r["entity_b_id"]) == entity_id_str
+        ]
+        entity_by_id = {str(e["id"]): e for e in db.entities}
+        relationships = []
+        for r in rels:
+            if str(r["entity_a_id"]) == entity_id_str:
+                other_id = str(r["entity_b_id"])
+                direction = "from"
+            else:
+                other_id = str(r["entity_a_id"])
+                direction = "to"
+            other = entity_by_id.get(other_id, {})
+            relationships.append({
+                "other_entity_name": other.get("name", other_id),
+                "other_entity_type": other.get("entity_type", "unknown"),
+                "direction": direction,
+                "rel_type": r.get("rel_type"),
+                "from_chapter": r.get("from_chapter"),
+                "to_chapter": r.get("to_chapter"),
+                "notes": r.get("notes"),
+            })
+        return {
+            "id": entity_id_str,
+            "name": entity["name"],
+            "entity_type": entity["entity_type"],
+            "description": entity.get("description"),
+            "relationships": relationships,
+        }
+    row = db.fetchone(
+        "SELECT id, name, entity_type FROM entities WHERE id = %s AND novel_id = %s",
+        (str(entity_id), str(novel_id)),
+        dict_rows=True,
+    )
+    if row is None:
+        return None
+    rels_rows = db.fetchall(
+        """
+        SELECT r.entity_a_id, r.entity_b_id, r.rel_type, r.from_chapter, r.to_chapter, r.notes,
+               ea.name AS name_a, ea.entity_type AS type_a,
+               eb.name AS name_b, eb.entity_type AS type_b
+        FROM relationships r
+        JOIN entities ea ON ea.id = r.entity_a_id
+        JOIN entities eb ON eb.id = r.entity_b_id
+        WHERE r.entity_a_id = %s OR r.entity_b_id = %s
+        """,
+        (str(entity_id), str(entity_id)),
+        dict_rows=True,
+    )
+    relationships = []
+    for r in rels_rows:
+        if str(r["entity_a_id"]) == str(entity_id):
+            other_name, other_type, direction = r["name_b"], r["type_b"], "from"
+        else:
+            other_name, other_type, direction = r["name_a"], r["type_a"], "to"
+        relationships.append({
+            "other_entity_name": other_name,
+            "other_entity_type": other_type,
+            "direction": direction,
+            "rel_type": r.get("rel_type"),
+            "from_chapter": r.get("from_chapter"),
+            "to_chapter": r.get("to_chapter"),
+            "notes": r.get("notes"),
+        })
+    return {
+        "id": str(row["id"]),
+        "name": row["name"],
+        "entity_type": row["entity_type"],
+        "description": None,
+        "relationships": relationships,
+    }
+
+
+def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
+    db = _get_db()
+    effective_cap = _resolve_cap(db, novel_id, cap)
+
+    if hasattr(db, "entities"):
+        # In-memory (FakeDB) path
+        char_by_entity_id = {c["entity_id"]: c for c in db.characters}
+        loc_by_entity_id  = {l["entity_id"]: l for l in db.locations}
+        obj_by_entity_id  = {o["entity_id"]: o for o in db.objects}
+        fac_by_entity_id  = {f["entity_id"]: f for f in db.factions}
+
+        def _native_id(entity_id: Any, entity_type: str) -> str:
+            if entity_type == "character" and entity_id in char_by_entity_id:
+                return str(char_by_entity_id[entity_id]["id"])
+            if entity_type == "location" and entity_id in loc_by_entity_id:
+                return str(loc_by_entity_id[entity_id]["id"])
+            if entity_type == "object" and entity_id in obj_by_entity_id:
+                return str(obj_by_entity_id[entity_id]["id"])
+            if entity_type == "faction" and entity_id in fac_by_entity_id:
+                return str(fac_by_entity_id[entity_id]["id"])
+            return str(entity_id)
+
+        nodes = []
+        entity_id_set: set[Any] = set()
+        for e in db.entities:
+            if e.get("novel_id") != novel_id:
+                continue
+            if e.get("entity_type") == "character":
+                char = char_by_entity_id.get(e["id"])
+                if (
+                    char
+                    and char.get("first_appearance_chapter") is not None
+                    and char["first_appearance_chapter"] > effective_cap
+                ):
+                    continue
+            nodes.append({
+                "id": str(e["id"]),
+                "label": e["name"],
+                "entity_type": e["entity_type"],
+                "native_id": _native_id(e["id"], e["entity_type"]),
+                "description": e.get("description"),
+            })
+            entity_id_set.add(e["id"])
+
+        edges = [
+            {
+                "id": str(r["id"]),
+                "from": str(r["entity_a_id"]),
+                "to": str(r["entity_b_id"]),
+                "label": r.get("rel_type"),
+                "chapter_number": r.get("from_chapter"),
+            }
+            for r in db.relationships
+            if r["entity_a_id"] in entity_id_set
+            and r["entity_b_id"] in entity_id_set
+            and (r.get("from_chapter") is None or r["from_chapter"] <= effective_cap)
+        ]
+        for e in edges:
+            e["edge_kind"] = "relationship"
+            e["tooltip"] = None
+
+        chapter_by_id = {c["id"]: c for c in db.chapters}
+        raw_story: list[dict] = []
+
+        # shared_dynamics
+        for sd in db.shared_dynamics:
+            chap = chapter_by_id.get(sd.get("chapter_id"))
+            if chap is None or chap.get("novel_id") != novel_id:
+                continue
+            if chap["number"] > effective_cap:
+                continue
+            if sd["entity_a_id"] not in entity_id_set or sd["entity_b_id"] not in entity_id_set:
+                continue
+            raw_story.append({
+                "from": str(sd["entity_a_id"]),
+                "to": str(sd["entity_b_id"]),
+                "edge_kind": "dynamic",
+                "description": sd.get("description"),
+            })
+
+        char_by_id = {c["id"]: c for c in db.characters}
+        loc_by_id = {l["id"]: l for l in db.locations}
+
+        for ev in db.events:
+            chap = chapter_by_id.get(ev.get("chapter_id"))
+            if chap is None or chap.get("novel_id") != novel_id:
+                continue
+            if chap["number"] > effective_cap:
+                continue
+            desc = ev.get("description") or ""
+            char_eids = sorted(set(
+                char_by_id[cid]["entity_id"]
+                for cid in (ev.get("involved_characters") or [])
+                if cid in char_by_id and char_by_id[cid]["entity_id"] in entity_id_set
+            ))
+            loc_eids = sorted(set(
+                loc_by_id[lid]["entity_id"]
+                for lid in (ev.get("involved_locations") or [])
+                if lid in loc_by_id and loc_by_id[lid]["entity_id"] in entity_id_set
+            ))
+            for i, eid_a in enumerate(char_eids):
+                for eid_b in char_eids[i + 1:]:
+                    raw_story.append({"from": str(eid_a), "to": str(eid_b), "edge_kind": "event", "description": desc})
+            for eid_c in char_eids:
+                for eid_l in loc_eids:
+                    raw_story.append({"from": str(eid_c), "to": str(eid_l), "edge_kind": "event", "description": desc})
+
+        obj_by_id = {o["id"]: o for o in db.objects}
+
+        for pe in getattr(db, "possesses_edges", []):
+            char = char_by_id.get(pe.get("character_id"))
+            obj = obj_by_id.get(pe.get("object_id"))
+            if not char or not obj:
+                continue
+            if char["entity_id"] not in entity_id_set or obj["entity_id"] not in entity_id_set:
+                continue
+            since = pe.get("since_chapter")
+            until = pe.get("until_chapter")
+            if since is not None and since > effective_cap:
+                continue
+            if until is not None and until < effective_cap:
+                continue
+            raw_story.append({
+                "from": str(char["entity_id"]),
+                "to": str(obj["entity_id"]),
+                "edge_kind": "possession",
+                "description": None,
+            })
+
+        for lie in getattr(db, "located_in_edges", []):
+            eid = lie.get("entity_id")
+            loc = loc_by_id.get(lie.get("location_id"))
+            if not loc or eid not in entity_id_set or loc["entity_id"] not in entity_id_set:
+                continue
+            since = lie.get("since_chapter")
+            until = lie.get("until_chapter")
+            if since is not None and since > effective_cap:
+                continue
+            if until is not None and until < effective_cap:
+                continue
+            raw_story.append({
+                "from": str(eid),
+                "to": str(loc["entity_id"]),
+                "edge_kind": "location",
+                "description": None,
+            })
+
+        story_edges = _merge_story_edges(raw_story)
+        return {"nodes": nodes, "edges": edges + story_edges}
+
+    # Real DB path
+    node_rows = db.fetchall(
+        """
+        SELECT e.id::text AS id,
+               e.name AS label,
+               e.entity_type,
+               COALESCE(c.id, l.id, o.id, f.id, e.id)::text AS native_id,
+               NULL::text AS description
+        FROM entities e
+        LEFT JOIN characters c ON c.entity_id = e.id
+        LEFT JOIN locations  l ON l.entity_id = e.id
+        LEFT JOIN objects    o ON o.entity_id = e.id
+        LEFT JOIN factions   f ON f.entity_id = e.id
+        WHERE e.novel_id = %s
+          AND (
+            e.entity_type != 'character'
+            OR c.first_appearance_chapter IS NULL
+            OR c.first_appearance_chapter <= %s
+          )
+        """,
+        (str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    nodes_list = [dict(r) for r in node_rows]
+
+    edge_rows = db.fetchall(
+        """
+        SELECT r.id::text AS id,
+               r.entity_a_id::text AS "from",
+               r.entity_b_id::text AS "to",
+               r.rel_type AS label,
+               r.from_chapter AS chapter_number
+        FROM relationships r
+        JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
+        WHERE r.from_chapter IS NULL OR r.from_chapter <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    edges_list = [dict(r) for r in edge_rows]
+    for e in edges_list:
+        e["edge_kind"] = "relationship"
+        e["tooltip"] = None
+    raw_story: list[dict] = []
+
+    dyn_rows = db.fetchall(
+        """
+        SELECT sd.entity_a_id::text AS "from",
+               sd.entity_b_id::text AS "to",
+               'dynamic'            AS edge_kind,
+               sd.description       AS description
+        FROM shared_dynamics sd
+        JOIN chapters ch ON ch.id = sd.chapter_id
+        JOIN entities ea ON ea.id = sd.entity_a_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = sd.entity_b_id AND eb.novel_id = %s
+        WHERE ch.number <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in dyn_rows)
+
+    ev_char_rows = db.fetchall(
+        """
+        SELECT ca.entity_id::text AS "from",
+               cb.entity_id::text AS "to",
+               'event'            AS edge_kind,
+               e.description      AS description
+        FROM events e
+        JOIN chapters ch ON ch.id = e.chapter_id
+        JOIN characters ca ON ca.id = ANY(e.involved_characters)
+        JOIN characters cb ON cb.id = ANY(e.involved_characters) AND cb.id > ca.id
+        JOIN entities ea ON ea.id = ca.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = cb.entity_id AND eb.novel_id = %s
+        WHERE ch.number <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in ev_char_rows)
+
+    ev_loc_rows = db.fetchall(
+        """
+        SELECT c.entity_id::text AS "from",
+               l.entity_id::text AS "to",
+               'event'           AS edge_kind,
+               e.description     AS description
+        FROM events e
+        JOIN chapters ch ON ch.id = e.chapter_id
+        JOIN characters c ON c.id = ANY(e.involved_characters)
+        JOIN locations  l ON l.id = ANY(e.involved_locations)
+        JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = l.entity_id AND eb.novel_id = %s
+        WHERE ch.number <= %s
+        """,
+        (str(novel_id), str(novel_id), effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in ev_loc_rows)
+
+    poss_rows = db.fetchall(
+        """
+        SELECT c.entity_id::text AS "from",
+               o.entity_id::text AS "to",
+               'possession'      AS edge_kind,
+               NULL::text        AS description
+        FROM possesses_edges pe
+        JOIN characters c ON c.id = pe.character_id
+        JOIN objects    o ON o.id = pe.object_id
+        JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = o.entity_id AND eb.novel_id = %s
+        WHERE (pe.since_chapter IS NULL OR pe.since_chapter <= %s)
+          AND (pe.until_chapter IS NULL OR pe.until_chapter >= %s)
+        """,
+        (str(novel_id), str(novel_id), effective_cap, effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in poss_rows)
+
+    loc_in_rows = db.fetchall(
+        """
+        SELECT lie.entity_id::text AS "from",
+               l.entity_id::text   AS "to",
+               'location'          AS edge_kind,
+               NULL::text          AS description
+        FROM located_in_edges lie
+        JOIN locations l ON l.id = lie.location_id
+        JOIN entities ea ON ea.id = lie.entity_id AND ea.novel_id = %s
+        JOIN entities eb ON eb.id = l.entity_id   AND eb.novel_id = %s
+        WHERE (lie.since_chapter IS NULL OR lie.since_chapter <= %s)
+          AND (lie.until_chapter IS NULL OR lie.until_chapter >= %s)
+        """,
+        (str(novel_id), str(novel_id), effective_cap, effective_cap),
+        dict_rows=True,
+    )
+    raw_story.extend(dict(r) for r in loc_in_rows)
+
+    story_edges = _merge_story_edges(raw_story)
+    return {"nodes": nodes_list, "edges": edges_list + story_edges}

@@ -11,7 +11,7 @@ export default function Chapters() {
     queryFn: () => api.chapters(novelId!, cap),
     enabled: Boolean(novelId),
   });
-  if (isLoading) return <p>Loading…</p>;
+  if (isLoading) return <p className="muted">Loading…</p>;
   return (
     <div>
       <h1>Chapters</h1>
@@ -24,7 +24,7 @@ export default function Chapters() {
             <tr key={c.id}>
               <td>{c.number}</td>
               <td>{c.title ?? "—"}</td>
-              <td>{c.summary ?? "—"}</td>
+              <td>{c.summary_short ?? c.summary ?? "—"}</td>
               <td>{c.processed_at ?? "—"}</td>
             </tr>
           ))}

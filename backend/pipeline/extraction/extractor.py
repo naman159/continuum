@@ -34,6 +34,15 @@ def empty_extraction() -> dict[str, Any]:
         "continuity_flags": [],
         "relationship_updates": [],
         "dynamics_updates": [],
+        "scenes": [],
+        "summary_short": "",
+        "summary_medium": "",
+        "summary_long": "",
+        "learnings": [],
+        "foreshadows_introduced": [],
+        "payoffs_delivered": [],
+        "custom_entities": [],
+        "canon_facts": [],
     }
 
 
@@ -57,13 +66,17 @@ def _safe_json_loads(raw: str) -> dict[str, Any]:
     return {}
 
 
-def _dedupe_by_name(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    deduped: dict[str, dict[str, Any]] = {}
+def _dedupe_by_name(
+    items: list[dict[str, Any]], *, include_owner: bool = False
+) -> list[dict[str, Any]]:
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
     for item in items:
         name = str(item.get("name", "")).strip()
         if not name:
             continue
-        key = name.lower()
+        # Objects with different owners are distinct even when names collide.
+        owner = str(item.get("owner_name") or "").strip().lower() if include_owner else ""
+        key = (name.lower(), owner)
         if key not in deduped:
             deduped[key] = item
             continue
@@ -80,6 +93,13 @@ def _dedupe_by_name(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _dedupe_strings(values: list[str]) -> list[str]:
     return list(dict.fromkeys(v.strip() for v in values if v and v.strip()))
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (ValueError, TypeError):
+        return 0.0
 
 
 def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
@@ -120,6 +140,44 @@ def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
     if isinstance(dynamics_updates, list):
         output["dynamics_updates"] = [item for item in dynamics_updates if isinstance(item, dict)]
 
+    scenes = raw.get("scenes", [])
+    if isinstance(scenes, list):
+        output["scenes"] = [item for item in scenes if isinstance(item, dict)]
+
+    for field in ("summary_short", "summary_medium", "summary_long"):
+        value = raw.get(field)
+        if isinstance(value, str):
+            output[field] = value.strip()
+
+    learnings = raw.get("learnings", [])
+    if isinstance(learnings, list):
+        output["learnings"] = [item for item in learnings if isinstance(item, dict)]
+
+    foreshadows = raw.get("foreshadows_introduced", [])
+    if isinstance(foreshadows, list):
+        output["foreshadows_introduced"] = [item for item in foreshadows if isinstance(item, dict)]
+
+    payoffs = raw.get("payoffs_delivered", [])
+    if isinstance(payoffs, list):
+        output["payoffs_delivered"] = [item for item in payoffs if isinstance(item, dict)]
+
+    custom_entities = raw.get("custom_entities", [])
+    if isinstance(custom_entities, list):
+        output["custom_entities"] = [
+            item for item in custom_entities
+            if isinstance(item, dict) and item.get("name") and item.get("type")
+        ]
+
+    canon_facts = raw.get("canon_facts", [])
+    if isinstance(canon_facts, list):
+        output["canon_facts"] = [
+            item for item in canon_facts
+            if isinstance(item, dict)
+            and str(item.get("subject_name", "")).strip()
+            and str(item.get("predicate", "")).strip()
+            and str(item.get("value", "")).strip()
+        ]
+
     return output
 
 
@@ -133,7 +191,9 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
         combined: list[dict[str, Any]] = []
         for extraction in extractions:
             combined.extend(extraction.get("new_entities", {}).get(entity_type, []))
-        merged["new_entities"][entity_type] = _dedupe_by_name(combined)
+        merged["new_entities"][entity_type] = _dedupe_by_name(
+            combined, include_owner=(entity_type == "objects")
+        )
 
     # Merge deltas by character name, keeping latest non-empty values.
     delta_index: dict[str, dict[str, Any]] = {}
@@ -232,6 +292,108 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             seen_dynamics.add(key)
             merged["dynamics_updates"].append(dyn)
 
+    # Scenes: dedupe across chunks by starts_at_excerpt (a scene re-reported
+    # by an overlapping chunk shares its verbatim anchor; scene_index is
+    # per-chunk so it cannot disambiguate) and renumber so scene_index is
+    # unique and ordered across the merged result. An empty excerpt carries
+    # no identity, so those scenes are always kept.
+    seen_scenes: set[str] = set()
+    collected_scenes: list[dict[str, Any]] = []
+    for extraction in extractions:
+        for scene in extraction.get("scenes", []):
+            if not isinstance(scene, dict):
+                continue
+            excerpt = str(scene.get("starts_at_excerpt", "")).strip().lower()
+            if excerpt:
+                if excerpt in seen_scenes:
+                    continue
+                seen_scenes.add(excerpt)
+            collected_scenes.append(scene)
+    # Re-index sequentially based on appearance order.
+    for new_idx, scene in enumerate(collected_scenes):
+        scene["scene_index"] = new_idx
+    merged["scenes"] = collected_scenes
+
+    # Multi-granularity summaries: prefer the LAST chunk's non-empty value
+    # for each field. This favors closing recaps which often cover the most
+    # ground; if absent, fall back to earlier chunks in reverse order.
+    for field in ("summary_short", "summary_medium", "summary_long"):
+        for extraction in reversed(extractions):
+            value = str(extraction.get(field, "") or "").strip()
+            if value:
+                merged[field] = value
+                break
+
+    # Learnings: dedupe by (character_name, fact_description).
+    seen_learnings: set[tuple[str, str]] = set()
+    for extraction in extractions:
+        for learning in extraction.get("learnings", []):
+            if not isinstance(learning, dict):
+                continue
+            character = str(learning.get("character_name", "")).strip().lower()
+            fact = str(learning.get("fact_description", "")).strip().lower()
+            if not character or not fact:
+                continue
+            key = (character, fact)
+            if key in seen_learnings:
+                continue
+            seen_learnings.add(key)
+            merged["learnings"].append(learning)
+
+    # Foreshadows: dedupe by foreshadow_text.
+    seen_foreshadows: set[str] = set()
+    for extraction in extractions:
+        for fs in extraction.get("foreshadows_introduced", []):
+            if not isinstance(fs, dict):
+                continue
+            text = str(fs.get("foreshadow_text", "")).strip().lower()
+            if not text or text in seen_foreshadows:
+                continue
+            seen_foreshadows.add(text)
+            merged["foreshadows_introduced"].append(fs)
+
+    # Payoffs: dedupe by payoff_text.
+    seen_payoffs: set[str] = set()
+    for extraction in extractions:
+        for payoff in extraction.get("payoffs_delivered", []):
+            if not isinstance(payoff, dict):
+                continue
+            text = str(payoff.get("payoff_text", "")).strip().lower()
+            if not text or text in seen_payoffs:
+                continue
+            seen_payoffs.add(text)
+            merged["payoffs_delivered"].append(payoff)
+
+    # Custom entities: dedupe by (name.lower(), type).
+    seen_custom: set[tuple[str, str]] = set()
+    for extraction in extractions:
+        for ce in extraction.get("custom_entities", []):
+            if not isinstance(ce, dict):
+                continue
+            key = (str(ce.get("name", "")).strip().lower(), str(ce.get("type", "")).strip().lower())
+            if not key[0] or not key[1] or key in seen_custom:
+                continue
+            seen_custom.add(key)
+            merged["custom_entities"].append(ce)
+
+    # Canon facts: dedupe by (subject, predicate); highest confidence wins.
+    best_canon: dict[tuple[str, str], dict[str, Any]] = {}
+    for extraction in extractions:
+        for fact in extraction.get("canon_facts", []):
+            if not isinstance(fact, dict):
+                continue
+            subj = str(fact.get("subject_name", "")).strip().lower()
+            pred = str(fact.get("predicate", "")).strip().lower()
+            if not subj or not pred:
+                continue
+            key = (subj, pred)
+            current = best_canon.get(key)
+            # Tie-break: strict > keeps the FIRST occurrence on equal confidence
+            # (chunk order = narrative order, unlike the summaries' last-wins rule).
+            if current is None or _safe_float(fact.get("confidence")) > _safe_float(current.get("confidence")):
+                best_canon[key] = fact
+    merged["canon_facts"] = list(best_canon.values())
+
     return merged
 
 
@@ -244,16 +406,26 @@ class ChapterExtractor:
             self.use_mock = use_mock
 
     def extract_chapter(
-        self, chunks: list[str], context: dict[str, Any], progress: Any | None = None
+        self,
+        chunks: list[str],
+        context: dict[str, Any],
+        progress: Any | None = None,
+        custom_entity_types: list[dict] | None = None,
     ) -> dict[str, Any]:
         if not chunks:
             return empty_extraction()
-
-        results = [self.extract_chunk(chunk, context, progress=progress) for chunk in chunks]
+        results = [
+            self.extract_chunk(chunk, context, progress=progress, custom_entity_types=custom_entity_types)
+            for chunk in chunks
+        ]
         return merge_extractions(results)
 
     def extract_chunk(
-        self, chunk: str, context: dict[str, Any], progress: Any | None = None
+        self,
+        chunk: str,
+        context: dict[str, Any],
+        progress: Any | None = None,
+        custom_entity_types: list[dict] | None = None,
     ) -> dict[str, Any]:
         if self.use_mock:
             return self._mock_extract(chunk, context)
@@ -262,7 +434,7 @@ class ChapterExtractor:
         for pass_name in PASS_ORDER:
             if progress is not None:
                 progress.on_pass_start(pass_name)
-            payload = self._run_llm_pass(pass_name, chunk, context)
+            payload = self._run_llm_pass(pass_name, chunk, context, custom_entity_types=custom_entity_types)
             if progress is not None:
                 progress.on_pass_done(pass_name)
             pass_payload[pass_name] = payload
@@ -270,13 +442,19 @@ class ChapterExtractor:
         normalized = self._compose_from_pass_payload(pass_payload)
         return _normalize_extraction(normalized)
 
-    def _run_llm_pass(self, pass_name: str, chunk: str, context: dict[str, Any]) -> dict[str, Any]:
+    def _run_llm_pass(
+        self,
+        pass_name: str,
+        chunk: str,
+        context: dict[str, Any],
+        custom_entity_types: list[dict] | None = None,
+    ) -> dict[str, Any]:
         completion = _load_completion()
         if completion is None:
             return {}
 
-        system_prompt = build_system_prompt(pass_name)
-        user_prompt = build_user_prompt(pass_name, chunk, context)
+        system_prompt = build_system_prompt(pass_name, custom_entity_types=custom_entity_types)
+        user_prompt = build_user_prompt(pass_name, chunk, context, custom_entity_types=custom_entity_types)
 
         try:
             response = completion(
@@ -306,6 +484,11 @@ class ChapterExtractor:
         continuity_flags = pass_payload.get("continuity_flags", {})
         relationship_updates = pass_payload.get("relationship_updates", {})
         dynamics_updates = pass_payload.get("dynamics_updates", {})
+        scene_segmentation = pass_payload.get("scene_segmentation", {})
+        multi_summaries = pass_payload.get("multi_granularity_summaries", {})
+        knowledge_state = pass_payload.get("knowledge_state_deltas", {})
+        commitments = pass_payload.get("commitments", {})
+        canon = pass_payload.get("canon_facts", {})
 
         return {
             "summary": chapter_summary.get("summary", ""),
@@ -316,6 +499,15 @@ class ChapterExtractor:
             "continuity_flags": continuity_flags.get("continuity_flags", []),
             "relationship_updates": relationship_updates.get("relationship_updates", []),
             "dynamics_updates": dynamics_updates.get("dynamics_updates", []),
+            "scenes": scene_segmentation.get("scenes", []),
+            "summary_short": multi_summaries.get("summary_short", ""),
+            "summary_medium": multi_summaries.get("summary_medium", ""),
+            "summary_long": multi_summaries.get("summary_long", ""),
+            "learnings": knowledge_state.get("learnings", []),
+            "foreshadows_introduced": commitments.get("foreshadows_introduced", []),
+            "payoffs_delivered": commitments.get("payoffs_delivered", []),
+            "custom_entities": new_entities.get("custom_entities", []),
+            "canon_facts": canon.get("canon_facts", []),
         }
 
     def _mock_extract(self, chunk: str, context: dict[str, Any]) -> dict[str, Any]:
@@ -391,6 +583,42 @@ class ChapterExtractor:
                         "flag_type": "foreshadowing",
                     }
                 )
+
+        # Deterministic mock scene segmentation: one scene covering the chunk.
+        if non_empty:
+            extraction["scenes"].append(
+                {
+                    "scene_index": 0,
+                    "pov_character_name": candidate_names[0] if candidate_names else None,
+                    "location_name": None,
+                    "time_anchor": None,
+                    "present_character_names": candidate_names[:6],
+                    "summary": " ".join(non_empty[:3])[:400],
+                    "starts_at_excerpt": non_empty[0][:30],
+                }
+            )
+
+        # Deterministic multi-granularity summaries derived from the existing
+        # naive summary slice.
+        if non_empty:
+            extraction["summary_short"] = non_empty[0][:80]
+            extraction["summary_medium"] = " ".join(non_empty[:3])[:1200]
+            extraction["summary_long"] = " ".join(non_empty[:10])[:4000]
+
+        # Mock knowledge-state deltas: emit nothing — knowledge extraction is
+        # too speculative to fake. Tests should not assume any rows.
+
+        # Mock foreshadow/payoff: reuse the continuity_flag heuristic so that
+        # tests can assert plumbing without inventing semantics.
+        for flag in extraction.get("continuity_flags", []):
+            extraction["foreshadows_introduced"].append(
+                {
+                    "foreshadow_text": flag.get("description", ""),
+                    "trigger_predicate": "unknown",
+                    "weight": "medium",
+                    "related_entity_names": [],
+                }
+            )
 
         return _normalize_extraction(extraction)
 

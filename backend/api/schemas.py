@@ -16,10 +16,48 @@ class NovelSummary(BaseModel):
     max_chapter: int
 
 
+class NovelEntityTypeInput(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class NovelEntityType(BaseModel):
+    id: UUID
+    novel_id: UUID
+    name: str
+    description: str | None = None
+
+
+class CustomEntitySummary(BaseModel):
+    id: str
+    name: str
+    entity_type: str
+    description: str | None = None
+
+
+class CustomEntityRelationship(BaseModel):
+    other_entity_name: str
+    other_entity_type: str
+    direction: str
+    rel_type: str | None
+    from_chapter: int | None
+    to_chapter: int | None
+    notes: str | None
+
+
+class CustomEntityDetail(BaseModel):
+    id: str
+    name: str
+    entity_type: str
+    description: str | None = None
+    relationships: list[CustomEntityRelationship]
+
+
 class NovelCreate(BaseModel):
     title: str
     author: str | None = None
     language: str | None = None
+    custom_entity_types: list[NovelEntityTypeInput] = []
 
 
 class CharacterSummary(BaseModel):
@@ -93,6 +131,8 @@ class ChapterSummary(BaseModel):
     number: int
     title: str | None
     summary: str | None
+    summary_short: str | None = None
+    summary_long: str | None = None
     processed_at: datetime | None
 
 
@@ -150,6 +190,8 @@ class GraphEdge(BaseModel):
     to: UUID
     label: str | None
     chapter_number: int | None
+    edge_kind: str | None = None
+    tooltip: str | None = None
 
 
 class RelationshipGraph(BaseModel):
@@ -157,9 +199,23 @@ class RelationshipGraph(BaseModel):
     edges: list[GraphEdge]
 
 
+class EntityGraphNode(BaseModel):
+    id: UUID
+    label: str
+    entity_type: str
+    native_id: UUID
+    description: str | None = None
+
+
+class EntityGraph(BaseModel):
+    nodes: list[EntityGraphNode]
+    edges: list[GraphEdge]
+
+
 class ProcessRequest(BaseModel):
     number: int
     text: str
+    replace: bool = False
 
 
 class JobStatusResponse(BaseModel):
@@ -221,3 +277,108 @@ class FactionDetail(BaseModel):
     identity: FactionSummary
     events: list[ChapterEvent]
     characters: list[str]
+
+
+# --------------------------------------------------------------------------
+# SOTA-upgrade additions: scenes, knowledge graph, commitments, canon facts,
+# bitemporal location/possession edges, multi-granularity chapter summaries.
+# --------------------------------------------------------------------------
+
+
+class SceneRow(BaseModel):
+    id: UUID
+    chapter_id: UUID
+    chapter_number: int
+    scene_index: int
+    pov_character_id: UUID | None
+    pov_character_name: str | None
+    location_id: UUID | None
+    location_name: str | None
+    time_anchor: str | None
+    story_time_ordinal: int | None
+    present_character_names: list[str]
+    summary: str | None
+
+
+class CommitmentRow(BaseModel):
+    id: UUID
+    foreshadow_text: str
+    foreshadow_chapter: int
+    payoff_text: str | None
+    payoff_chapter: int | None
+    # JSONB column: the extractor may store a plain string, an object, or null.
+    trigger_predicate: Any | None = None
+    status: str
+    weight: float | None
+    related_entity_names: list[str]
+    age_chapters: int | None
+
+
+class CanonFactRow(BaseModel):
+    id: UUID
+    kind: str
+    subject_entity_id: UUID | None
+    subject_name: str | None
+    predicate: str
+    value: str
+    source_chapter: int | None
+    confidence: float | None
+    locked: bool
+
+
+class KnowsEdgeRow(BaseModel):
+    id: UUID
+    character_id: UUID
+    character_name: str
+    fact_description: str
+    learned_chapter: int
+    source_type: str | None
+    source_event_id: UUID | None
+    certainty: float | None
+    shared_with_names: list[str]
+
+
+class LocationEdgeRow(BaseModel):
+    id: UUID
+    entity_id: UUID
+    entity_name: str | None
+    entity_type: str | None
+    location_id: UUID
+    location_name: str | None
+    since_chapter: int
+    until_chapter: int | None
+    certainty: float | None
+
+
+class PossessionEdgeRow(BaseModel):
+    id: UUID
+    character_id: UUID
+    character_name: str | None
+    object_id: UUID
+    object_name: str | None
+    since_chapter: int
+    until_chapter: int | None
+    certainty: float | None
+
+
+class CanonFactPatch(BaseModel):
+    locked: bool | None = None
+    value: str | None = None
+
+
+class CanonFactCreate(BaseModel):
+    subject_entity_id: UUID
+    predicate: str
+    value: str
+    kind: str = "other"
+    locked: bool = False
+
+
+class EntityMergeRequest(BaseModel):
+    source_entity_id: UUID
+    target_entity_id: UUID
+
+
+class GenerateRequest(BaseModel):
+    number: int
+    ingest: bool = False

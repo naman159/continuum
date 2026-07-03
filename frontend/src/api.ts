@@ -78,7 +78,85 @@ export type ChapterSummary = {
   number: number;
   title: string | null;
   summary: string | null;
+  summary_short: string | null;
+  summary_long: string | null;
   processed_at: string | null;
+};
+
+export type SceneRow = {
+  id: string;
+  chapter_id: string;
+  chapter_number: number;
+  scene_index: number;
+  pov_character_id: string | null;
+  pov_character_name: string | null;
+  location_id: string | null;
+  location_name: string | null;
+  time_anchor: string | null;
+  story_time_ordinal: number | null;
+  present_character_names: string[];
+  summary: string | null;
+};
+
+export type CommitmentRow = {
+  id: string;
+  foreshadow_text: string;
+  foreshadow_chapter: number;
+  payoff_text: string | null;
+  payoff_chapter: number | null;
+  // JSONB: may be a plain string, an object, or null depending on extraction.
+  trigger_predicate: unknown;
+  status: "pending" | "satisfied" | "broken" | "abandoned" | string;
+  weight: number | null;
+  related_entity_names: string[];
+  age_chapters: number | null;
+};
+
+export type CanonFactRow = {
+  id: string;
+  kind: string;
+  subject_entity_id: string | null;
+  subject_name: string | null;
+  predicate: string;
+  value: string;
+  source_chapter: number | null;
+  confidence: number | null;
+  locked: boolean;
+};
+
+export type KnowsEdgeRow = {
+  id: string;
+  character_id: string;
+  character_name: string;
+  fact_description: string;
+  learned_chapter: number;
+  source_type: string | null;
+  source_event_id: string | null;
+  certainty: number | null;
+  shared_with_names: string[];
+};
+
+export type LocationEdgeRow = {
+  id: string;
+  entity_id: string;
+  entity_name: string | null;
+  entity_type: string | null;
+  location_id: string;
+  location_name: string | null;
+  since_chapter: number;
+  until_chapter: number | null;
+  certainty: number | null;
+};
+
+export type PossessionEdgeRow = {
+  id: string;
+  character_id: string;
+  character_name: string | null;
+  object_id: string;
+  object_name: string | null;
+  since_chapter: number;
+  until_chapter: number | null;
+  certainty: number | null;
 };
 
 
@@ -110,8 +188,29 @@ export type ContinuityFlag = {
 };
 
 export type GraphNode = { id: string; label: string; description: string | null };
-export type GraphEdge = { id: string; from: string; to: string; label: string | null; chapter_number: number | null };
+export type GraphEdge = {
+  id: string;
+  from: string;
+  to: string;
+  label: string | null;
+  chapter_number: number | null;
+  edge_kind: string | null;
+  tooltip: string | null;
+};
 export type RelationshipGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
+
+export type EntityGraphNode = {
+  id: string;
+  label: string;
+  entity_type: string;
+  native_id: string;
+  description: string | null;
+};
+
+export type EntityGraphData = {
+  nodes: EntityGraphNode[];
+  edges: GraphEdge[];
+};
 
 export type LocationSummary = {
   id: string;
@@ -164,6 +263,44 @@ export type FactionDetail = {
   characters: string[];
 };
 
+export type NovelEntityType = {
+  id: string;
+  novel_id: string;
+  name: string;
+  description: string | null;
+};
+
+export type GenrePreset = {
+  id: string;
+  label: string;
+  types: { name: string; description: string }[];
+};
+
+export type CustomEntitySummary = {
+  id: string;
+  name: string;
+  entity_type: string;
+  description: string | null;
+};
+
+export type CustomEntityRelationship = {
+  other_entity_name: string;
+  other_entity_type: string;
+  direction: "from" | "to";
+  rel_type: string | null;
+  from_chapter: number | null;
+  to_chapter: number | null;
+  notes: string | null;
+};
+
+export type CustomEntityDetail = {
+  id: string;
+  name: string;
+  entity_type: string;
+  description: string | null;
+  relationships: CustomEntityRelationship[];
+};
+
 async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -197,6 +334,8 @@ export const api = {
   },
   relationships: (id: string, cap: number | null) =>
     fetchJson<RelationshipGraph>(`/api/novels/${id}/relationships${capParam(cap)}`),
+  entityGraph: (novelId: string, cap: number | null) =>
+    fetchJson<EntityGraphData>(`/api/novels/${novelId}/entity-graph${capParam(cap)}`),
   dynamics: (id: string, cap: number | null) =>
     fetchJson<SharedDynamicRow[]>(`/api/novels/${id}/dynamics${capParam(cap)}`),
   locations: (novelId: string, cap: number | null) =>
@@ -211,4 +350,73 @@ export const api = {
     fetchJson<FactionSummary[]>(`/api/novels/${novelId}/factions`),
   faction: (novelId: string, factionId: string) =>
     fetchJson<FactionDetail>(`/api/novels/${novelId}/factions/${factionId}`),
+  scenes: (novelId: string, cap: number | null, chapter: number | null) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (chapter != null) params.set("chapter", String(chapter));
+    const qs = params.toString();
+    return fetchJson<SceneRow[]>(`/api/novels/${novelId}/scenes${qs ? `?${qs}` : ""}`);
+  },
+  commitments: (novelId: string, cap: number | null, status: string) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    params.set("status", status);
+    return fetchJson<CommitmentRow[]>(`/api/novels/${novelId}/commitments?${params}`);
+  },
+  canon: (novelId: string, lockedOnly: boolean) => {
+    const params = new URLSearchParams();
+    if (lockedOnly) params.set("locked_only", "true");
+    const qs = params.toString();
+    return fetchJson<CanonFactRow[]>(`/api/novels/${novelId}/canon${qs ? `?${qs}` : ""}`);
+  },
+  patchCanonFact: async (novelId: string, factId: string, patch: { locked?: boolean; value?: string }) => {
+    const res = await fetch(`/api/novels/${novelId}/canon/${factId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ ok: boolean }>;
+  },
+  knows: (novelId: string, cap: number | null, characterId: string | null) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (characterId) params.set("character_id", characterId);
+    const qs = params.toString();
+    return fetchJson<KnowsEdgeRow[]>(`/api/novels/${novelId}/knows${qs ? `?${qs}` : ""}`);
+  },
+  locationsHistory: (novelId: string, cap: number | null, onlyActive: boolean) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (onlyActive) params.set("only_active", "true");
+    const qs = params.toString();
+    return fetchJson<LocationEdgeRow[]>(
+      `/api/novels/${novelId}/locations-history${qs ? `?${qs}` : ""}`
+    );
+  },
+  possessions: (novelId: string, cap: number | null, onlyActive: boolean) => {
+    const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
+    if (onlyActive) params.set("only_active", "true");
+    const qs = params.toString();
+    return fetchJson<PossessionEdgeRow[]>(
+      `/api/novels/${novelId}/possessions${qs ? `?${qs}` : ""}`
+    );
+  },
+  genres: () => fetchJson<GenrePreset[]>("/api/genres"),
+  entityTypes: (novelId: string) =>
+    fetchJson<NovelEntityType[]>(`/api/novels/${novelId}/entity-types`),
+  customEntities: (novelId: string, typeName: string) =>
+    fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
+  customEntity: (novelId: string, entityId: string) =>
+    fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
+  generateChapter: async (novelId: string, number: number, ingest: boolean) => {
+    const res = await fetch(`/api/novels/${novelId}/chapters/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ number, ingest }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return res.json() as Promise<{ job_id: string }>;
+  },
 };

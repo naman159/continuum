@@ -7,7 +7,26 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from api.routes import characters, chapters, continuity, dynamics, factions, locations, novels, objects, process, relationships, threads, timeline
+from api.routes import (
+    canon,
+    chapters,
+    characters,
+    commitments,
+    continuity,
+    dynamics,
+    entity_graph,
+    entity_types,
+    factions,
+    knowledge,
+    locations,
+    novels,
+    objects,
+    process,
+    relationships,
+    scenes,
+    threads,
+    timeline,
+)
 
 app = FastAPI(title="Continuum Wiki API")
 app.include_router(novels.router)
@@ -20,8 +39,15 @@ app.include_router(timeline.router)
 app.include_router(threads.router)
 app.include_router(continuity.router)
 app.include_router(relationships.router)
+app.include_router(entity_graph.router)
 app.include_router(dynamics.router)
 app.include_router(process.router)
+# SOTA-upgrade routes
+app.include_router(scenes.router)
+app.include_router(commitments.router)
+app.include_router(canon.router)
+app.include_router(knowledge.router)
+app.include_router(entity_types.router)
 
 
 @app.get("/api/health")
@@ -35,8 +61,9 @@ if _FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str) -> FileResponse:
-        target = _FRONTEND_DIST / full_path
-        if full_path and target.is_file():
+        target = (_FRONTEND_DIST / full_path).resolve()
+        # Refuse anything that escapes the dist directory ("../" traversal).
+        if full_path and target.is_relative_to(_FRONTEND_DIST) and target.is_file():
             return FileResponse(target)
         return FileResponse(_FRONTEND_DIST / "index.html")
 

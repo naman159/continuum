@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Continuum — State of the System</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-faint: #484f58;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #f0883e;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #ff7b72;
+    --sidebar-w: 256px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 24px 0 40px;
+    z-index: 100;
+  }
+  .sidebar-logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .sidebar-logo .product { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+  .sidebar-logo .tagline { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .sidebar-section { padding: 8px 20px 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-faint); }
+  .sidebar a { display: block; padding: 5px 20px; color: var(--text-muted); text-decoration: none; font-size: 13px; border-left: 2px solid transparent; transition: all 0.12s; }
+  .sidebar a:hover { color: var(--text); background: var(--surface2); }
+  .sidebar a.active { color: var(--accent); border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+  .sidebar-doc-link { margin: 16px 20px 0; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.9; }
+  .sidebar-doc-link a { padding: 0; display: inline; color: var(--accent); }
+
+  /* ── Main ── */
+  main { margin-left: var(--sidebar-w); max-width: 880px; padding: 48px 56px 96px; width: 100%; }
+
+  /* ── Typography ── */
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; color: var(--text); margin-bottom: 8px; }
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); margin: 48px 0 16px; padding-top: 48px; border-top: 1px solid var(--border); }
+  h3 { font-size: 16px; font-weight: 600; color: var(--text); margin: 28px 0 10px; }
+  h4 { font-size: 13px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 20px 0 8px; }
+  p { color: var(--text-muted); margin-bottom: 14px; }
+  strong { color: var(--text); font-weight: 600; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul, ol { color: var(--text-muted); margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 5px 0; }
+  li strong { color: var(--text); }
+
+  .lead { font-size: 16px; color: var(--text-muted); line-height: 1.8; margin-bottom: 28px; padding-bottom: 28px; border-bottom: 1px solid var(--border); }
+  .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+  .meta { font-size: 12px; color: var(--text-faint); margin-top: 10px; font-family: 'JetBrains Mono', monospace; }
+
+  /* ── Callout boxes ── */
+  .callout { border-radius: 8px; padding: 14px 18px; margin: 16px 0; border-left: 3px solid; font-size: 14px; }
+  .callout.info  { background: rgba(88,166,255,0.06); border-color: var(--accent);  color: var(--text-muted); }
+  .callout.warn  { background: rgba(210,153,34,0.08); border-color: var(--yellow); color: var(--text-muted); }
+  .callout.tip   { background: rgba(63,185,80,0.06);  border-color: var(--green);  color: var(--text-muted); }
+  .callout.bad   { background: rgba(248,81,73,0.07);  border-color: var(--red);    color: var(--text-muted); }
+  .callout strong { color: var(--text); }
+
+  /* ── Code ── */
+  code { font-family: 'JetBrains Mono', monospace; font-size: 13px; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; color: var(--orange); }
+  pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-x: auto; margin: 16px 0; }
+  pre code { background: none; border: none; padding: 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+  .comment { color: var(--text-faint); }
+  .kw { color: var(--pink); }
+  .str { color: var(--green); }
+
+  /* ── Diagrams ── */
+  .diagram-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 24px; margin: 20px 0; overflow-x: auto; }
+  .mermaid { display: flex; justify-content: center; }
+  .diagram-cap { font-size: 12px; color: var(--text-faint); text-align: center; margin-top: 8px; font-style: italic; }
+
+  /* ── Tables ── */
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 13px; }
+  th { background: var(--surface2); color: var(--text-muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 10px 14px; border: 1px solid var(--border); text-align: left; }
+  td { padding: 9px 14px; border: 1px solid var(--border); color: var(--text-muted); vertical-align: top; }
+  td code { font-size: 12px; }
+  td strong { color: var(--text); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+
+  /* ── Badges ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; letter-spacing: 0.03em; white-space: nowrap; }
+  .badge.green  { background: rgba(63,185,80,0.15);  color: var(--green); }
+  .badge.blue   { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge.orange { background: rgba(240,136,62,0.15); color: var(--orange); }
+  .badge.purple { background: rgba(188,140,255,0.15);color: var(--purple); }
+  .badge.red    { background: rgba(248,81,73,0.15);  color: var(--red); }
+  .badge.yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+  /* ── Grids / cards ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 16px 0; }
+  .card { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .card h4 { margin-top: 0; margin-bottom: 6px; color: var(--accent); font-size: 12px; }
+  .card p { margin-bottom: 0; font-size: 13px; }
+  .card ul { margin-bottom: 0; font-size: 13px; }
+
+  /* ── Now / Next two-column ── */
+  .nn { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin: 16px 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .nn > div { padding: 16px 18px; }
+  .nn .stand { background: rgba(248,81,73,0.05); border-right: 1px solid var(--border); }
+  .nn .need  { background: rgba(63,185,80,0.05); }
+  .nn h4 { margin-top: 0; font-size: 11px; }
+  .nn .stand h4 { color: var(--red); }
+  .nn .need h4  { color: var(--green); }
+  .nn p, .nn ul { font-size: 13px; margin-bottom: 0; color: var(--text-muted); }
+  .nn ul { padding-left: 18px; }
+
+  /* ── Legend ── */
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 16px 0 8px; font-size: 13px; color: var(--text-muted); }
+  .legend > span { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 11px; height: 11px; border-radius: 3px; display: inline-block; }
+  .dot.live { background: var(--green); }
+  .dot.orphan { background: var(--orange); }
+  .dot.schema { background: var(--yellow); }
+  .dot.missing { background: var(--red); }
+
+  /* ── Steps ── */
+  .steps { counter-reset: step; list-style: none; padding-left: 0; }
+  .steps li { counter-increment: step; position: relative; padding: 12px 0 12px 44px; border-bottom: 1px solid var(--border); font-size: 14px; color: var(--text-muted); }
+  .steps li:last-child { border-bottom: none; }
+  .steps li::before { content: counter(step); position: absolute; left: 0; top: 12px; width: 28px; height: 28px; background: var(--surface2); border: 1px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: var(--accent); }
+  .steps li strong { color: var(--text); }
+
+  section { scroll-margin-top: 24px; }
+  h2 { scroll-margin-top: 24px; }
+  hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+  .pill-row { margin: 6px 0 2px; }
+  .phase-tag { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-faint); }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     SIDEBAR
+══════════════════════════════════════════════════════════ -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="product">Continuum</div>
+    <div class="tagline">State of the System — Gap Analysis &amp; Roadmap</div>
+  </div>
+
+  <div class="sidebar-section">Orientation</div>
+  <a href="#tldr">TL;DR</a>
+  <a href="#how-to-read">How to Read This</a>
+  <a href="#reality-map">Reality Map</a>
+  <a href="#scorecard">Scorecard</a>
+
+  <div class="sidebar-section">The Core Gap</div>
+  <a href="#fork">Analyzer vs. Generator</a>
+  <a href="#wiring">The Wiring Gap</a>
+  <a href="#schema-ahead">Schema Ahead of Code</a>
+
+  <div class="sidebar-section">Subsystem Deep Dives</div>
+  <a href="#extraction">Extraction</a>
+  <a href="#retrieval">Hybrid Retrieval</a>
+  <a href="#critic">Continuity Critic</a>
+  <a href="#planner">Scene Planner</a>
+  <a href="#state">State Materializer</a>
+
+  <div class="sidebar-section">Data Integrity</div>
+  <a href="#critic-scorecard">Critic Check Scorecard</a>
+  <a href="#dual-truth">Dual Source of Truth</a>
+  <a href="#heuristics">Heuristic Inference</a>
+  <a href="#atomicity">Atomicity</a>
+
+  <div class="sidebar-section">Engineering Foundations</div>
+  <a href="#evals">No Eval Harness</a>
+  <a href="#observability">Observability &amp; Cost</a>
+  <a href="#migrations">Migration Hygiene</a>
+  <a href="#docs-drift">Docs Drift</a>
+
+  <div class="sidebar-section">The Path Forward</div>
+  <a href="#target">Target Architecture</a>
+  <a href="#roadmap">Roadmap (P0–P5)</a>
+  <a href="#metrics">Success Metrics</a>
+
+  <div class="sidebar-doc-link">
+    Also see:<br>
+    <a href="architecture.html">Architecture Overview →</a><br>
+    <a href="reference.html">API &amp; Schema Reference →</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════
+     MAIN
+══════════════════════════════════════════════════════════ -->
+<main>
+
+  <h1>State of the System</h1>
+  <div class="subtitle">Where Continuum stands today, and where it needs to be to close the gap with SOTA.</div>
+  <div class="meta">branch: closing-the-gap-with-sota · 199 backend tests green · assessed 2026-06-10</div>
+
+  <p class="lead">
+    Continuum has built an excellent set of organs and has not yet connected the circulatory system.
+    The relational + vector knowledge base is largely state-of-the-art, the extraction pipeline is
+    deep and disciplined, and four advanced subsystems — hybrid retrieval, a continuity critic, a
+    scene planner, and an event-sourced state materializer — are individually well-engineered and
+    unit-tested. But none of those four is wired into a running pipeline, several of the marquee
+    tables they depend on have no producer, and the one component that would turn this from a
+    <em>continuity analyzer</em> into the <em>agentic writing system</em> the research describes — a
+    Drafter inside an orchestrated loop — does not exist. This page is the honest map of that gap.
+  </p>
+
+  <!-- ════════════════ TL;DR ════════════════ -->
+  <section id="tldr">
+  <h2>TL;DR</h2>
+
+  <div class="callout info">
+    <strong>The one-sentence version:</strong> the schema and the modules are ~80% of a SOTA design;
+    the missing 20% is almost entirely <em>integration, data-flow, and measurement</em>, not new module
+    quality.
+  </div>
+
+  <ul>
+    <li><strong>What runs today is an analyzer.</strong> Ingest existing chapter prose → 12-pass LLM
+      extraction → Postgres knowledge base → read-only React wiki. This path works end-to-end and is
+      genuinely good.</li>
+    <li><strong>What the research describes is a generator.</strong> Plan → Retrieve → Draft → Critique
+      → Revise → Update, run by a deterministic orchestrator. The <strong>Drafter and the orchestrator
+      do not exist.</strong></li>
+    <li><strong>Four advanced subsystems are built but orphaned.</strong> <code>planner/</code>,
+      <code>retrieval/</code>, <code>critic/</code>, and <code>state/</code> are imported <em>nowhere</em>
+      outside their own packages and tests. They are islands.</li>
+    <li><strong>The schema is one or two phases ahead of the extractor.</strong>
+      <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> have
+      <em>no producer at all</em>; the bitemporal edges only fill if you manually run a CLI that nothing
+      calls automatically. <code>canon_facts</code> now has a live producer (pass 13) with lock/contradiction semantics.</li>
+    <li><strong>So half the critic is hollow.</strong> Three of its six checks query tables that are never
+      populated, and the critic itself is never invoked because nothing produces the <code>DraftChapter</code>
+      it consumes.</li>
+    <li><strong>There is no way to know if any of this is working.</strong> No eval harness, no continuity
+      metric, no retrieval recall measurement. "Closing the gap with SOTA" is currently unfalsifiable.</li>
+  </ul>
+  </section>
+
+  <!-- ════════════════ HOW TO READ ════════════════ -->
+  <section id="how-to-read">
+  <h2>How to Read This</h2>
+  <p>Every component is tagged with one of four states. The same vocabulary is used in the reality map,
+     the scorecard, and the deep dives.</p>
+
+  <div class="legend">
+    <span><span class="dot live"></span><strong>&nbsp;Wired</strong> — built and on the live path</span>
+    <span><span class="dot orphan"></span><strong>&nbsp;Orphaned</strong> — built &amp; tested, imported nowhere</span>
+    <span><span class="dot schema"></span><strong>&nbsp;Schema-only</strong> — table/columns exist, no producer</span>
+    <span><span class="dot missing"></span><strong>&nbsp;Missing</strong> — not built at all</span>
+  </div>
+
+  <p>Each deep-dive section ends with a <strong>Where we stand → Where we need to be</strong> pair so the
+     document doubles as a roadmap, not just a diagnosis.</p>
+  </section>
+
+  <!-- ════════════════ REALITY MAP ════════════════ -->
+  <section id="reality-map">
+  <h2>Reality Map</h2>
+  <p>What is actually connected. The solid green spine is the only path data travels today. Everything in
+     the orange box is built but has no caller; everything in the red box is unbuilt; the yellow tables exist
+     in the schema but nothing writes to them.</p>
+
+  <div class="diagram-wrap">
+    <div class="mermaid">
+flowchart TB
+    subgraph LIVE["✅ Live path — the analyzer (this is the only path data flows through)"]
+      direction TB
+      TXT["Chapter prose<br/>(file / stdin / API)"] --> ING["ingest_chapter"]
+      ING --> EXT["ChapterExtractor<br/>12 LLM passes per chunk"]
+      EXT --> DED["IntraDeduplicator +<br/>EntityCanonicalizer"]
+      DED --> PER["persist: entities · events · scenes<br/>knows_edges · commitments · canon_facts<br/>multi-summaries · relationships · dynamics"]
+      PER --> APIW["Wiki API (FastAPI) + React UI"]
+    end
+
+    subgraph ORPH["🟠 Built &amp; unit-tested — imported nowhere outside tests"]
+      direction LR
+      PLAN["ScenePlanner<br/>→ ChapterPlan"]
+      RETR["HybridRetriever<br/>BM25+dense+RRF+rerank+MMR"]
+      CRIT["ContinuityCritic<br/>6 typed checks"]
+      MAT["StateMaterializer<br/>event replay → bitemporal edges"]
+    end
+
+    subgraph MISS["🔴 Missing entirely"]
+      direction LR
+      ORCH["Orchestrator /<br/>phase-gated state machine"]
+      DRAFT["Drafter<br/>(prose generation)"]
+      REV["Reviser"]
+    end
+
+    subgraph SCH["🟡 Schema exists, no producer"]
+      direction LR
+      TC["temporal_constraints"]
+      SVO["events.subject/verb/object<br/>+ story_time_ordinal"]
+      BTE["located_in / possesses edges<br/>(only via un-called CLI)"]
+    end
+
+    PER -. "should call, doesn't" .-> MAT
+    CRIT -. "needs a DraftChapter<br/>nothing produces one" .-> DRAFT
+
+    classDef live fill:#13351f,stroke:#3fb950,color:#e6edf3;
+    classDef orphan fill:#3a2a12,stroke:#f0883e,color:#e6edf3;
+    classDef missing fill:#3a1715,stroke:#f85149,color:#e6edf3;
+    classDef schema fill:#332d12,stroke:#d29922,color:#e6edf3;
+    class TXT,ING,EXT,DED,PER,APIW live;
+    class PLAN,RETR,CRIT,MAT orphan;
+    class ORCH,DRAFT,REV missing;
+    class CF,TC,SVO,BTE schema;
+    </div>
+    <div class="diagram-cap">The four orange modules and three red modules never touch the green spine. That disconnection is the headline finding.</div>
+  </div>
+  </section>
+
+  <!-- ════════════════ SCORECARD ════════════════ -->
+  <section id="scorecard">
+  <h2>Scorecard</h2>
+  <p>The whole system on one screen, with the evidence for each verdict.</p>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Status</th><th>Evidence</th><th>Where it needs to be</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Ingestion + 12-pass extraction</strong></td>
+        <td><span class="badge green">Wired</span></td>
+        <td>End-to-end in <code>process_chapter</code>; <code>PASS_ORDER</code> = 12 passes</td>
+        <td>Emit SVO triples, canon facts, temporal links (see Schema gap)</td>
+      </tr>
+      <tr>
+        <td><strong>Knowledge base / SOTA schema</strong></td>
+        <td><span class="badge green">Wired</span></td>
+        <td>Bitemporal edges, knows-edges, commitments, scenes, HNSW, BM25 <code>tsvector</code> all present</td>
+        <td>Be fully populated — most tables are partially or fully empty</td>
+      </tr>
+      <tr>
+        <td><strong>Read-only wiki (API + React)</strong></td>
+        <td><span class="badge green">Wired</span></td>
+        <td>18 routers registered in <code>api/app.py</code>; full route set in <code>frontend/src/routes</code></td>
+        <td>Surface critic findings &amp; a search box (neither exists yet)</td>
+      </tr>
+      <tr>
+        <td><strong>Hybrid Retriever</strong></td>
+        <td><span class="badge orange">Orphaned</span></td>
+        <td>Complete BM25+dense+RRF+rerank+MMR pipeline; <code>grep</code> finds no importer</td>
+        <td>Back a <code>/api/search</code> endpoint and feed the planner + drafter</td>
+      </tr>
+      <tr>
+        <td><strong>Continuity Critic</strong></td>
+        <td><span class="badge orange">Orphaned</span></td>
+        <td>6 checks + runner; consumes a <code>DraftChapter</code> nothing constructs</td>
+        <td>Run as a gate over extracted chapters; render findings in the UI</td>
+      </tr>
+      <tr>
+        <td><strong>Scene Planner</strong></td>
+        <td><span class="badge orange">Orphaned</span></td>
+        <td>Produces <code>ChapterPlan</code>; no consumer; context uses naive recency, not retrieval</td>
+        <td>Feed the Drafter; pull context via the retriever</td>
+      </tr>
+      <tr>
+        <td><strong>State Materializer</strong></td>
+        <td><span class="badge orange">Orphaned</span></td>
+        <td>Sound event-replay → bitemporal edges; only reachable via <code>python -m pipeline.state.cli</code></td>
+        <td>Run automatically after every chapter, inside the chapter transaction</td>
+      </tr>
+      <tr>
+        <td><code>canon_facts</code> + lock bit</td>
+        <td><span class="badge green">Wired</span></td>
+        <td>Pass 13 (<code>canon_facts</code>) populates the table; <code>persist_canon_facts()</code> upserts with lock semantics; contradiction → <code>continuity_flag</code>. Frontend lock toggle via <code>PATCH /canon/{id}</code>.</td>
+        <td>Connect <code>knows_edges.fact_id</code> FK; surface <code>canon_contradiction</code> flags in the wiki Continuity view</td>
+      </tr>
+      <tr>
+        <td><code>temporal_constraints</code> + SVO/story-time</td>
+        <td><span class="badge yellow">Schema-only</span></td>
+        <td>No producer; events inserted without subject/verb/object/<code>story_time_ordinal</code></td>
+        <td>Extractor emits ordered SVO events + temporal relations</td>
+      </tr>
+      <tr>
+        <td><strong>Orchestrator / state machine</strong></td>
+        <td><span class="badge green">Built</span></td>
+        <td><code>generation/loop.py</code> sequences plan→retrieve→draft→critique→revise→ingest with critic-gated write-back</td>
+        <td>Exposed via CLI, API job, and the Process page</td>
+      </tr>
+      <tr>
+        <td><strong>Drafter + Reviser</strong></td>
+        <td><span class="badge green">Built</span></td>
+        <td><code>generation/drafter.py</code> drafts per scene with retrieval context + style fingerprint; critic FAILs become revision notes (up to <code>GENERATION_MAX_REVISIONS</code>)</td>
+        <td>Eval harness still pending — quality is gated by the critic only</td>
+      </tr>
+      <tr>
+        <td><strong>Eval harness</strong></td>
+        <td><span class="badge red">Missing</span></td>
+        <td>No golden set, no recall/CED metric anywhere in the repo</td>
+        <td>Build early — it is what makes "closing the gap" measurable</td>
+      </tr>
+    </tbody>
+  </table>
+  </section>
+
+  <!-- ════════════════ THE FORK ════════════════ -->
+  <section id="fork">
+  <h2>The Core Gap I — Analyzer vs. Generator</h2>
+  <p>The deep-research doc (<code>continuity-arch-deep-research.md</code>) describes an
+     <strong>agentic novel-writing system</strong>. The code that actually runs is a
+     <strong>continuity analyzer for prose written elsewhere</strong>. These are different products, and
+     the ambiguity between them is the single most important thing to resolve, because it decides what to
+     build next.</p>
+
+  <p><code>pipeline.py:process_chapter</code> takes <em>existing</em> chapter text as input and ends by
+     persisting structure. There is no generation anywhere in the flow. The planner, retriever, and critic
+     were all built for the generator vision — yet the only thing that exists end-to-end is the analyzer.
+     The piece that would make this a "writing system," the Drafter, is exactly the piece that is missing.</p>
+
+  <div class="callout warn">
+    <strong>Decision required.</strong> Is Continuum (a) a continuity checker / story-bible generator over
+    human- or externally-written prose, or (b) an end-to-end novel generator? Both are valid. But the
+    near-term roadmap is completely different depending on the answer, and right now the codebase is hedging
+    — paying the complexity cost of (b) while only shipping (a).
+  </div>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>An analyzer wearing a generator's skeleton. Generator-oriented modules exist but nothing generates;
+         the product that ships is the wiki.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>An explicit, written product decision. Recommended: <strong>analyzer-first</strong> — make the
+         critic and retriever pay off over existing prose now, treat the Drafter as a later, eval-gated phase.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ WIRING ════════════════ -->
+  <section id="wiring">
+  <h2>The Core Gap II — The Wiring Gap</h2>
+  <p>Four sophisticated subsystems exist. A repository-wide import search confirms that
+     <code>pipeline.planner</code>, <code>pipeline.retrieval</code>, <code>pipeline.critic</code>, and
+     <code>pipeline.state</code> are imported <strong>nowhere outside their own packages and test suites</strong>.
+     Each module independently fell into place; no one wired the loop. The orchestrator the research calls
+     "the single most important structural element" is the missing keystone.</p>
+
+  <table>
+    <thead><tr><th>Subsystem</th><th>Engineering quality</th><th>Why it is stuck</th></tr></thead>
+    <tbody>
+      <tr><td><code>planner/</code></td><td>Clean types, mock mode for tests (real-mode failures raise), JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
+      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Now serves the drafter's per-scene context queries</td></tr>
+      <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Now fed by <code>generation/draft_claims.py</code> and gates generated-chapter ingestion</td></tr>
+      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Reachable only via an unregistered CLI nothing calls</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout info">
+    The module-level code is genuinely strong: clean dataclasses, mock LLM fallbacks everywhere (good for
+    cost and testing), idempotent SQL, sensible defaults. <strong>The problem is not the parts; it is that
+    they are not connected.</strong>
+  </div>
+  </section>
+
+  <!-- ════════════════ SCHEMA AHEAD ════════════════ -->
+  <section id="schema-ahead">
+  <h2>The Core Gap III — Schema Ahead of Code</h2>
+  <p>The <code>schema.sql</code> SOTA upgrade is impressively complete. But several of its most valuable
+     tables and columns have no code path that fills them, which makes the machinery built on top of them
+     inert. This table traces every marquee schema element to its producer.</p>
+
+  <table>
+    <thead><tr><th>Schema element</th><th>Populated by</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><code>scenes</code></td><td><code>persist_scenes</code> (scene_segmentation pass)</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>knows_edges</code> (fact_description)</td><td><code>persist_knows_edges</code> (knowledge_state_deltas pass)</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>commitments</code></td><td><code>persist_commitments</code> (commitments pass)</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>chapters.summary_short/long</code></td><td><code>persist_multi_summaries</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>thread_events</code></td><td><code>_persist_extraction</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>knows_edges.fact_id</code> → <code>canon_facts</code></td><td>not yet linked — still NULL in practice</td><td><span class="badge yellow">empty</span></td></tr>
+      <tr><td><code>canon_facts</code> (+ <code>locked</code>)</td><td><code>persist_canon_facts()</code> (pass 13) — upsert-unless-locked; contradiction → continuity_flag</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>events.subject_entity_id / verb / object_entity_id</code></td><td>nothing — events inserted without SVO</td><td><span class="badge red">no producer</span></td></tr>
+      <tr><td><code>events.story_time_ordinal / narrative_order / scene_id</code></td><td>nothing</td><td><span class="badge red">no producer</span></td></tr>
+      <tr><td><code>temporal_constraints</code></td><td><strong>nothing</strong> — no INSERT exists</td><td><span class="badge red">no producer</span></td></tr>
+      <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> only — never called automatically</td><td><span class="badge orange">orphaned producer</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout bad">
+    <strong>Consequence:</strong> the bitemporal model, the lockable-canon mechanism (the research's
+    single highest-leverage addition), and timeline checking are <em>decorative today</em> — the columns
+    exist but stay empty, so anything querying them no-ops.
+  </div>
+  </section>
+
+  <!-- ════════════════ EXTRACTION ════════════════ -->
+  <section id="extraction">
+  <h2>Deep Dive — Extraction <span class="badge green">Wired</span></h2>
+  <p>This is the strongest part of the system and is meaningfully ahead of what the stale top-level
+     <code>architecture.md</code> describes (it still says "6-pass"). The real pipeline runs
+     <strong>13 sequential passes per chunk</strong>:</p>
+
+  <pre><code>chapter_summary · new_entities · entity_deltas · events · thread_updates
+continuity_flags · relationship_updates · dynamics_updates · scene_segmentation
+multi_granularity_summaries · knowledge_state_deltas · commitments · canon_facts</code></pre>
+
+  <p>Followed by an intra-extraction dedup pass and an LLM canonicalizer with type-specific rules
+     (the object rules correctly refuse to merge same-named items with different owners; the character
+     rules demand a verbatim grammatical anchor before merging — both are thoughtful). Dedup now covers
+     <em>every</em> name field (event factions, scenes, learnings, custom entity types), validates LLM
+     group output against the actually-extracted names, merges trivially-equal names deterministically
+     without an LLM call, and caps the roster sent per canonicalization call
+     (<code>CANONICALIZER_MAX_ROSTER</code>, default 80) so per-chapter cost stays bounded as the cast
+     grows. Custom entity types get aliases via <code>entities.aliases</code>. When dedup still gets it
+     wrong, manual repair now exists: <code>POST /api/novels/{id}/entities/merge</code> (and the
+     <code>novel-wiki-merge-entity</code> CLI) merges a duplicate into its canonical twin in one
+     transaction. Duplicate relationship edges are also deduped at persist time. The mock-LLM path keeps
+     the whole thing testable offline.</p>
+
+  <h3>The gaps that matter</h3>
+  <ul>
+    <li><strong>Events are not SVO triples.</strong> The <code>events</code> pass emits
+      <code>{description, event_type, impact_level, involved_*}</code> — no subject/verb/object. So the
+      SVO columns and any structured causal/temporal reasoning the schema anticipates cannot function.</li>
+    <li><strong>Canon-fact pass is now wired.</strong> Pass 13 (<code>canon_facts</code>) proposes lockable world-facts (eye colour, magic costs, roles). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>; a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) instead of an overwrite. The Canon page lets users toggle the lock per fact via <code>PATCH /api/novels/{id}/canon/{fact_id}</code>.</li>
+    <li><strong>No temporal-relation or story-time output.</strong> Events get neither a
+      <code>story_time_ordinal</code> nor <code>before/after</code> links, so non-linear narration and
+      timeline checks are impossible.</li>
+    <li><strong>Possession/location are left implicit</strong> in event descriptions rather than emitted as
+      typed deltas — which forces the brittle regex inference downstream (see Heuristic Inference).</li>
+  </ul>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <ul>
+        <li>12 deep passes, dedup, canonicalization — high quality</li>
+        <li>Events are free-text; SVO / story-time / canon / temporal columns left empty</li>
+      </ul>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <ul>
+        <li>Events as ordered SVO triples with <code>story_time_ordinal</code> + <code>scene_id</code></li>
+        <li>Typed possession/location deltas; a canon-fact proposal pass; temporal <code>before/after</code> links</li>
+      </ul>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ RETRIEVAL ════════════════ -->
+  <section id="retrieval">
+  <h2>Deep Dive — Hybrid Retrieval <span class="badge orange">Orphaned</span></h2>
+  <p>The best-engineered module in the repo, and the one serving the fewest queries (zero).
+     <code>HybridRetriever.retrieve</code> runs exactly the pipeline the research prescribes:</p>
+
+  <ol>
+    <li>Embed the query once (reused for dense search and MMR).</li>
+    <li>BM25 + dense search per kind (<code>chapter</code>, <code>scene</code>, <code>event</code>) in
+        parallel via a thread pool, with per-stage error capture.</li>
+    <li>Reciprocal Rank Fusion (k=60) across all source/kind lists.</li>
+    <li>Optional LLM cross-encoder rerank of the fused pool.</li>
+    <li>MMR diversification (λ=0.7) down to <code>query.k</code>.</li>
+  </ol>
+
+  <p>It even records per-stage timings and top-K snapshots into a <code>debug</code> dict — the seed of an
+     observability story the rest of the system lacks. The BM25 backing (<code>tsvector</code> + GIN
+     indexes with weighted fields) and HNSW vector indexes are already in the schema and populated for
+     chapters/scenes/events.</p>
+
+  <div class="callout warn">
+    <strong>The irony:</strong> meanwhile <code>gather_plan_context</code> (the planner's context builder)
+    pulls "recent" material by pure <code>ORDER BY chapter DESC LIMIT n</code> recency — exactly the
+    naive retrieval the research warns against — while this far better retriever sits unused two directories
+    away. A built retriever serving no queries is pure liability: it rots and misleads readers of the docs.
+  </div>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>A complete, instrumented hybrid stack with no caller. Planner context uses naive recency instead.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <ul>
+        <li>A <code>/api/search</code> endpoint exposing it to the UI</li>
+        <li><code>gather_plan_context</code> routes through it</li>
+        <li>(generator phase) it builds the Drafter's typed context bundle</li>
+      </ul>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ CRITIC ════════════════ -->
+  <section id="critic">
+  <h2>Deep Dive — Continuity Critic <span class="badge orange">Orphaned</span></h2>
+  <p>The critic runs six typed checks and aggregates structured <code>Finding</code>s with FAIL / WARN /
+     INFO severities; a report "passes" iff there are no FAILs. The design is right — typed, queryable
+     checks rather than a vibes-based "read it and tell me if anything is off" prompt. But it has two
+     compounding problems.</p>
+
+  <p><strong>1. It has no input producer.</strong> The critic consumes a <code>DraftChapter</code> of
+     <em>already-extracted claims</em> (mentions, location/possession/knowledge claims, events,
+     planned thread/commitment IDs). The dataclass docstring itself admits: <em>"In the eventual pipeline
+     this is populated by the Extractor running on the draft prose; in tests it's constructed directly."</em>
+     That adapter — prose → <code>DraftChapter</code> — does not exist. So the critic only ever runs in tests.</p>
+
+  <p><strong>2. Half its checks query empty tables</strong> (see the dedicated scorecard below).</p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Six well-typed checks, never invoked, three of them querying tables with no producer.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <ul>
+        <li>An extractor → <code>DraftChapter</code> adapter (reuse the 12-pass output)</li>
+        <li>Run as a post-extraction gate; persist + render findings in the wiki</li>
+        <li>Light up canon / temporal / possession tables so all six checks bite</li>
+      </ul>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ PLANNER ════════════════ -->
+  <section id="planner">
+  <h2>Deep Dive — Scene Planner <span class="badge orange">Orphaned</span></h2>
+  <p><code>ScenePlanner.plan</code> gathers a <code>PlanContext</code> (locked facts, pending commitments,
+     active threads, recent summaries, recent events, main characters) and asks an LLM for a typed
+     <code>ChapterPlan</code> of scenes — each with POV, location, threads to advance, commitments to
+     plant/satisfy, target beat and word count. The mock path emits a deterministic two-scene plan so tests
+     and <code>USE_MOCK_LLM=true</code> stay green. The <code>ChapterPlan</code> is explicitly intended as
+     "the contract the Drafter must satisfy and the Critic will verify against."</p>
+
+  <p>Two issues: there is <strong>no Drafter to consume the plan</strong>, and the context it plans from is
+     assembled by recency rather than relevance. The planner's <code>locked_facts</code> input from
+     <code>canon_facts</code> is now populated by pass 13, so that blind spot is closed — but the planner
+     still reasons from naive recency rather than the hybrid retriever.</p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Produces sound plans into the void; plans from naive-recency context. Locked-facts input is
+         now populated (pass 13), but recency bias remains.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>Plan from retriever-built context, hand the <code>ChapterPlan</code> to a Drafter, and have the
+         Critic verify the draft against the plan's declared threads/commitments.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ STATE ════════════════ -->
+  <section id="state">
+  <h2>Deep Dive — State Materializer <span class="badge orange">Orphaned</span></h2>
+  <p><code>EventReplay</code> walks events in story order and derives character snapshots plus
+     <code>located_in</code> and <code>possesses</code> facts; <code>StateMaterializer</code> persists them
+     in a single transaction as a full novel-scoped rebuild (delete the novel's edge projection,
+     re-derive from the event log, chain <code>superseded_by_id</code>), and is idempotent — stale
+     edges from removed events do not survive. This is the event-sourcing core the research asks
+     for, and it is well done.</p>
+
+  <p>But it is reachable only through <code>python -m pipeline.state.cli</code> — and that entry point is
+     not even registered in <code>pyproject.toml</code>'s <code>[project.scripts]</code>, unlike the wiki
+     CLIs. Nothing in <code>process_chapter</code> calls it. So the bitemporal edges are empty on any
+     freshly processed novel, and the critic's location/possession check has nothing to read.</p>
+
+  <div class="callout warn">
+    There is also a deeper design tension here — see <a href="#dual-truth">Dual Source of Truth</a>. The
+    materializer and the extractor both write <code>character_states</code>, with different notions of which
+    layer is authoritative.
+  </div>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Correct, idempotent replay; never runs automatically; bitemporal edges therefore empty in practice.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>Invoked automatically at the end of every chapter, inside the chapter's transaction, as the sole
+         writer of derived state.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ CRITIC SCORECARD ════════════════ -->
+  <section id="critic-scorecard">
+  <h2>Critic Check Scorecard</h2>
+  <p>The critic is more nuanced than "all hollow." Three checks have live producers and would work the
+     moment the critic is invoked; three query tables that nothing populates. None run today because the
+     critic has no caller — but this is the order in which to make them bite.</p>
+
+  <table>
+    <thead><tr><th>Check</th><th>Reads</th><th>Producer exists?</th><th>Effective once wired?</th></tr></thead>
+    <tbody>
+      <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">yes</span> — knowledge_state_deltas pass</td><td><span class="badge green">Yes</span></td></tr>
+      <tr><td><code>commitments</code></td><td><code>commitments</code></td><td><span class="badge green">yes</span> — commitments pass</td><td><span class="badge green">Yes</span></td></tr>
+      <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge green">yes</span> — thread_updates pass</td><td><span class="badge green">Yes</span></td></tr>
+      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge orange">only via un-called materializer</span></td><td><span class="badge yellow">Partial</span> — auto-run materializer first</td></tr>
+      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
+      <tr><td><code>temporal_consistency</code></td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code></td><td><span class="badge red">no</span> (both empty)</td><td><span class="badge red">No</span> — needs SVO + temporal extraction</td></tr>
+    </tbody>
+  </table>
+  </section>
+
+  <!-- ════════════════ DUAL TRUTH ════════════════ -->
+  <section id="dual-truth">
+  <h2>Data Integrity — Dual Source of Truth for State</h2>
+  <p><code>character_states</code> is written by <strong>two</strong> different layers with different
+     semantics:</p>
+  <ul>
+    <li><strong>The extractor</strong> writes one row per <code>entity_delta</code> directly from the LLM's
+        per-chapter deltas (<code>_persist_extraction</code>).</li>
+    <li><strong>The materializer</strong> rebuilds snapshots by replaying the event log (and seeds from the
+        extractor's rows), DELETE-then-INSERT scoped to <code>(character_id, chapter_id)</code>.</li>
+  </ul>
+  <p>The research is explicit: <em>event log = ground truth, snapshots = derived projection.</em> But here
+     deltas are always written and the event log is a partial, lossy shadow (events carry no SVO, no
+     possession/location semantics). That inverts the intended architecture — today the <em>deltas</em> are
+     authoritative and the event log cannot reconstruct them.</p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Two writers, no declared winner. Running the materializer after the extractor partially overwrites
+         delta-derived state with replay-derived state.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>Pick one. Recommended: make <strong>events authoritative</strong> — extractor emits rich events
+         only, the materializer builds <em>all</em> snapshots and edges. Single writer, true time-travel.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ HEURISTICS ════════════════ -->
+  <section id="heuristics">
+  <h2>Data Integrity — Heuristic Possession/Location Inference</h2>
+  <p><code>event_replay.py</code> infers item gain/loss by regex-matching English verb lists
+     (<code>took</code>, <code>gave</code>, <code>stole</code>, …) against the event <em>description</em>,
+     and assumes <code>involved_characters[0]</code> is the actor. For an engine whose entire value
+     proposition is precision, deriving possession from verb-matching is the weakest link in the chain:</p>
+  <ul>
+    <li>No negation handling ("did <em>not</em> take", "tried to take but failed").</li>
+    <li>No actor disambiguation — first-listed character is assumed to be the one acting.</li>
+    <li>Passive voice and multi-object sentences are mis-attributed.</li>
+  </ul>
+  <p>The research is clear that these transitions should be <strong>extracted as typed deltas</strong>, not
+     re-derived from prose downstream. The materializer should chain validity intervals; it should not be
+     guessing semantics from verbs.</p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Possession/location semantics reconstructed by regex on free-text descriptions.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>Extractor emits explicit <code>{actor, object, change: gain|loss}</code> and
+         <code>{entity, location, since}</code> deltas; replay just stitches intervals.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ ATOMICITY ════════════════ -->
+  <section id="atomicity">
+  <h2>Data Integrity — Chapter Processing Is Not Atomic</h2>
+  <p><code>process_chapter</code> performs many independent commits: events are inserted one-by-one with
+     <code>commit=True</code>, and each <code>db.execute()</code> opens its own transaction (see
+     <code>db/client.py</code> — every fetch/execute borrows a connection and commits or rolls back on its
+     own). A <code>transaction()</code> context manager exists and the materializer uses it correctly, but
+     the main pipeline does not.</p>
+
+  <div class="callout bad">
+    A failure midway through <code>process_chapter</code> leaves partial state — some events written, no
+    commitments, scenes half-inserted — directly contradicting the research's "treat chapter generation as
+    a database transaction: <code>PLAN → DRAFT → CRITIQUE → REVISE → EXTRACT → COMMIT</code>, no partial
+    state escapes" discipline.
+  </div>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Dozens of per-statement commits per chapter; no rollback boundary; partial-failure states are
+         possible and not detectable.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>One transaction per chapter (or per phase), idempotent re-runs, and a clean rollback on any failure.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ EVALS ════════════════ -->
+  <section id="evals">
+  <h2>Foundations — No Eval Harness <span class="badge red">Missing</span></h2>
+  <p>The research grounds nearly every recommendation in measurement: retrieval recall@10 on a held-out
+     scene set, continuity errors per 10k words, a 20–50 scene golden set with known canonical citations.
+     <strong>None of this exists.</strong> There is no eval directory, no golden set, no continuity metric.</p>
+
+  <div class="callout bad">
+    Without an eval harness, the branch name <em>closing-the-gap-with-sota</em> is unfalsifiable. There is
+    no way to tell whether wiring the critic, fixing the extractor, or adding a drafter improves continuity
+    — or regresses it. This should be built <strong>before</strong> the generator, not after.
+  </div>
+
+  <p><strong>Minimum viable eval:</strong> 20–50 hand-built scenes with (a) the canonically-correct passages
+     a good retriever should surface, and (b) a handful of deliberately-seeded continuity errors a good
+     critic should catch. Report recall@k and critic precision/recall in CI.</p>
+  </section>
+
+  <!-- ════════════════ OBSERVABILITY ════════════════ -->
+  <section id="observability">
+  <h2>Foundations — Observability &amp; Cost</h2>
+  <p>A chapter already costs a lot of LLM calls: 13 extraction passes per chunk, plus intra-dedup,
+     canonicalization, multi-summaries, scenes, knowledge, and commitments — before any planning, drafting,
+     or critique. Prompt <em>size</em> is now bounded, at least: the canonicalizer roster is capped
+     (<code>CANONICALIZER_MAX_ROSTER</code>) and extraction context selects mentioned + recent entities under
+     <code>CONTEXT_MAX_CHARACTERS</code>/<code>CONTEXT_MAX_LOCATIONS</code> instead of dumping the full cast. Yet:</p>
+  <ul>
+    <li><code>LLM_CONFIG</code> is single-model; there is no tiering (cheap model for extraction/style,
+        strong model for drafting) despite LiteLLM making this trivial.</li>
+    <li>No per-chapter token / cost / call-count logging. The research's "always-on observability" — token
+        usage by tier, retrieval hit-rates, critic findings by category, commitment-pool age — is absent.</li>
+    <li>The retriever's per-stage <code>debug</code> timings are the only instrumentation in the codebase,
+        and nothing consumes them.</li>
+  </ul>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Single model for everything; no cost or latency visibility; spend grows blindly with chapter count.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>Model tiering via LiteLLM; a per-chapter run record (tokens, cost, timings, finding counts);
+         generalize the retriever's debug pattern across phases.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ MIGRATIONS ════════════════ -->
+  <section id="migrations">
+  <h2>Foundations — Migration Hygiene</h2>
+  <p>Schema is applied two ways at once: an idempotent <code>schema.sql</code> (run by <code>init-db</code>)
+     <em>and</em> five hand-run <code>migrate_*.py</code> scripts. There is no version table and no migration
+     framework. Fresh installs (full <code>schema.sql</code>) and incrementally-migrated databases will
+     drift apart over time. Separately, the <code>__EMBEDDING_DIM__</code> string-substitution bakes the
+     embedding dimension in at init — changing embedding models later requires a manual column + index
+     rebuild.</p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p>Idempotent schema + ad-hoc migration scripts, no version tracking, dimension locked at init.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>A single migration story (Alembic or a <code>schema_version</code> table); fold/retire the
+         <code>migrate_*</code> scripts; document the embedding-dimension constraint and a re-index path.</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ DOCS DRIFT ════════════════ -->
+  <section id="docs-drift">
+  <h2>Foundations — Docs Drift</h2>
+  <p>The top-level <code>architecture.md</code> still describes a "6-pass" pipeline and lists none of
+     <code>critic/</code>, <code>planner/</code>, <code>retrieval/</code>, or <code>state/</code>. The
+     docs website (<a href="architecture.html">architecture.html</a>) is much more current — it even
+     documents those four advanced modules — but it presents them as part of the system without noting they
+     are not yet wired. The repo's own <code>CLAUDE.md</code> mandates keeping the docs website current
+     after every change; this page is part of closing that loop by stating the wiring status plainly.</p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stand</h4>
+      <p><code>architecture.md</code> stale; docs site current but optimistic about what's connected.</p>
+    </div>
+    <div class="need">
+      <h4>Where we need to be</h4>
+      <p>Retire or regenerate <code>architecture.md</code>; have the docs site mark wiring status (this page
+         is the source of truth for that).</p>
+    </div>
+  </div>
+  </section>
+
+  <!-- ════════════════ TARGET ════════════════ -->
+  <section id="target">
+  <h2>Target Architecture</h2>
+  <p>Where the four orphaned modules and three missing ones belong: a deterministic, phase-gated loop with a
+     single transaction boundary per chapter. This is the analyzer's pieces plus a Drafter, sequenced by an
+     orchestrator — exactly the structure the research prescribes (DOC + DOME + StoryWriter + Novel-OS
+     gating).</p>
+
+  <div class="diagram-wrap">
+    <div class="mermaid">
+flowchart TB
+    PLAN["1 · PLAN<br/>ScenePlanner → ChapterPlan"] --> RET["2 · RETRIEVE<br/>HybridRetriever → typed context bundle"]
+    RET --> DRAFT["3 · DRAFT<br/>Drafter — prose (strongest model)"]
+    DRAFT --> EXA["3b · extract draft<br/>→ DraftChapter adapter"]
+    EXA --> CRIT["4 · CRITIQUE<br/>ContinuityCritic — 6 typed checks"]
+    CRIT -->|FAIL| REV["5 · REVISE<br/>targeted patches (cap 2–3 rounds)"]
+    REV --> EXA
+    CRIT -->|PASS| UPD["6 · UPDATE<br/>persist events · StateMaterializer"]
+    UPD --> COMMIT["7 · COMMIT<br/>single transaction · advance pointer"]
+    COMMIT --> PLAN
+
+    DB[("Postgres + pgvector<br/>canon · events · bitemporal edges<br/>commitments · scenes · knows")]
+    PLAN <--> DB
+    RET <--> DB
+    CRIT <--> DB
+    UPD <--> DB
+
+    classDef have fill:#13351f,stroke:#3fb950,color:#e6edf3;
+    classDef build fill:#3a1715,stroke:#f85149,color:#e6edf3;
+    classDef store fill:#1a2230,stroke:#58a6ff,color:#e6edf3;
+    class PLAN,RET,CRIT,UPD have;
+    class DRAFT,EXA,REV,COMMIT build;
+    class DB store;
+    </div>
+    <div class="diagram-cap">Green nodes already exist (orphaned today). Red nodes are the new build. The blue store is mostly built but under-populated.</div>
+  </div>
+
+  <p>For the <strong>analyzer-first</strong> product, the same diagram applies minus PLAN/DRAFT/REVISE: an
+     externally-written chapter enters at step 3b, the critic gates it, and findings surface in the wiki.
+     That is a small amount of glue over code that already exists.</p>
+  </section>
+
+  <!-- ════════════════ ROADMAP ════════════════ -->
+  <section id="roadmap">
+  <h2>Roadmap (P0 → P5)</h2>
+  <p>Ordered by leverage. P0–P3 deliver value on the analyzer path and are mostly integration; P4 makes
+     everything measurable; P5 is the generator and should not start until P4 exists.</p>
+
+  <ul class="steps">
+    <li>
+      <span class="phase-tag">P0 · the keystone</span><br>
+      <strong>Build the orchestrator and make a chapter one transaction.</strong> Wire
+      <code>extract → materialize_state → critique → surface findings</code> behind a single transaction
+      boundary. This alone converts four islands into a system.<br>
+      <em>Done when:</em> processing a chapter automatically populates bitemporal edges and runs the critic;
+      a mid-run failure leaves no partial state.
+    </li>
+    <li>
+      <span class="phase-tag">P1 · close the extractor → schema gap</span><br>
+      <strong>Make the empty tables fill.</strong> Emit SVO event triples + <code>story_time_ordinal</code> +
+      <code>scene_id</code>; emit typed possession/location deltas; add a canon-fact proposal pass with a
+      lock workflow; emit <code>before/after</code> temporal links.<br>
+      <em>Done when:</em> <code>canon_facts</code>, <code>temporal_constraints</code>, and the SVO columns
+      are non-empty after processing, and all six critic checks can bite.
+    </li>
+    <li>
+      <span class="phase-tag">P2 · critic as a service</span><br>
+      <strong>Surface continuity findings in the product.</strong> Build the extractor →
+      <code>DraftChapter</code> adapter, persist <code>CritiqueReport</code>s, and render them in the wiki
+      (a "Continuity" panel per chapter with FAIL/WARN/INFO and quotes).<br>
+      <em>Done when:</em> a user can see, per chapter, exactly which continuity rules fired and why.
+    </li>
+    <li>
+      <span class="phase-tag">P3 · wire the retriever</span><br>
+      <strong>Give the best module a consumer.</strong> Add <code>/api/search</code>; route
+      <code>gather_plan_context</code> through <code>HybridRetriever</code> instead of naive recency.<br>
+      <em>Done when:</em> search works in the UI and the planner plans from relevance, not recency.
+    </li>
+    <li>
+      <span class="phase-tag">P4 · eval harness (do not skip)</span><br>
+      <strong>Make "closing the gap" measurable.</strong> A 20–50 scene golden set; report retrieval
+      recall@k and critic precision/recall in CI; track continuity errors per 10k words.<br>
+      <em>Done when:</em> every change to retrieval/critic/extraction moves a number you can see.
+    </li>
+    <li>
+      <span class="phase-tag">P5 · the generator (eval-gated)</span><br>
+      <strong>Add the Drafter and Reviser inside the loop.</strong> Strongest model for prose, capped
+      revision rounds, heterogeneous critic model when budget allows. Only after P4 proves the
+      analyzer-side primitives are accurate.<br>
+      <em>Done when:</em> the full PLAN→…→COMMIT loop produces a chapter that passes the critic gate, with
+      cost and quality tracked per chapter.
+    </li>
+  </ul>
+  </section>
+
+  <!-- ════════════════ METRICS ════════════════ -->
+  <section id="metrics">
+  <h2>Success Metrics &amp; Thresholds</h2>
+  <p>Borrowed from the research's "benchmarks that should change the plan." These are the numbers that tell
+     you whether to keep going or stop and fix:</p>
+
+  <table>
+    <thead><tr><th>Metric</th><th>Target</th><th>If it misses…</th></tr></thead>
+    <tbody>
+      <tr><td>Retrieval recall@10 (golden scenes)</td><td>≥ 0.85</td><td>Add a graph-traversal step <em>before</em> hybrid retrieval, not after.</td></tr>
+      <tr><td>Continuity errors per 10k words</td><td>&lt; 2</td><td>Prioritize the temporal constraint solver + heterogeneous-model critique before adding features.</td></tr>
+      <tr><td>Critic precision on seeded errors</td><td>high (few false FAILs)</td><td>Tighten checks; a noisy critic gets ignored.</td></tr>
+      <tr><td>Style drift (generator phase)</td><td>&lt; 15% of chapters</td><td>Invest in sample-conditioning / LoRA before adding more agents.</td></tr>
+      <tr><td>Cost per chapter</td><td>tracked &amp; bounded</td><td>Route low-stakes passes (extraction, style) to cheaper models.</td></tr>
+    </tbody>
+  </table>
+
+  <hr>
+
+  <div class="callout tip">
+    <strong>Bottom line.</strong> The hard, creative engineering is largely done and done well. The gap to
+    SOTA is an <em>integration gap</em>, a <em>data-population gap</em>, and a <em>measurement gap</em> —
+    in that priority order. Build the orchestrator (P0), fill the empty tables (P1), surface the critic
+    (P2), wire the retriever (P3), and stand up evals (P4) before reaching for the Drafter (P5). Each of
+    P0–P3 ships user-visible value on the analyzer you already have.
+  </div>
+  </section>
+
+</main>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    background: '#21262d',
+    primaryColor: '#1f6feb',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#58a6ff',
+    lineColor: '#58a6ff',
+    secondaryColor: '#21262d',
+    tertiaryColor: '#21262d',
+    edgeLabelBackground: '#21262d',
+    fontFamily: 'Inter, system-ui, sans-serif'
+  }
+});
+</script>
+
+</body>
+</html>
