@@ -307,6 +307,29 @@ async function fetchJson<T>(path: string): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  method: "POST" | "PATCH" | "PUT" | "DELETE" = "POST"
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    // Surface FastAPI's {detail: "..."} payload when present.
+    let detail = "";
+    try {
+      detail = (await res.json())?.detail ?? "";
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new Error(detail ? `${res.status}: ${detail}` : `${res.status} ${res.statusText}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 const capParam = (cap: number | null) => (cap == null ? "" : `?cap=${cap}`);
 
 export const api = {
@@ -369,15 +392,8 @@ export const api = {
     const qs = params.toString();
     return fetchJson<CanonFactRow[]>(`/api/novels/${novelId}/canon${qs ? `?${qs}` : ""}`);
   },
-  patchCanonFact: async (novelId: string, factId: string, patch: { locked?: boolean; value?: string }) => {
-    const res = await fetch(`/api/novels/${novelId}/canon/${factId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json() as Promise<{ ok: boolean }>;
-  },
+  patchCanonFact: (novelId: string, factId: string, patch: { locked?: boolean; value?: string }) =>
+    postJson<{ ok: boolean }>(`/api/novels/${novelId}/canon/${factId}`, patch, "PATCH"),
   knows: (novelId: string, cap: number | null, characterId: string | null) => {
     const params = new URLSearchParams();
     if (cap != null) params.set("cap", String(cap));
@@ -410,13 +426,6 @@ export const api = {
     fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
   customEntity: (novelId: string, entityId: string) =>
     fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
-  generateChapter: async (novelId: string, number: number, ingest: boolean) => {
-    const res = await fetch(`/api/novels/${novelId}/chapters/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ number, ingest }),
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json() as Promise<{ job_id: string }>;
-  },
+  generateChapter: (novelId: string, number: number, ingest: boolean) =>
+    postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/generate`, { number, ingest }),
 };

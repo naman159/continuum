@@ -612,7 +612,72 @@ def test_location_merges_without_anchor():
         candidate_names_by_type={"character": set(), "location": {"Jake's office building"}, "object": set(), "faction": set()},
     )
     assert merges.get("location", {}).get("Jake's office building") == "loc-0001-0000-0000-0000-000000000001"
-    assert "Jake's office building" in location_roster[0]["aliases"]
+    # Reasoning-only evidence merges for this chapter but must NOT persist the
+    # alias: a hallucinated alias would reroute every future mention.
+    assert "Jake's office building" not in location_roster[0]["aliases"]
+
+
+def test_lexically_close_merge_persists_alias_without_anchor():
+    """Token-subset name variants ("the Empire" ⊂ "The Galactic Empire") are
+    strong evidence on their own — the alias is written even with no anchor."""
+    faction_roster = [
+        {
+            "id": "fac-0001-0000-0000-0000-000000000001",
+            "name": "The Galactic Empire",
+            "aliases": [],
+            "description": "Authoritarian ruling faction.",
+        }
+    ]
+    db = FakeDBMultiType({"faction": faction_roster})
+    response = {
+        "resolutions": [
+            {
+                "candidate": "the Empire",
+                "verdict": "existing",
+                "id": "fac-0001-0000-0000-0000-000000000001",
+                "grammatical_anchor": "",
+                "reasoning": "Common shorthand.",
+            }
+        ]
+    }
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=_make_completion(response))
+    merges = canon.canonicalize(
+        chapter_text="The Empire tightened its grip.",
+        candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": {"the Empire"}},
+    )
+    assert merges.get("faction", {}).get("the Empire") == "fac-0001-0000-0000-0000-000000000001"
+    assert "the Empire" in faction_roster[0]["aliases"]
+
+
+def test_reasoning_only_merge_rejects_alias_for_dissimilar_names():
+    """A lexically unrelated candidate merged on reasoning alone must not
+    poison the roster: merge honored this chapter, alias not written."""
+    location_roster = [
+        {
+            "id": "loc-0002-0000-0000-0000-000000000002",
+            "name": "South Tower",
+            "aliases": [],
+            "description": "The castle's south tower.",
+        }
+    ]
+    db = FakeDBMultiType({"location": location_roster})
+    response = {
+        "resolutions": [
+            {
+                "candidate": "North Tower",
+                "verdict": "existing",
+                "id": "loc-0002-0000-0000-0000-000000000002",
+                "grammatical_anchor": "",
+                "reasoning": "Both are towers of the same castle.",
+            }
+        ]
+    }
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=_make_completion(response))
+    canon.canonicalize(
+        chapter_text="She climbed the North Tower at dawn.",
+        candidate_names_by_type={"character": set(), "location": {"North Tower"}, "object": set(), "faction": set()},
+    )
+    assert location_roster[0]["aliases"] == []
 
 
 def test_object_merges_without_anchor():
@@ -942,7 +1007,7 @@ def test_canonicalizer_custom_type_merges_via_entities_table():
                 "candidate": "the Ninety-Third Universe",
                 "verdict": "existing",
                 "id": "ent-0001",
-                "grammatical_anchor": "",
+                "grammatical_anchor": "crossed into the Ninety-Third Universe",
                 "reasoning": "Spelled-out form of the same realm.",
             }
         ]

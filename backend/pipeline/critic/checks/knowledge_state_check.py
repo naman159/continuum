@@ -19,11 +19,8 @@ improvement.
 from __future__ import annotations
 
 from pipeline.critic.types import Finding, Severity
+from pipeline.critic.types import normalize_text as _normalize
 from pipeline.db.client import DBClient
-
-
-def _normalize(text: str) -> str:
-    return " ".join((text or "").lower().split())
 
 
 def _fact_is_known(fact: str, known_facts: set[str]) -> bool:

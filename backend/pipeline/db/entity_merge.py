@@ -11,6 +11,8 @@ references to the surviving entity.
 import logging
 from typing import Any
 
+from pipeline.entity_tables import TYPED_TABLES
+
 logger = logging.getLogger(__name__)
 
 
@@ -18,12 +20,7 @@ class EntityMergeError(ValueError):
     pass
 
 
-_TYPED_TABLE = {
-    "character": "characters",
-    "location": "locations",
-    "object": "objects",
-    "faction": "factions",
-}
+_TYPED_TABLE = TYPED_TABLES
 
 _INVOLVED_COLUMN = {
     "character": "involved_characters",

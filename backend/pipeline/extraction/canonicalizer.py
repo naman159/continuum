@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import difflib
-import json
 import logging
 import re
 import unicodedata
@@ -10,6 +9,7 @@ from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.db.client import DBClient
+from pipeline.entity_tables import TYPED_TABLES
 from pipeline.extraction.prompts import (
     build_canonicalization_system_prompt,
     build_canonicalization_user_prompt,
@@ -43,32 +43,31 @@ def normalize_name(name: str) -> str:
     return n or str(name or "").strip().lower()
 
 
-def _load_completion():
-    try:
-        from litellm import completion
-    except Exception:  # pragma: no cover
-        return None
-    return completion
+from pipeline.llm import load_completion as _load_completion
+from pipeline.llm import safe_json_loads as _safe_json_loads
 
 
-def _safe_json_loads(raw: str) -> dict[str, Any]:
-    try:
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end != -1 and start < end:
-        try:
-            data = json.loads(raw[start : end + 1])
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
-    return {}
+def _names_lexically_close(candidate: str, target: dict[str, Any]) -> bool:
+    """True when the candidate is plausibly the same entity as the target's
+    name or an alias on lexical evidence alone: token subset ("Empire" <->
+    "Galactic Empire") or high sequence similarity ("Kings Landing" <->
+    "King's Landing")."""
+    nc = normalize_name(candidate)
+    if not nc:
+        return False
+    c_tokens = set(nc.split())
+    for raw in [target.get("name", ""), *(target.get("aliases") or [])]:
+        nn = normalize_name(str(raw))
+        if not nn:
+            continue
+        if nc == nn:
+            return True
+        t_tokens = set(nn.split())
+        if c_tokens and t_tokens and (c_tokens <= t_tokens or t_tokens <= c_tokens):
+            return True
+        if difflib.SequenceMatcher(None, nc, nn).ratio() >= 0.85:
+            return True
+    return False
 
 
 class IntraExtractionDeduplicator:
@@ -300,12 +299,7 @@ def _apply_rename_map(
 
 
 class EntityCanonicalizer:
-    _TABLE = {
-        "character": "characters",
-        "location": "locations",
-        "object": "objects",
-        "faction": "factions",
-    }
+    _TABLE = TYPED_TABLES
 
     def __init__(
         self,
@@ -575,30 +569,48 @@ class EntityCanonicalizer:
             reasoning = str(resolution.get("reasoning") or "").strip()
 
             # Characters always require a verbatim anchor in the chapter text.
-            # Other types accept a non-empty reasoning string as sufficient evidence.
+            # Other types tier the evidence: an anchor or lexical closeness to
+            # the target's name/aliases makes the merge permanent (alias
+            # written); reasoning alone — a required schema field, so its mere
+            # presence proves nothing — merges for this chapter only, because
+            # a hallucinated alias would reroute every future mention.
+            target = roster_by_id[str(target_id)]
+            anchor_valid = bool(anchor) and anchor in chapter_text
             if entity_type == "character":
-                if not anchor or anchor not in chapter_text:
+                if not anchor_valid:
                     logger.info(
                         "entity_canonicalizer: rejected character merge (anchor missing or not in text): %s -> %s",
                         candidate,
                         target_id,
                     )
                     continue
+                persist_alias = True
+            elif anchor_valid or _names_lexically_close(candidate, target):
+                persist_alias = True
+            elif reasoning:
+                persist_alias = False
             else:
-                anchor_valid = bool(anchor) and anchor in chapter_text
-                has_reasoning = bool(reasoning)
-                if not anchor_valid and not has_reasoning:
-                    logger.info(
-                        "entity_canonicalizer: rejected %s merge (no anchor and no reasoning): %s -> %s",
-                        entity_type,
-                        candidate,
-                        target_id,
-                    )
-                    continue
-            target = roster_by_id[str(target_id)]
-            self._append_alias(entity_type, target, candidate)
+                logger.info(
+                    "entity_canonicalizer: rejected %s merge (no anchor and no reasoning): %s -> %s",
+                    entity_type,
+                    candidate,
+                    target_id,
+                )
+                continue
+            if persist_alias:
+                self._append_alias(entity_type, target, candidate)
+                logger.info(
+                    "entity_canonicalizer: merged %r -> %s (%s)", candidate, target_id, entity_type
+                )
+            else:
+                logger.info(
+                    "entity_canonicalizer: semantic-only merge %r -> %s (%s); alias not persisted (reasoning: %s)",
+                    candidate,
+                    target_id,
+                    entity_type,
+                    reasoning[:120],
+                )
             merges[candidate] = str(target_id)
-            logger.info("entity_canonicalizer: merged %r -> %s (%s)", candidate, target_id, entity_type)
 
         return merges
 

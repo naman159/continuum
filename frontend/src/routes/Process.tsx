@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
-import { api } from "../api";
+import { api, postJson } from "../api";
 
 type JobStatus = {
   job_id: string;
@@ -14,17 +14,8 @@ type JobStatus = {
   error: string | null;
 };
 
-async function postChapter(novelId: string, number: number, text: string): Promise<{ job_id: string }> {
-  const res = await fetch(`/api/novels/${novelId}/chapters/process`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ number, text }),
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
-  }
-  return res.json();
+function postChapter(novelId: string, number: number, text: string): Promise<{ job_id: string }> {
+  return postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/process`, { number, text });
 }
 
 async function fetchJob(jobId: string): Promise<JobStatus> {

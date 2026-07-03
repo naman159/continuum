@@ -10,13 +10,9 @@ from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.critic.types import DraftChapter
-
-def _load_completion():
-    try:
-        from litellm import completion
-    except Exception:  # pragma: no cover
-        return None
-    return completion
+from pipeline.entity_tables import TYPED_TABLES
+from pipeline.extraction.resolver import lookup_typed
+from pipeline.llm import load_completion as _load_completion
 
 
 _EMPTY: dict[str, list] = {
@@ -74,30 +70,6 @@ def extract_draft_claims(
     return {k: data.get(k) if isinstance(data.get(k), list) else [] for k in _EMPTY}
 
 
-_TYPED_TABLE = {"character": "characters", "location": "locations",
-                "object": "objects", "faction": "factions"}
-
-
-def _lookup(db: Any, novel_id: str, table: str, name: str) -> tuple[str, str] | None:
-    """(typed_id, entity_id) by exact name or alias. Read-only."""
-    name = (name or "").strip()
-    if not name:
-        return None
-    row = db.fetchone(
-        f"""
-        SELECT id, entity_id FROM {table}
-         WHERE novel_id = %s
-           AND (lower(name) = lower(%s)
-                OR EXISTS (SELECT 1 FROM unnest(aliases) a WHERE lower(a) = lower(%s)))
-         LIMIT 1
-        """,
-        (novel_id, name, name),
-    )
-    if row is None:
-        return None
-    return str(row[0]), str(row[1]) if row[1] else str(row[0])
-
-
 def build_draft_chapter(
     db: Any,
     *,
@@ -108,14 +80,27 @@ def build_draft_chapter(
     planned_thread_ids: list[str],
     planned_commitment_ids: list[str],
 ) -> DraftChapter:
+    # The same names repeat across a draft's claims; memoize the read-only
+    # lookups so one draft costs one query per distinct (type, name).
+    cache: dict[tuple[str, str], tuple[str, str] | None] = {}
+
+    def _find(entity_type: str, name: str) -> tuple[str, str] | None:
+        name = (name or "").strip()
+        if not name:
+            return None
+        key = (entity_type, name.lower())
+        if key not in cache:
+            cache[key] = lookup_typed(db, novel_id, entity_type, name)
+        return cache[key]
+
     mentions: list[dict] = []
     for m in raw_claims.get("mentions", []):
         if not isinstance(m, dict):
             continue
-        table = _TYPED_TABLE.get(str(m.get("entity_type", "")).strip().lower())
-        if table is None:
+        entity_type = str(m.get("entity_type", "")).strip().lower()
+        if entity_type not in TYPED_TABLES:
             continue
-        found = _lookup(db, novel_id, table, str(m.get("entity_name", "")))
+        found = _find(entity_type, str(m.get("entity_name", "")))
         if found is None:
             continue
         mentions.append({
@@ -126,7 +111,7 @@ def build_draft_chapter(
         })
 
     def _char(name: str) -> str | None:
-        found = _lookup(db, novel_id, "characters", name)
+        found = _find("character", name)
         return found[0] if found else None
 
     knowledge_claims: list[dict] = []
@@ -152,7 +137,7 @@ def build_draft_chapter(
         if not isinstance(c, dict):
             continue
         cid = _char(str(c.get("character_name", "")))
-        loc = _lookup(db, novel_id, "locations", str(c.get("location_name", "")))
+        loc = _find("location", str(c.get("location_name", "")))
         if cid is None or loc is None:
             continue
         location_claims.append({"character_id": cid, "location_id": loc[0], "quote": c.get("quote")})
@@ -162,7 +147,7 @@ def build_draft_chapter(
         if not isinstance(c, dict):
             continue
         cid = _char(str(c.get("character_name", "")))
-        obj = _lookup(db, novel_id, "objects", str(c.get("object_name", "")))
+        obj = _find("object", str(c.get("object_name", "")))
         if cid is None or obj is None:
             continue
         possession_claims.append({"character_id": cid, "object_id": obj[0], "quote": c.get("quote")})

@@ -178,6 +178,13 @@ def generate_chapter(
         drafter = SceneDrafter(use_mock=mock)
         critic = ContinuityCritic(client)
 
+        # Retrieval context depends only on the immutable plan, so compute it
+        # once per scene rather than on every revision iteration.
+        context_blocks = [
+            _context_block_for_scene(retriever, novel_id, chapter_number, scene)
+            for scene in plan.scenes
+        ]
+
         revision_notes: list[str] = []
         text = ""
         report: CritiqueReport | None = None
@@ -186,11 +193,8 @@ def generate_chapter(
         while iterations <= revisions_allowed:
             iterations += 1
             scene_texts: list[str] = []
-            for scene in plan.scenes:
+            for scene, context_block in zip(plan.scenes, context_blocks):
                 _tick(f"drafting scene {scene.scene_index}/{len(plan.scenes)}")
-                context_block = _context_block_for_scene(
-                    retriever, novel_id, chapter_number, scene
-                )
                 scene_texts.append(
                     drafter.draft_scene(
                         scene=scene,
