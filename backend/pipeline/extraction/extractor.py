@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
@@ -11,12 +10,8 @@ from pipeline.extraction.prompts import PASS_ORDER, build_system_prompt, build_u
 logger = logging.getLogger(__name__)
 
 
-def _load_completion():
-    try:
-        from litellm import completion
-    except Exception:  # pragma: no cover
-        return None
-    return completion
+from pipeline.llm import load_completion as _load_completion
+from pipeline.llm import safe_json_loads as _safe_json_loads
 
 
 def empty_extraction() -> dict[str, Any]:
@@ -44,26 +39,6 @@ def empty_extraction() -> dict[str, Any]:
         "custom_entities": [],
         "canon_facts": [],
     }
-
-
-def _safe_json_loads(raw: str) -> dict[str, Any]:
-    try:
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
-
-    start = raw.find("{")
-    end = raw.rfind("}")
-    if start != -1 and end != -1 and start < end:
-        try:
-            data = json.loads(raw[start : end + 1])
-            if isinstance(data, dict):
-                return data
-        except Exception:
-            pass
-    return {}
 
 
 def _dedupe_by_name(

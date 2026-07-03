@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipeline.db.client import DBClient
+from pipeline.entity_tables import table_for
 
 
 @dataclass
@@ -252,42 +253,7 @@ class EntityResolver:
         return ResolvedEntity(entity_id, universal_id, created=True)
 
     def _lookup_typed(self, entity_type: str, name: str) -> tuple[str, str] | None:
-        """Find an existing row in the typed table by exact name or alias.
-
-        Returns (entity_id, universal_id) or None. Never creates anything.
-        """
-        table = _table_for(entity_type)
-        name_row = self.db.fetchone(
-            f"""
-            SELECT id, entity_id
-            FROM {table}
-            WHERE novel_id = %s AND lower(name) = lower(%s)
-            LIMIT 1
-            """,
-            (self.novel_id, name),
-        )
-        if name_row:
-            entity_id = str(name_row[0])
-            universal_id = str(name_row[1]) if name_row[1] else entity_id
-            return entity_id, universal_id
-
-        alias_row = self.db.fetchone(
-            f"""
-            SELECT id, entity_id
-            FROM {table}
-            WHERE novel_id = %s
-              AND EXISTS (
-                  SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
-              )
-            LIMIT 1
-            """,
-            (self.novel_id, name),
-        )
-        if alias_row:
-            entity_id = str(alias_row[0])
-            universal_id = str(alias_row[1]) if alias_row[1] else entity_id
-            return entity_id, universal_id
-        return None
+        return lookup_typed(self.db, self.novel_id, entity_type, name)
 
     def _create_entity(self, entity_type: str, name: str, metadata: dict[str, Any]) -> tuple[str, str]:
         universal_id = str(self.db.fetchval(
@@ -366,16 +332,49 @@ class EntityResolver:
         raise ValueError(f"Unsupported entity type: {entity_type}")
 
 
-def _table_for(entity_type: str) -> str:
-    mapping = {
-        "character": "characters",
-        "location": "locations",
-        "faction": "factions",
-        "object": "objects",
-    }
-    if entity_type not in mapping:
-        raise ValueError(f"Unsupported entity type: {entity_type}")
-    return mapping[entity_type]
+_table_for = table_for
 
 
-__all__ = ["EntityResolver", "ResolvedEntity"]
+def lookup_typed(
+    db: Any, novel_id: str, entity_type: str, name: str
+) -> tuple[str, str] | None:
+    """Find an existing row in the typed table by exact name or alias.
+
+    Returns (typed_id, universal_id) or None. Never creates anything — safe
+    for read-only callers like the draft-claims critic bridge.
+    """
+    table = table_for(entity_type)
+    name_row = db.fetchone(
+        f"""
+        SELECT id, entity_id
+        FROM {table}
+        WHERE novel_id = %s AND lower(name) = lower(%s)
+        LIMIT 1
+        """,
+        (novel_id, name),
+    )
+    if name_row:
+        entity_id = str(name_row[0])
+        universal_id = str(name_row[1]) if name_row[1] else entity_id
+        return entity_id, universal_id
+
+    alias_row = db.fetchone(
+        f"""
+        SELECT id, entity_id
+        FROM {table}
+        WHERE novel_id = %s
+          AND EXISTS (
+              SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
+          )
+        LIMIT 1
+        """,
+        (novel_id, name),
+    )
+    if alias_row:
+        entity_id = str(alias_row[0])
+        universal_id = str(alias_row[1]) if alias_row[1] else entity_id
+        return entity_id, universal_id
+    return None
+
+
+__all__ = ["EntityResolver", "ResolvedEntity", "lookup_typed"]

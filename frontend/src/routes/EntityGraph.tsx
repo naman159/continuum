@@ -48,6 +48,8 @@ export default function EntityGraph() {
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
+  const nodesRef = useRef<DataSet<any> | null>(null);
+  const edgesRef = useRef<DataSet<any> | null>(null);
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
   const { data, isLoading } = useQuery({
@@ -56,17 +58,14 @@ export default function EntityGraph() {
     enabled: Boolean(novelId),
   });
 
+  // Build the network once per dataset. Legend toggles only flip `hidden`
+  // flags below — destroying and re-stabilizing the whole graph on every
+  // toggle would freeze the UI and discard the layout the user is looking at.
   useEffect(() => {
     if (!data || !containerRef.current) return;
 
-    const visibleNodes = data.nodes.filter((n) => !hiddenTypes.has(n.entity_type));
-    const visibleIds = new Set(visibleNodes.map((n) => n.id));
-    const visibleEdges = data.edges.filter(
-      (e) => visibleIds.has(e.from) && visibleIds.has(e.to)
-    );
-
     const nodes = new DataSet(
-      visibleNodes.map((n) => ({
+      data.nodes.map((n) => ({
         id: n.id,
         label: n.label,
         title: n.description ?? undefined,
@@ -74,7 +73,7 @@ export default function EntityGraph() {
       }))
     );
     const edges = new DataSet(
-      visibleEdges.map((e) => ({
+      data.edges.map((e) => ({
         id: e.id,
         from: e.from,
         to: e.to,
@@ -123,11 +122,35 @@ export default function EntityGraph() {
     });
 
     networkRef.current = network;
+    nodesRef.current = nodes;
+    edgesRef.current = edges;
     return () => {
       network.destroy();
       networkRef.current = null;
+      nodesRef.current = null;
+      edgesRef.current = null;
     };
-  }, [data, hiddenTypes, navigate, novelId]);
+  }, [data, navigate, novelId]);
+
+  // Apply legend visibility as DataSet deltas; vis-network hides the items
+  // in place without a full re-layout.
+  useEffect(() => {
+    const nodes = nodesRef.current;
+    const edges = edgesRef.current;
+    if (!data || !nodes || !edges) return;
+    const typeById = new Map(data.nodes.map((n) => [n.id, n.entity_type]));
+    nodes.update(
+      data.nodes.map((n) => ({ id: n.id, hidden: hiddenTypes.has(n.entity_type) }))
+    );
+    edges.update(
+      data.edges.map((e) => ({
+        id: e.id,
+        hidden:
+          hiddenTypes.has(typeById.get(e.from) ?? "") ||
+          hiddenTypes.has(typeById.get(e.to) ?? ""),
+      }))
+    );
+  }, [data, hiddenTypes]);
 
   function toggleType(entityType: string) {
     setHiddenTypes((prev) => {

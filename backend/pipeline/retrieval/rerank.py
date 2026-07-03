@@ -13,12 +13,7 @@ from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
 logger = logging.getLogger(__name__)
 
 
-def _load_completion():
-    try:
-        from litellm import completion
-    except Exception:  # pragma: no cover
-        return None
-    return completion
+from pipeline.llm import load_completion as _load_completion
 
 
 _RERANK_SYSTEM = (

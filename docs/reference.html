@@ -621,11 +621,15 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </table>
 
     <p>
-      Validation before a merge is accepted: characters require a verbatim <code>grammatical_anchor</code>
-      quoted from the chapter text; all other types (including custom types) accept a non-empty
-      <code>reasoning</code>. Accepted merges append the candidate to the target's <code>aliases[]</code> —
-      built-in types on their own table, custom types on <code>entities.aliases</code> — which is what the
-      <code>EntityResolver</code> alias lookup later finds.
+      Validation before a merge is accepted is tiered by evidence. Characters require a verbatim
+      <code>grammatical_anchor</code> quoted from the chapter text. Other types (including custom
+      types) make the merge <em>permanent</em> — candidate appended to the target's
+      <code>aliases[]</code>, which the <code>EntityResolver</code> alias lookup later finds — only
+      when there is a valid anchor or the names are lexically close (token subset like
+      "the Empire" ⊂ "The Galactic Empire", or high sequence similarity). A merge justified by
+      <code>reasoning</code> alone (a required schema field, so its presence proves nothing) is
+      honored for the current chapter's extraction but does <em>not</em> write the alias: a
+      hallucinated alias would permanently reroute every future mention of that name.
     </p>
   </section>
 

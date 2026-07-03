@@ -16,11 +16,8 @@ Inputs:
 from __future__ import annotations
 
 from pipeline.critic.types import Finding, Severity
+from pipeline.critic.types import normalize_text as _normalize
 from pipeline.db.client import DBClient
-
-
-def _normalize(t: str) -> str:
-    return " ".join((t or "").lower().split())
 
 
 def check_commitments(

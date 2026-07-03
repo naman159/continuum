@@ -87,3 +87,9 @@ class DraftChapter:
     planned_thread_ids: list[str] = field(default_factory=list)
     # Commitment IDs the planner said this chapter would plant/satisfy.
     planned_commitment_ids: list[str] = field(default_factory=list)
+
+
+def normalize_text(text: str) -> str:
+    """Lowercase + whitespace-collapse, the critic's shared normalization for
+    comparing prose fragments across independently-phrased sources."""
+    return " ".join((text or "").lower().split())
