@@ -301,7 +301,7 @@ export type CustomEntityDetail = {
   relationships: CustomEntityRelationship[];
 };
 
-async function fetchJson<T>(path: string): Promise<T> {
+export async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json() as Promise<T>;
@@ -310,7 +310,7 @@ async function fetchJson<T>(path: string): Promise<T> {
 export async function postJson<T>(
   path: string,
   body: unknown,
-  method: "POST" | "PATCH" | "PUT" | "DELETE" = "POST"
+  method: "POST" | "PATCH" = "POST"
 ): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -318,16 +318,22 @@ export async function postJson<T>(
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    // Surface FastAPI's {detail: "..."} payload when present.
+    // Surface FastAPI's {detail} payload — a string on HTTPException, an
+    // array of {loc, msg, ...} objects on 422 validation errors.
     let detail = "";
     try {
-      detail = (await res.json())?.detail ?? "";
+      const d = (await res.json())?.detail;
+      if (typeof d === "string") detail = d;
+      else if (Array.isArray(d))
+        detail = d.map((e) => e?.msg ?? JSON.stringify(e)).join("; ");
+      else if (d != null) detail = JSON.stringify(d);
     } catch {
       /* non-JSON error body */
     }
     throw new Error(detail ? `${res.status}: ${detail}` : `${res.status} ${res.statusText}`);
   }
-  return res.json() as Promise<T>;
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 const capParam = (cap: number | null) => (cap == null ? "" : `?cap=${cap}`);

@@ -83,5 +83,5 @@ def test_extract_draft_claims_bad_json_raises_in_real_mode():
         msg = SimpleNamespace(content="not json")
         return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
 
-    with pytest.raises(RuntimeError, match="extraction failed"):
+    with pytest.raises(RuntimeError, match="unparseable JSON"):
         extract_draft_claims("prose", use_mock=False, completion_fn=fake_completion)

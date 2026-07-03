@@ -1048,3 +1048,74 @@ def test_canonicalization_system_prompt_custom_type_uses_generic_rules():
     prompt = build_canonicalization_system_prompt("realm")
     assert "NOT required" in prompt
     assert "realm" in prompt
+
+
+# ---------------------------------------------------------------------------
+# rename_map_for_merges — merges must take effect for the current chapter
+# ---------------------------------------------------------------------------
+
+def test_rename_map_for_merges_maps_candidates_to_canonical_names():
+    from pipeline.extraction.canonicalizer import rename_map_for_merges
+
+    class FakeDB:
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            assert "FROM locations" in query
+            return [{"id": "loc-1", "name": "Halcyon Tower"}]
+
+    out = rename_map_for_merges(
+        FakeDB(), {"location": {"Jake's office building": "loc-1"}}
+    )
+    assert out == {"location": {"jake's office building": "Halcyon Tower"}}
+
+
+def test_rename_map_for_merges_skips_identity_renames():
+    from pipeline.extraction.canonicalizer import rename_map_for_merges
+
+    class FakeDB:
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            return [{"id": "loc-1", "name": "Halcyon Tower"}]
+
+    out = rename_map_for_merges(FakeDB(), {"location": {"halcyon tower": "loc-1"}})
+    assert out == {}
+
+
+def test_lexically_close_but_ambiguous_does_not_persist_alias():
+    """A candidate close to TWO roster entries (\"the Empire\" fits both
+    \"The Galactic Empire\" and \"Empire of the Sun\") must not be permanently
+    welded to whichever one the LLM picked — merge honored, alias withheld."""
+    faction_roster = [
+        {
+            "id": "fac-0001-0000-0000-0000-000000000001",
+            "name": "The Galactic Empire",
+            "aliases": [],
+            "description": "Authoritarian ruling faction.",
+        },
+        {
+            "id": "fac-0002-0000-0000-0000-000000000002",
+            "name": "Empire of the Sun",
+            "aliases": [],
+            "description": "Rival empire in the east.",
+        },
+    ]
+    db = FakeDBMultiType({"faction": faction_roster})
+    response = {
+        "resolutions": [
+            {
+                "candidate": "the Empire",
+                "verdict": "existing",
+                "id": "fac-0001-0000-0000-0000-000000000001",
+                "grammatical_anchor": "",
+                "reasoning": "Shorthand used in this chapter.",
+            }
+        ]
+    }
+    canon = EntityCanonicalizer(db, novel_id="novel-1", use_mock=False, completion_fn=_make_completion(response))
+    merges = canon.canonicalize(
+        chapter_text="The Empire tightened its grip.",
+        candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": {"the Empire"}},
+    )
+    # Merge still honored for this chapter…
+    assert merges.get("faction", {}).get("the Empire") == "fac-0001-0000-0000-0000-000000000001"
+    # …but neither roster row gains the ambiguous alias.
+    assert faction_roster[0]["aliases"] == []
+    assert faction_roster[1]["aliases"] == []

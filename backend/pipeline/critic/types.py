@@ -93,3 +93,14 @@ def normalize_text(text: str) -> str:
     """Lowercase + whitespace-collapse, the critic's shared normalization for
     comparing prose fragments across independently-phrased sources."""
     return " ".join((text or "").lower().split())
+
+
+def words_overlap_match(a: str, b: str, *, min_words: int, ratio: float) -> bool:
+    """Shared fuzzy match between two normalize_text'd prose fragments: the
+    word overlap must reach max(min_words, ratio * |words(a)|). Thresholds
+    are tuned per check (commitments vs knowledge state)."""
+    a_words = set(a.split())
+    b_words = set(b.split())
+    if not a_words or not b_words:
+        return False
+    return len(a_words & b_words) >= max(min_words, int(len(a_words) * ratio))

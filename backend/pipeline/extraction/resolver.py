@@ -332,47 +332,33 @@ class EntityResolver:
         raise ValueError(f"Unsupported entity type: {entity_type}")
 
 
-_table_for = table_for
-
-
 def lookup_typed(
     db: Any, novel_id: str, entity_type: str, name: str
 ) -> tuple[str, str] | None:
-    """Find an existing row in the typed table by exact name or alias.
+    """Find an existing row in the typed table by exact name or alias, name
+    matches taking priority, in a single query.
 
     Returns (typed_id, universal_id) or None. Never creates anything — safe
     for read-only callers like the draft-claims critic bridge.
     """
     table = table_for(entity_type)
-    name_row = db.fetchone(
-        f"""
-        SELECT id, entity_id
-        FROM {table}
-        WHERE novel_id = %s AND lower(name) = lower(%s)
-        LIMIT 1
-        """,
-        (novel_id, name),
-    )
-    if name_row:
-        entity_id = str(name_row[0])
-        universal_id = str(name_row[1]) if name_row[1] else entity_id
-        return entity_id, universal_id
-
-    alias_row = db.fetchone(
+    row = db.fetchone(
         f"""
         SELECT id, entity_id
         FROM {table}
         WHERE novel_id = %s
-          AND EXISTS (
-              SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
+          AND (
+              lower(name) = lower(%s)
+              OR EXISTS (SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s))
           )
+        ORDER BY (lower(name) = lower(%s)) DESC
         LIMIT 1
         """,
-        (novel_id, name),
+        (novel_id, name, name, name),
     )
-    if alias_row:
-        entity_id = str(alias_row[0])
-        universal_id = str(alias_row[1]) if alias_row[1] else entity_id
+    if row:
+        entity_id = str(row[0])
+        universal_id = str(row[1]) if row[1] else entity_id
         return entity_id, universal_id
     return None
 

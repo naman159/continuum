@@ -20,7 +20,6 @@ class EntityMergeError(ValueError):
     pass
 
 
-_TYPED_TABLE = TYPED_TABLES
 
 _INVOLVED_COLUMN = {
     "character": "involved_characters",
@@ -191,7 +190,7 @@ def merge_entities(
         cur.execute("UPDATE events SET object_entity_id = %s WHERE object_entity_id = %s", (tgt, src))
 
         # ---- typed-table references ----
-        table = _TYPED_TABLE.get(entity_type)
+        table = TYPED_TABLES.get(entity_type)
         if table is not None:
             src_typed = _fetch_typed(cur, table, src)
             tgt_typed = _fetch_typed(cur, table, tgt)

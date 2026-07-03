@@ -10,9 +10,8 @@ import json
 from typing import Any
 
 from pipeline.config import settings
-from pipeline.planner.types import ChapterPlan, ScenePlan
-
 from pipeline.llm import load_completion as _load_completion
+from pipeline.planner.types import ChapterPlan, ScenePlan
 
 
 _SYSTEM_PROMPT = """You are a novelist continuing an existing work. Write ONE scene.
