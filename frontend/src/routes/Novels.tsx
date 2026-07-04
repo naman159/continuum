@@ -1,32 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, postJson } from "../api";
 import type { Novel, GenrePreset } from "../api";
 
 type EntityTypeInput = { name: string; description: string };
 
-async function createNovel(
+function createNovel(
   title: string,
   author: string,
   language: string,
   customEntityTypes: EntityTypeInput[]
 ): Promise<Novel> {
-  const res = await fetch("/api/novels", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      title,
-      author: author.trim() || null,
-      language: language.trim() || null,
-      custom_entity_types: customEntityTypes,
-    }),
+  return postJson<Novel>("/api/novels", {
+    title,
+    author: author.trim() || null,
+    language: language.trim() || null,
+    custom_entity_types: customEntityTypes,
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
-  }
-  return res.json();
 }
 
 function BookIcon() {

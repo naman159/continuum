@@ -301,10 +301,40 @@ export type CustomEntityDetail = {
   relationships: CustomEntityRelationship[];
 };
 
-async function fetchJson<T>(path: string): Promise<T> {
+// Surface FastAPI's {detail} payload — a string on HTTPException, an array
+// of {loc, msg, ...} objects on 422 validation errors.
+async function throwHttpError(res: Response): Promise<never> {
+  let detail = "";
+  try {
+    const d = (await res.json())?.detail;
+    if (typeof d === "string") detail = d;
+    else if (Array.isArray(d))
+      detail = d.map((e) => e?.msg ?? JSON.stringify(e)).join("; ");
+  } catch {
+    /* non-JSON error body */
+  }
+  throw new Error(detail ? `${res.status}: ${detail}` : `${res.status} ${res.statusText}`);
+}
+
+export async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) await throwHttpError(res);
   return res.json() as Promise<T>;
+}
+
+export async function postJson<T>(
+  path: string,
+  body: unknown,
+  method: "POST" | "PATCH" = "POST"
+): Promise<T> {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) await throwHttpError(res);
+  const text = await res.text();
+  return (text ? JSON.parse(text) : undefined) as T;
 }
 
 const capParam = (cap: number | null) => (cap == null ? "" : `?cap=${cap}`);
@@ -369,15 +399,8 @@ export const api = {
     const qs = params.toString();
     return fetchJson<CanonFactRow[]>(`/api/novels/${novelId}/canon${qs ? `?${qs}` : ""}`);
   },
-  patchCanonFact: async (novelId: string, factId: string, patch: { locked?: boolean; value?: string }) => {
-    const res = await fetch(`/api/novels/${novelId}/canon/${factId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(patch),
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json() as Promise<{ ok: boolean }>;
-  },
+  patchCanonFact: (novelId: string, factId: string, patch: { locked?: boolean; value?: string }) =>
+    postJson<{ ok: boolean }>(`/api/novels/${novelId}/canon/${factId}`, patch, "PATCH"),
   knows: (novelId: string, cap: number | null, characterId: string | null) => {
     const params = new URLSearchParams();
     if (cap != null) params.set("cap", String(cap));
@@ -410,13 +433,6 @@ export const api = {
     fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
   customEntity: (novelId: string, entityId: string) =>
     fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
-  generateChapter: async (novelId: string, number: number, ingest: boolean) => {
-    const res = await fetch(`/api/novels/${novelId}/chapters/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ number, ingest }),
-    });
-    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-    return res.json() as Promise<{ job_id: string }>;
-  },
+  generateChapter: (novelId: string, number: number, ingest: boolean) =>
+    postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/generate`, { number, ingest }),
 };

@@ -8,31 +8,16 @@ network calls and `USE_MOCK_LLM=true` still produces valid plan shapes.
 
 from __future__ import annotations
 
-import json
 import logging
-from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.db.client import DBClient
+from pipeline.llm import load_completion, safe_json_loads
 from pipeline.planner.context import PlanContext, gather_plan_context
 from pipeline.planner.prompts import build_system_prompt, build_user_prompt
 from pipeline.planner.types import ChapterPlan, ScenePlan
 
 logger = logging.getLogger(__name__)
-
-
-def _safe_json(raw: str) -> dict[str, Any]:
-    try:
-        return json.loads(raw)
-    except Exception:
-        start = raw.find("{")
-        end = raw.rfind("}")
-        if start != -1 and end != -1 and start < end:
-            try:
-                return json.loads(raw[start : end + 1])
-            except Exception:
-                pass
-    return {}
 
 
 def _mock_plan(ctx: PlanContext) -> ChapterPlan:
@@ -147,10 +132,9 @@ class ScenePlanner:
 
         # Real mode fails loudly: a silently substituted mock plan would let a
         # placeholder-planned chapter be drafted and ingested as canon.
-        try:
-            from litellm import completion
-        except Exception as exc:
-            raise RuntimeError(f"planner: litellm unavailable in real mode: {exc}") from exc
+        completion = load_completion()
+        if completion is None:
+            raise RuntimeError("planner: litellm unavailable in real mode")
 
         system = build_system_prompt()
         user = build_user_prompt(ctx)
@@ -166,7 +150,7 @@ class ScenePlanner:
         except Exception as exc:
             raise RuntimeError(f"planner: LLM call failed: {exc}") from exc
 
-        data = _safe_json(raw_text)
+        data = safe_json_loads(raw_text)
         if not data:
             raise RuntimeError("planner: LLM returned unparseable JSON")
         plan = _plan_from_json(novel_id, chapter_number, data)

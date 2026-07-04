@@ -87,10 +87,8 @@ def test_resolve_location_by_alias_returns_existing():
             self.executed = []
 
         def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
-            # Exact name lookup returns None (no exact match for alias form)
-            if "lower(name) = lower" in query:
-                return None
-            # Alias lookup — match when the query uses unnest(aliases)
+            # The combined name-or-alias query matches via the alias arm
+            # (an exact-name-only query would return nothing).
             if "unnest(aliases)" in query:
                 return (self.loc_id, self.entity_id)
             return None

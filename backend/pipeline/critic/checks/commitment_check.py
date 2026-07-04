@@ -15,12 +15,9 @@ Inputs:
 
 from __future__ import annotations
 
-from pipeline.critic.types import Finding, Severity
+from pipeline.critic.types import Finding, Severity, words_overlap
+from pipeline.critic.types import normalize_text as _normalize
 from pipeline.db.client import DBClient
-
-
-def _normalize(t: str) -> str:
-    return " ".join((t or "").lower().split())
 
 
 def check_commitments(
@@ -82,14 +79,14 @@ def check_commitments(
             cid = str(c["id"])
             if cid in planned_set:
                 continue
-            fore_words = set(_normalize(c["foreshadow_text"]).split())
-            if not fore_words:
+            fore_norm = _normalize(c["foreshadow_text"])
+            if not fore_norm:
                 continue
             for desc in event_texts:
                 if not desc:
                     continue
-                overlap = fore_words & set(desc.split())
-                if len(overlap) >= max(3, int(len(fore_words) * 0.4)):
+                overlap = words_overlap(fore_norm, desc, min_words=3, ratio=0.4)
+                if overlap:
                     findings.append(
                         Finding(
                             check="commitments",

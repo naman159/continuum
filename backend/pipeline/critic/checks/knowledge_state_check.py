@@ -11,33 +11,25 @@ Inputs:
 
 The stored fact_description (written at ingest) and the draft claim's
 fact_description come from two independent LLM calls, so they rarely match
-verbatim. Matching therefore uses word overlap (the same heuristic as
-commitment_check); embedding-similarity matching would be a future
-improvement.
+verbatim. Matching therefore uses the critic's shared word-overlap helper;
+embedding-similarity matching would be a future improvement.
 """
 
 from __future__ import annotations
 
-from pipeline.critic.types import Finding, Severity
+from pipeline.critic.types import Finding, Severity, words_overlap
+from pipeline.critic.types import normalize_text as _normalize
 from pipeline.db.client import DBClient
-
-
-def _normalize(text: str) -> str:
-    return " ".join((text or "").lower().split())
 
 
 def _fact_is_known(fact: str, known_facts: set[str]) -> bool:
     """Exact, containment, or word-overlap match against known facts."""
     if fact in known_facts:
         return True
-    claim_words = set(fact.split())
-    if not claim_words:
-        return False
     for known in known_facts:
         if fact in known or known in fact:
             return True
-        overlap = claim_words & set(known.split())
-        if len(overlap) >= max(2, int(len(claim_words) * 0.5)):
+        if words_overlap(fact, known, min_words=2, ratio=0.5):
             return True
     return False
 

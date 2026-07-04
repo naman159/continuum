@@ -13,6 +13,7 @@ from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
     EntityCanonicalizer,
     IntraExtractionDeduplicator,
+    apply_merges_to_extraction,
     collect_names_by_type,
 )
 from pipeline.extraction.chunker import sliding_window_chunks
@@ -288,10 +289,14 @@ def process_chapter(
         if progress is not None:
             progress.on_pass_start("canonicalization")
         canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
-        canonicalizer.canonicalize(
+        merges = canonicalizer.canonicalize(
             chapter_text=raw_text,
             candidate_names_by_type=collect_names_by_type(extracted),
         )
+        # Rewrite merged candidates to their targets' canonical names so
+        # every merge takes effect this chapter — for reasoning-only
+        # (non-persisted-alias) merges this rename is the only mechanism.
+        extracted = apply_merges_to_extraction(client, extracted, merges)
         if progress is not None:
             progress.on_pass_done("canonicalization")
 

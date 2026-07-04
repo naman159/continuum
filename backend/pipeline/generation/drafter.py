@@ -10,14 +10,8 @@ import json
 from typing import Any
 
 from pipeline.config import settings
+from pipeline.llm import load_completion as _load_completion
 from pipeline.planner.types import ChapterPlan, ScenePlan
-
-def _load_completion():
-    try:
-        from litellm import completion
-    except Exception:  # pragma: no cover
-        return None
-    return completion
 
 
 _SYSTEM_PROMPT = """You are a novelist continuing an existing work. Write ONE scene.

@@ -87,3 +87,24 @@ class DraftChapter:
     planned_thread_ids: list[str] = field(default_factory=list)
     # Commitment IDs the planner said this chapter would plant/satisfy.
     planned_commitment_ids: list[str] = field(default_factory=list)
+
+
+def normalize_text(text: str) -> str:
+    """Lowercase + whitespace-collapse, the critic's shared normalization for
+    comparing prose fragments across independently-phrased sources."""
+    return " ".join((text or "").lower().split())
+
+
+def words_overlap(a: str, b: str, *, min_words: int, ratio: float) -> set[str]:
+    """Shared fuzzy match between two normalize_text'd prose fragments: when
+    the word overlap reaches max(min_words, ratio * |words(a)|), return the
+    overlapping words (the evidence); otherwise return an empty set.
+    Thresholds are tuned per check (commitments vs knowledge state)."""
+    a_words = set(a.split())
+    b_words = set(b.split())
+    if not a_words or not b_words:
+        return set()
+    overlap = a_words & b_words
+    if len(overlap) >= max(min_words, int(len(a_words) * ratio)):
+        return overlap
+    return set()
