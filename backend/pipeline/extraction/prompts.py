@@ -274,6 +274,11 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
 
         Use lowercase, specific labels (e.g. "rival", "employer", "romantic_interest")
         rather than vague or compound ones ("guide/subject", "friends/colleagues").
+
+        For relationships that are inherently mutual (e.g. "spouse_of", "sibling_of",
+        "friend_of", "rival_of"), emit exactly one row for the pair — not one row per
+        direction. Reserve two separate rows only for relationships that genuinely
+        differ by direction (e.g. "mentor" vs. "employer" between the same two entities).
         Return JSON only.
         """
     ).strip(),

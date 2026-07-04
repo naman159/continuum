@@ -995,6 +995,19 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       with <code>superseded_by_id</code> pointing from the old row to the new one.
       This creates a linked-list history of relationship evolution.
     </p>
+    <p>
+      <code>entity_a_id</code>/<code>entity_b_id</code> order encodes direction, but for
+      inherently mutual <code>rel_type</code>s (<code>spouse_of</code>, <code>sibling_of</code>,
+      <code>friend_of</code>, <code>rival_of</code>, ...) that order carries no meaning. Since
+      <code>rel_type</code> is freeform LLM output rather than an enum, there is no schema column
+      for this — the API layer looks the label up in a static allowlist
+      (<code>backend/api/relationship_types.py::is_symmetric</code>) and returns a computed
+      <code>symmetric</code> boolean alongside every relationship row and graph edge. The frontend
+      uses it to suppress the direction indicator / arrowhead for mutual relationship types instead
+      of showing a meaningless "to"/"from". The extraction prompt (<code>relationship_updates</code>
+      in <code>prompts.py</code>) is instructed to emit one row per mutual pair rather than one per
+      direction.
+    </p>
   </section>
 
   <section id="schema-other-core">
@@ -1326,7 +1339,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   id, name, aliases, description, first_appearance_chapter,
   state_history: [{ chapter_number, location_name, emotional_state, goals, knowledge, ... }],
   events: [{ chapter_number, description, event_type, impact_level }],
-  relationships: [{ other_entity_name, rel_type, from_chapter, to_chapter, notes }],
+  relationships: [{ other_entity_name, direction, symmetric, rel_type, from_chapter, to_chapter, notes }],
   dynamics: [{ other_entity_name, chapter_number, description }]
 }</code></pre>
   </section>
@@ -1399,7 +1412,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </table>
 
     <p>Returns <code>RelationshipGraph</code>: <code>{"nodes": GraphNode[], "edges": GraphEdge[]}</code>.</p>
-    <p>The frontend renders this with <strong>vis-network</strong>. Nodes are entity names; edges are labeled with <code>rel_type</code>.</p>
+    <p>The frontend renders this with <strong>vis-network</strong>. Nodes are entity names; edges are labeled with <code>rel_type</code>. Each edge also carries a computed <code>symmetric</code> boolean (see <a href="#schema-relationships">Schema: relationships</a>); the arrowhead is omitted for symmetric edges since <code>entity_a</code>/<code>entity_b</code> order is arbitrary for mutual relationship types.</p>
   </section>
 
   <section id="api-entity-graph">
@@ -1419,7 +1432,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>Returns <code>EntityGraph</code>: <code>{"nodes": EntityGraphNode[], "edges": EntityGraphEdge[]}</code>.</p>
     <p>Returns a unified story graph including all entity types (characters, locations, factions, custom types, etc.). Edge sources:</p>
     <ul>
-      <li><strong>Relationship edges</strong> (<code>edge_kind: "relationship"</code>) — from the <code>relationships</code> table. Rendered as solid blue arrows labelled with <code>rel_type</code>.</li>
+      <li><strong>Relationship edges</strong> (<code>edge_kind: "relationship"</code>) — from the <code>relationships</code> table. Rendered as solid blue arrows labelled with <code>rel_type</code>; the arrowhead is dropped when the edge's computed <code>symmetric</code> flag is true (mutual relationship types like <code>spouse_of</code>).</li>
       <li><strong>Dynamic edges</strong> (<code>edge_kind: "dynamic"</code>) — from <code>shared_dynamics</code>. Rendered as dashed gray lines; hover shows story moment description.</li>
       <li><strong>Event edges</strong> (<code>edge_kind: "event"</code>) — co-occurrence from <code>events</code> (character↔character and character→location). Rendered as dashed gray lines; hover shows event description(s).</li>
       <li><strong>Possession/location edges</strong> (<code>edge_kind: "possession"</code>, <code>"location"</code>) — from <code>possesses_edges</code> and <code>located_in_edges</code>; wired for future data.</li>

@@ -88,12 +88,13 @@ function CharacterPage({ data }: { data: Detail }) {
               </tr>
             </thead>
             <tbody>
-              {groupRelationships(data.relationships).map(({ key, direction, entity, rows }) =>
-                rows.map((r, ri) => (
+              {groupRelationships(data.relationships).map(({ key, direction, entity, rows }) => {
+                const allSymmetric = rows.every((r) => r.symmetric);
+                return rows.map((r, ri) => (
                   <tr key={`${key}-${ri}`}>
                     {ri === 0 && (
                       <>
-                        <td rowSpan={rows.length}>{direction}</td>
+                        <td rowSpan={rows.length}>{allSymmetric ? "↔" : direction}</td>
                         <td rowSpan={rows.length}>{entity}</td>
                       </>
                     )}
@@ -102,8 +103,8 @@ function CharacterPage({ data }: { data: Detail }) {
                     <td>{r.to_chapter ?? "ongoing"}</td>
                     <td>{r.notes ?? "—"}</td>
                   </tr>
-                ))
-              )}
+                ));
+              })}
             </tbody>
           </table>
         )}

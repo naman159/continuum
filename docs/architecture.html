@@ -1295,13 +1295,20 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
         <tr><th>Edge Kind</th><th>Source</th><th>Rendered As</th></tr>
       </thead>
       <tbody>
-        <tr><td><span class="badge blue">relationship</span></td><td><code>relationships</code> table</td><td>Solid line, label = rel_type</td></tr>
+        <tr><td><span class="badge blue">relationship</span></td><td><code>relationships</code> table</td><td>Solid line, label = rel_type; arrowed unless <code>symmetric</code></td></tr>
         <tr><td><span class="badge purple">dynamic</span></td><td><code>shared_dynamics</code> table</td><td>Solid line, label = "dynamic"</td></tr>
         <tr><td><span class="badge green">event</span></td><td>Co-occurrence in <code>events.involved_*</code></td><td>Dashed line (story edge)</td></tr>
         <tr><td><span class="badge orange">possession</span></td><td><code>possesses_edges</code> table</td><td>Dashed line (story edge)</td></tr>
         <tr><td><span class="badge yellow">location</span></td><td><code>located_in_edges</code> table</td><td>Dashed line (story edge)</td></tr>
       </tbody>
     </table>
+    <p>
+      <code>entity_a_id</code>/<code>entity_b_id</code> order is meaningless for inherently mutual
+      relationship types (<code>spouse_of</code>, <code>sibling_of</code>, etc.), since <code>rel_type</code>
+      is freeform extractor output rather than a fixed enum. The API computes a <code>symmetric</code>
+      boolean per edge via a static label lookup (<code>backend/api/relationship_types.py</code>) and the
+      graph views drop the arrowhead when it's set, rather than implying a direction the data doesn't have.
+    </p>
 
     <p>
       <strong>Story edges</strong> (event, possession, location) are rendered as dashed lines with

@@ -84,7 +84,7 @@ export default function EntityGraph() {
         to: e.to,
         label: e.edge_kind === "relationship" ? (e.label ?? undefined) : undefined,
         title: e.tooltip ?? undefined,
-        arrows: e.edge_kind === "relationship" ? "to" : undefined,
+        arrows: e.edge_kind === "relationship" && !e.symmetric ? "to" : undefined,
         dashes: e.edge_kind !== "relationship",
         color: e.edge_kind === "relationship"
           ? { color: "#60a5fa", opacity: 1 }

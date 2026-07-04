@@ -30,7 +30,7 @@ export default function Relationships() {
         from: e.from,
         to: e.to,
         label: e.label ?? undefined,
-        arrows: "to",
+        arrows: e.symmetric ? undefined : "to",
       }))
     );
     const network = new Network(

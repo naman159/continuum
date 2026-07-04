@@ -42,7 +42,7 @@ export default function CustomEntityDetail() {
                   <td>{r.other_entity_name}</td>
                   <td style={{ textTransform: "capitalize" }}>{r.other_entity_type.replace(/_/g, " ")}</td>
                   <td>{r.rel_type ?? "—"}</td>
-                  <td>{r.direction === "from" ? "→" : "←"}</td>
+                  <td>{r.symmetric ? "↔" : r.direction === "from" ? "→" : "←"}</td>
                   <td>{r.from_chapter ?? "—"}</td>
                 </tr>
               ))}

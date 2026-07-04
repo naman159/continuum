@@ -39,6 +39,7 @@ class CustomEntityRelationship(BaseModel):
     other_entity_name: str
     other_entity_type: str
     direction: str
+    symmetric: bool = False
     rel_type: str | None
     from_chapter: int | None
     to_chapter: int | None
@@ -95,6 +96,7 @@ class CharacterRelationshipRow(BaseModel):
     other_entity_name: str
     other_entity_type: str
     direction: str  # "from" = this character is entity_a; "to" = entity_b
+    symmetric: bool = False  # rel_type is mutual (e.g. spouse_of) — direction is not meaningful
     rel_type: str | None
     from_chapter: int | None
     to_chapter: int | None
@@ -192,6 +194,7 @@ class GraphEdge(BaseModel):
     chapter_number: int | None
     edge_kind: str | None = None
     tooltip: str | None = None
+    symmetric: bool = False  # rel_type is mutual (e.g. spouse_of) — arrow direction is not meaningful
 
 
 class RelationshipGraph(BaseModel):

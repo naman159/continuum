@@ -42,6 +42,7 @@ export type CharacterRelationshipRow = {
   other_entity_name: string;
   other_entity_type: string;
   direction: "from" | "to";
+  symmetric: boolean;
   rel_type: string | null;
   from_chapter: number | null;
   to_chapter: number | null;
@@ -196,6 +197,7 @@ export type GraphEdge = {
   chapter_number: number | null;
   edge_kind: string | null;
   tooltip: string | null;
+  symmetric: boolean;
 };
 export type RelationshipGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 
@@ -287,6 +289,7 @@ export type CustomEntityRelationship = {
   other_entity_name: string;
   other_entity_type: string;
   direction: "from" | "to";
+  symmetric: boolean;
   rel_type: string | null;
   from_chapter: number | null;
   to_chapter: number | null;

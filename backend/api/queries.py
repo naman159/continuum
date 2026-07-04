@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from pipeline.db.client import DBClient
 
+from api.relationship_types import is_symmetric
 
 _db: DBClient | None = None
 
@@ -471,6 +472,7 @@ def get_character_detail(novel_id: UUID, character_id: UUID, cap: int | None) ->
             "other_entity_name": other_name,
             "other_entity_type": other_type,
             "direction": direction,
+            "symmetric": is_symmetric(rel.get("rel_type")),
             "rel_type": rel.get("rel_type"),
             "from_chapter": rel.get("from_chapter"),
             "to_chapter": rel.get("to_chapter"),
@@ -765,6 +767,7 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
                 "id": r["id"],
                 "label": r.get("rel_type"),
                 "chapter_number": rel_chapter(r),
+                "symmetric": is_symmetric(r.get("rel_type")),
             }
             for r in rels
             if r["entity_a_id"] in char_by_entity_id and r["entity_b_id"] in char_by_entity_id
@@ -815,6 +818,7 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
                 "id": r["id"],
                 "label": r.get("rel_type"),
                 "chapter_number": rel_chapter(r),
+                "symmetric": is_symmetric(r.get("rel_type")),
             }
             for r in rels
             if r["char_a_id"] in character_id_set and r["char_b_id"] in character_id_set
@@ -1842,6 +1846,7 @@ def get_custom_entity_detail(novel_id: UUID, entity_id: UUID) -> dict[str, Any] 
                 "other_entity_name": other.get("name", other_id),
                 "other_entity_type": other.get("entity_type", "unknown"),
                 "direction": direction,
+                "symmetric": is_symmetric(r.get("rel_type")),
                 "rel_type": r.get("rel_type"),
                 "from_chapter": r.get("from_chapter"),
                 "to_chapter": r.get("to_chapter"),
@@ -1884,6 +1889,7 @@ def get_custom_entity_detail(novel_id: UUID, entity_id: UUID) -> dict[str, Any] 
             "other_entity_name": other_name,
             "other_entity_type": other_type,
             "direction": direction,
+            "symmetric": is_symmetric(r.get("rel_type")),
             "rel_type": r.get("rel_type"),
             "from_chapter": r.get("from_chapter"),
             "to_chapter": r.get("to_chapter"),
@@ -1949,6 +1955,7 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
                 "to": str(r["entity_b_id"]),
                 "label": r.get("rel_type"),
                 "chapter_number": r.get("from_chapter"),
+                "symmetric": is_symmetric(r.get("rel_type")),
             }
             for r in db.relationships
             if r["entity_a_id"] in entity_id_set
@@ -2092,6 +2099,7 @@ def get_entity_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
     for e in edges_list:
         e["edge_kind"] = "relationship"
         e["tooltip"] = None
+        e["symmetric"] = is_symmetric(e.get("label"))
     raw_story: list[dict] = []
 
     dyn_rows = db.fetchall(
