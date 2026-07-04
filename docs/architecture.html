@@ -1064,7 +1064,7 @@ flowchart TD
         <tr><th>Route File</th><th>Path</th><th>What It Returns</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>novels.py</code></td><td><code>/api/novels</code></td><td>List + create novels</td></tr>
+        <tr><td><code>novels.py</code></td><td><code>/api/novels</code></td><td>List + create novels; delete by id (cascades to all novel-scoped rows)</td></tr>
         <tr><td><code>characters.py</code></td><td><code>/.../characters</code></td><td>Character list; detail with state history, events, relationships</td></tr>
         <tr><td><code>chapters.py</code></td><td><code>/.../chapters</code></td><td>Chapter list with short/long summaries</td></tr>
         <tr><td><code>timeline.py</code></td><td><code>/.../timeline</code></td><td>Events grouped by chapter, cap-filtered</td></tr>
@@ -1098,6 +1098,7 @@ flowchart TD
     <p>
       React 19 + React Router v7. State managed by <code>@tanstack/react-query</code> (30s staleTime).
       No global state store — all server state is in React Query caches.
+      Icons are <code>lucide-react</code> components throughout (sidebar nav, novel cards, process actions) — no hand-rolled inline SVGs.
     </p>
 
     <h3>Route Structure</h3>
@@ -1105,7 +1106,7 @@ flowchart TD
       <div class="card">
         <h4>Core Wiki Views</h4>
         <p>
-          <code>/novels</code> → Novel picker<br/>
+          <code>/novels</code> → Novel picker (create, delete with inline confirm)<br/>
           <code>/.../characters</code> → Character list<br/>
           <code>/.../characters/:id</code> → Character detail (state history, relationships, events)<br/>
           <code>/.../chapters</code> → Chapter summaries<br/>
@@ -1339,7 +1340,7 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
     <div class="grid-3">
       <div class="card">
         <h4>LitRPG</h4>
-        <p><code>realm</code>, <code>power_system</code>, <code>species</code></p>
+        <p><code>realm</code>, <code>power_system</code>, <code>class</code>, <code>skill</code>, <code>species</code></p>
       </div>
       <div class="card">
         <h4>High Fantasy</h4>

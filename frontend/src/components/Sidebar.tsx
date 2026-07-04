@@ -3,38 +3,45 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { useChapterCap } from "../hooks/useChapterCap";
 import { api } from "../api";
 import type { ReactNode } from "react";
-
-function Icon({ path, path2 }: { path: string; path2?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d={path} />
-      {path2 && <path d={path2} />}
-    </svg>
-  );
-}
+import {
+  Users,
+  BookOpen,
+  Film,
+  Clock,
+  Layers,
+  Bookmark,
+  MapPin,
+  Package,
+  Shield,
+  HelpCircle,
+  CheckCircle,
+  Activity,
+  Share2,
+  ShieldCheck,
+  Zap,
+  Menu,
+} from "lucide-react";
 
 const NAV_ICONS: Record<string, ReactNode> = {
-  Characters: <Icon path="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" path2="M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm13 14v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />,
-  Chapters: <Icon path="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" path2="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />,
-  Scenes: <Icon path="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H4a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1z" />,
-  Timeline: <Icon path="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" path2="M12 6v6l4 2" />,
-  Threads: <Icon path="M12 2 2 7l10 5 10-5-10-5z" path2="M2 17l10 5 10-5M2 12l10 5 10-5" />,
-  Commitments: <Icon path="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />,
-  Locations: <Icon path="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z" path2="M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />,
-  Objects: <Icon path="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" path2="M3.27 6.96 12 12.01l8.73-5.05M12 22.08V12" />,
-  Factions: <Icon path="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />,
-  "State & Knowledge": <Icon path="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" path2="M12 17h.01" />,
-  "Canon Facts": <Icon path="M22 11.08V12a10 10 0 1 1-5.93-9.14" path2="M22 4 12 14.01l-3-3" />,
-  Dynamics: <Icon path="M22 12h-4l-3 9L9 3l-3 9H2" />,
-  "Entity Graph": <Icon path="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" path2="M21 5a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM9 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM21 19a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />,
-  Continuity: <Icon path="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" path2="M9 12l2 2 4-4" />,
-  "Process Chapter": <Icon path="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />,
+  Characters: <Users />,
+  Chapters: <BookOpen />,
+  Scenes: <Film />,
+  Timeline: <Clock />,
+  Threads: <Layers />,
+  Commitments: <Bookmark />,
+  Locations: <MapPin />,
+  Objects: <Package />,
+  Factions: <Shield />,
+  "State & Knowledge": <HelpCircle />,
+  "Canon Facts": <CheckCircle />,
+  Dynamics: <Activity />,
+  "Entity Graph": <Share2 />,
+  Continuity: <ShieldCheck />,
+  "Process Chapter": <Zap />,
 };
 
 function navIcon(label: string): ReactNode {
-  return NAV_ICONS[label] ?? (
-    <Icon path="M4 6h16M4 12h16M4 18h16" />
-  );
+  return NAV_ICONS[label] ?? <Menu />;
 }
 
 type NavGroup = { label: string; links: [string, string][] };
@@ -126,10 +133,7 @@ export default function Sidebar() {
       <div className="sidebar-logo">
         <Link to="/novels">
           <span className="sidebar-logo-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: 14, height: 14 }}>
-              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-            </svg>
+            <BookOpen />
           </span>
           Continuum
         </Link>
@@ -167,7 +171,7 @@ export default function Sidebar() {
             <ul className="nav-items">
               <li>
                 <Link to="/novels" className={location.pathname === "/novels" ? "active" : ""}>
-                  <Icon path="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" path2="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                  <BookOpen />
                   Library
                 </Link>
               </li>

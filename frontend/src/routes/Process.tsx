@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { Zap, Check, X } from "lucide-react";
 
 import { api, fetchJson, postJson } from "../api";
 
@@ -39,30 +40,6 @@ const PASS_LABELS: Record<string, string> = {
   canonicalization: "Canonicalising names",
   canon_facts: "Extracting canon facts",
 };
-
-function ZapIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  );
-}
-
-function CheckIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
-  );
-}
-
-function XIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
 
 export default function Process() {
   const { novelId } = useParams();
@@ -150,7 +127,7 @@ export default function Process() {
             </p>
           )}
           <button type="submit" className="btn-primary" disabled={generateMutation.isPending}>
-            <ZapIcon />
+            <Zap size={14} />
             {generateMutation.isPending ? "Submitting…" : "Generate chapter"}
           </button>
         </form>
@@ -200,7 +177,7 @@ export default function Process() {
             className="btn-primary"
             disabled={mutation.isPending || !text.trim()}
           >
-            <ZapIcon />
+            <Zap size={14} />
             {mutation.isPending ? "Submitting…" : "Process chapter"}
           </button>
         </form>
@@ -245,7 +222,7 @@ export default function Process() {
             <div>
               <div className="job-success-header">
                 <div className="job-success-icon">
-                  <CheckIcon />
+                  <Check />
                 </div>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-h)" }}>
                   {isGenerationResult ? "Chapter generated" : "Chapter processed"}
@@ -308,7 +285,7 @@ export default function Process() {
             <div>
               <div className="job-error-header">
                 <div className="job-error-icon">
-                  <XIcon />
+                  <X />
                 </div>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "var(--red-text)" }}>
                   Processing failed

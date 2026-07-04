@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { BookOpen, Plus, List, User, Trash2 } from "lucide-react";
 import { api, postJson } from "../api";
 import type { Novel, GenrePreset } from "../api";
 
@@ -20,40 +21,6 @@ function createNovel(
   });
 }
 
-function BookIcon() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-    </svg>
-  );
-}
-
-function PlusIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <path d="M12 5v14M5 12h14" />
-    </svg>
-  );
-}
-
-function ChaptersIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M4 6h16M4 12h16M4 18h7" />
-    </svg>
-  );
-}
-
-function AuthorIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-      <circle cx="12" cy="7" r="4" />
-    </svg>
-  );
-}
-
 export default function Novels() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -64,6 +31,7 @@ export default function Novels() {
   const [language, setLanguage] = useState("");
   const [customTypes, setCustomTypes] = useState<EntityTypeInput[]>([]);
   const [newTypeName, setNewTypeName] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({ queryKey: ["novels"], queryFn: api.novels });
   const { data: genres } = useQuery({ queryKey: ["genres"], queryFn: api.genres });
@@ -73,6 +41,14 @@ export default function Novels() {
     onSuccess: (novel) => {
       queryClient.invalidateQueries({ queryKey: ["novels"] });
       navigate(`/novels/${novel.id}/process`);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.deleteNovel(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["novels"] });
+      setConfirmDeleteId(null);
     },
   });
 
@@ -110,7 +86,7 @@ export default function Novels() {
         </div>
         {!showForm && (
           <button className="btn-primary" onClick={() => setShowForm(true)}>
-            <PlusIcon />
+            <Plus size={14} />
             New Novel
           </button>
         )}
@@ -239,7 +215,7 @@ export default function Novels() {
       {(!data || data.length === 0) && !showForm && (
         <div className="empty-state">
           <div style={{ marginBottom: 16, opacity: 0.3 }}>
-            <BookIcon />
+            <BookOpen size={18} />
           </div>
           <p style={{ marginBottom: 12, fontFamily: "'Crimson Pro', Georgia, serif", fontSize: "1.1rem", color: "var(--text)" }}>
             No novels yet
@@ -251,25 +227,58 @@ export default function Novels() {
       {data && data.length > 0 && (
         <div className="novel-grid">
           {data.map((n) => (
-            <Link
-              key={n.id}
-              to={`/novels/${n.id}/characters`}
-              className="novel-card"
-            >
+            <div key={n.id} className="novel-card">
+              {confirmDeleteId === n.id ? (
+                <div className="novel-card-confirm">
+                  <p>Delete "{n.title}"? This removes all its chapters and data.</p>
+                  <div className="novel-card-confirm-actions">
+                    <button
+                      type="button"
+                      className="btn-danger btn-sm"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => deleteMutation.mutate(n.id)}
+                    >
+                      {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-ghost btn-sm"
+                      disabled={deleteMutation.isPending}
+                      onClick={() => setConfirmDeleteId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="novel-card-delete"
+                  aria-label={`Delete ${n.title}`}
+                  onClick={() => setConfirmDeleteId(n.id)}
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+              <Link
+                to={`/novels/${n.id}/characters`}
+                className="novel-card-link"
+                aria-label={n.title}
+              />
               <div className="novel-card-title">{n.title}</div>
               <div className="novel-card-meta">
                 {n.author && (
                   <span className="novel-card-stat">
-                    <AuthorIcon />
+                    <User size={12} />
                     {n.author}
                   </span>
                 )}
                 <span className="novel-card-stat">
-                  <ChaptersIcon />
+                  <List size={12} />
                   {n.max_chapter} ch{n.max_chapter === 1 ? "" : "s"}
                 </span>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
