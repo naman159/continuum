@@ -107,7 +107,9 @@ def _resolve_planned_ids(
 
 def _context_block_for_scene(
     retriever: HybridRetriever | None, novel_id: str, chapter_number: int, scene
-) -> str:
+) -> str | None:
+    """Returns the context block, "" when retrieval succeeded with nothing to
+    cite (not retried), or None on failure (retried next revision)."""
     if retriever is None:
         return ""
     query_text = f"{scene.scene_goal} {' '.join(scene.present_characters)}"
@@ -123,7 +125,7 @@ def _context_block_for_scene(
         )
     except Exception as exc:
         logger.warning("generation: retrieval failed, drafting without it: %s", exc)
-        return ""
+        return None
     lines = [
         f"[{r.kind} ch{r.chapter_number}] {r.snippet}" for r in bundle.results if r.snippet
     ]
@@ -179,9 +181,10 @@ def generate_chapter(
         critic = ContinuityCritic(client)
 
         # Retrieval context depends only on the immutable plan: computed on
-        # the first iteration and reused across revisions (see the retry
-        # inside the loop, which only re-runs scenes whose retrieval failed).
-        context_blocks: list[str] = [""] * len(plan.scenes)
+        # the first iteration and reused across revisions. None means "not
+        # yet computed or failed" and is (re)tried; "" means retrieval
+        # succeeded with nothing to cite and is reused as-is.
+        context_blocks: list[str | None] = [None] * len(plan.scenes)
 
         revision_notes: list[str] = []
         text = ""
@@ -190,13 +193,12 @@ def generate_chapter(
 
         while iterations <= revisions_allowed:
             iterations += 1
-            if retriever is not None:
-                # Fill (and, after a transient retrieval failure that yielded
-                # "", retry) each scene's context; successes are reused.
-                context_blocks = [
-                    cb or _context_block_for_scene(retriever, novel_id, chapter_number, scene)
-                    for scene, cb in zip(plan.scenes, context_blocks)
-                ]
+            context_blocks = [
+                cb
+                if cb is not None
+                else _context_block_for_scene(retriever, novel_id, chapter_number, scene)
+                for scene, cb in zip(plan.scenes, context_blocks)
+            ]
             scene_texts: list[str] = []
             for scene, context_block in zip(plan.scenes, context_blocks):
                 _tick(f"drafting scene {scene.scene_index}/{len(plan.scenes)}")
@@ -204,7 +206,7 @@ def generate_chapter(
                     drafter.draft_scene(
                         scene=scene,
                         plan=plan,
-                        context_block=context_block,
+                        context_block=context_block or "",
                         prior_text_tail="\n\n".join(scene_texts)[-1500:],
                         style=style,
                         revision_notes=revision_notes or None,

@@ -95,12 +95,16 @@ def normalize_text(text: str) -> str:
     return " ".join((text or "").lower().split())
 
 
-def words_overlap_match(a: str, b: str, *, min_words: int, ratio: float) -> bool:
-    """Shared fuzzy match between two normalize_text'd prose fragments: the
-    word overlap must reach max(min_words, ratio * |words(a)|). Thresholds
-    are tuned per check (commitments vs knowledge state)."""
+def words_overlap(a: str, b: str, *, min_words: int, ratio: float) -> set[str]:
+    """Shared fuzzy match between two normalize_text'd prose fragments: when
+    the word overlap reaches max(min_words, ratio * |words(a)|), return the
+    overlapping words (the evidence); otherwise return an empty set.
+    Thresholds are tuned per check (commitments vs knowledge state)."""
     a_words = set(a.split())
     b_words = set(b.split())
     if not a_words or not b_words:
-        return False
-    return len(a_words & b_words) >= max(min_words, int(len(a_words) * ratio))
+        return set()
+    overlap = a_words & b_words
+    if len(overlap) >= max(min_words, int(len(a_words) * ratio)):
+        return overlap
+    return set()

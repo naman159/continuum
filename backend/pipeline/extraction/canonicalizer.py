@@ -45,9 +45,9 @@ def normalize_name(name: str) -> str:
     return n or str(name or "").strip().lower()
 
 
-# Similarity at or above this bar counts as lexical evidence for a merge.
-# One constant shared with roster-subset ranking so the roster the LLM sees
-# and the evidence bar for persisting its answer stay calibrated together.
+# Similarity at or above this bar counts as unambiguous lexical evidence for
+# persisting an alias (see _names_lexically_close). The similarity *function*
+# is shared with roster-subset ranking; this threshold applies only here.
 LEXICAL_MATCH_RATIO = 0.85
 
 
@@ -642,6 +642,17 @@ class EntityCanonicalizer:
 
 # Sentinel for normalized names shared by multiple roster entries — never auto-merge those.
 _AMBIGUOUS = object()
+
+
+def apply_merges_to_extraction(
+    db: Any, extracted: dict[str, Any], merges: dict[str, dict[str, str]]
+) -> dict[str, Any]:
+    """Public seam for the pipeline: rewrite merged candidate names to their
+    targets' canonical names so every merge — including reasoning-only ones
+    that persisted no alias — takes effect for the current chapter."""
+    if not merges:
+        return extracted
+    return _apply_rename_map(extracted, rename_map_for_merges(db, merges))
 
 
 def rename_map_for_merges(

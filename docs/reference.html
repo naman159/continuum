@@ -671,10 +671,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <thead><tr><th>Step</th><th>Method</th><th>Creates new?</th></tr></thead>
       <tbody>
         <tr><td>1. In-memory cache</td><td>(entity_type, lowercased name) hit from earlier in the same run</td><td>No</td></tr>
-        <tr><td>2. Exact name</td><td>Case-insensitive string match on <code>name</code></td><td>No</td></tr>
-        <tr><td>3. Alias lookup</td><td>Check if name is in <code>aliases[]</code> (LIKE wildcards in names are escaped)</td><td>No</td></tr>
-        <tr><td>4. Partial match</td><td>Characters only: "Jane" matches "Jane Bennet" on a word boundary, adds "Jane" as alias</td><td>No</td></tr>
-        <tr><td>5. Create new</td><td>INSERT into entities + specific table</td><td><strong>Yes</strong></td></tr>
+        <tr><td>2. Name or alias</td><td>One combined query: case-insensitive match on <code>name</code> or <code>aliases[]</code>, name matches taking priority (LIKE wildcards in names are escaped)</td><td>No</td></tr>
+        <tr><td>3. Partial match</td><td>Characters only: "Jane" matches "Jane Bennet" on a word boundary, adds "Jane" as alias</td><td>No</td></tr>
+        <tr><td>4. Create new</td><td>INSERT into entities + specific table</td><td><strong>Yes</strong></td></tr>
       </tbody>
     </table>
 

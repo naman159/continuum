@@ -301,9 +301,24 @@ export type CustomEntityDetail = {
   relationships: CustomEntityRelationship[];
 };
 
+// Surface FastAPI's {detail} payload — a string on HTTPException, an array
+// of {loc, msg, ...} objects on 422 validation errors.
+async function throwHttpError(res: Response): Promise<never> {
+  let detail = "";
+  try {
+    const d = (await res.json())?.detail;
+    if (typeof d === "string") detail = d;
+    else if (Array.isArray(d))
+      detail = d.map((e) => e?.msg ?? JSON.stringify(e)).join("; ");
+  } catch {
+    /* non-JSON error body */
+  }
+  throw new Error(detail ? `${res.status}: ${detail}` : `${res.status} ${res.statusText}`);
+}
+
 export async function fetchJson<T>(path: string): Promise<T> {
   const res = await fetch(path);
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) await throwHttpError(res);
   return res.json() as Promise<T>;
 }
 
@@ -317,21 +332,7 @@ export async function postJson<T>(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) {
-    // Surface FastAPI's {detail} payload — a string on HTTPException, an
-    // array of {loc, msg, ...} objects on 422 validation errors.
-    let detail = "";
-    try {
-      const d = (await res.json())?.detail;
-      if (typeof d === "string") detail = d;
-      else if (Array.isArray(d))
-        detail = d.map((e) => e?.msg ?? JSON.stringify(e)).join("; ");
-      else if (d != null) detail = JSON.stringify(d);
-    } catch {
-      /* non-JSON error body */
-    }
-    throw new Error(detail ? `${res.status}: ${detail}` : `${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) await throwHttpError(res);
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
 }
