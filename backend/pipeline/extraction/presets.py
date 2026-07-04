@@ -11,6 +11,14 @@ GENRE_PRESETS: dict[str, list[dict[str, str]]] = {
             "description": "A named system of abilities, cultivation, or magic with defined rules and tiers.",
         },
         {
+            "name": "class",
+            "description": "A named character class, job, or profession granted by the system, including its evolutions or unique variants.",
+        },
+        {
+            "name": "skill",
+            "description": "A named ability, spell, or technique granted by the system that a character gains, levels, or evolves.",
+        },
+        {
             "name": "species",
             "description": "A distinct race, creature type, or non-human species with collective traits.",
         },

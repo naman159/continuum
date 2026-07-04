@@ -179,9 +179,26 @@ def _create_novel_real(
             ON CONFLICT (novel_id, name) DO NOTHING
             """,
             (novel_id, et["name"], et.get("description")),
-            commit=True,
         )
     return {**dict(row), "max_chapter": 0}
+
+
+def delete_novel(novel_id: UUID) -> bool:
+    db = _get_db()
+    if hasattr(db, "novels"):
+        before = len(db.novels)
+        db.novels[:] = [n for n in db.novels if n["id"] != novel_id]
+        return len(db.novels) != before
+    return _delete_novel_real(db, novel_id)
+
+
+def _delete_novel_real(db: DBClient, novel_id: UUID) -> bool:
+    row = db.fetchone(
+        "DELETE FROM novels WHERE id = %s RETURNING id",
+        (str(novel_id),),
+        commit=True,
+    )
+    return row is not None
 
 
 def _get_novel_real(db: DBClient, novel_id: UUID) -> dict[str, Any] | None:

@@ -30,3 +30,9 @@ def get_novel(novel_id: UUID) -> NovelSummary:
     if row is None:
         raise HTTPException(status_code=404, detail="Novel not found")
     return NovelSummary(**row)
+
+
+@router.delete("/{novel_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_novel(novel_id: UUID) -> None:
+    if not queries.delete_novel(novel_id):
+        raise HTTPException(status_code=404, detail="Novel not found")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from api import queries
 from api.tests.conftest import make_chapter, make_novel
 
 
@@ -78,3 +79,68 @@ def test_create_novel_missing_title(fake_db_factory, client):
     fake_db_factory()
     response = client.post("/api/novels", json={})
     assert response.status_code == 422
+
+
+def test_delete_novel(fake_db_factory, client):
+    novel = make_novel(title="My Novel")
+    fake_db_factory(novels=[novel])
+    response = client.delete(f"/api/novels/{novel['id']}")
+    assert response.status_code == 204
+    assert client.get(f"/api/novels/{novel['id']}").status_code == 404
+
+
+def test_delete_novel_404(fake_db_factory, client):
+    fake_db_factory()
+    response = client.delete("/api/novels/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+
+
+def test_delete_novel_real():
+    """Regression test for the real (Postgres) code path, per test_create_novel_real_persists_custom_entity_types above."""
+
+    class RealDBStub:
+        def __init__(self, found: bool) -> None:
+            self.found = found
+            self.calls: list[tuple] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            self.calls.append((query, params, commit))
+            return {"id": params[0]} if self.found else None
+
+    found_db = RealDBStub(found=True)
+    assert queries._delete_novel_real(found_db, "some-id") is True
+    assert found_db.calls[0][2] is True  # commit=True
+
+    missing_db = RealDBStub(found=False)
+    assert queries._delete_novel_real(missing_db, "some-id") is False
+
+
+def test_create_novel_real_persists_custom_entity_types():
+    """Regression test for the real (Postgres) code path, which fake_db_factory's
+    in-memory FakeDB bypasses entirely. A stub matching DBClient's actual method
+    signatures ensures a call like `db.execute(..., commit=True)` fails loudly,
+    the way it did in production, instead of being silently skipped by mocks."""
+
+    class RealDBStub:
+        def __init__(self) -> None:
+            self.executed: list[tuple] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            return {
+                "id": params[0],
+                "title": params[1],
+                "author": params[2],
+                "language": params[3],
+                "created_at": "2026-01-01T00:00:00Z",
+            }
+
+        def execute(self, query, params=None) -> None:
+            self.executed.append(params)
+
+    db = RealDBStub()
+    result = queries._create_novel_real(
+        db, "Real Novel", None, None, [{"name": "deity", "description": "test"}]
+    )
+
+    assert result["title"] == "Real Novel"
+    assert db.executed == [(result["id"], "deity", "test")]

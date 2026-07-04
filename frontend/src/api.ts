@@ -337,6 +337,11 @@ export async function postJson<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+export async function deleteRequest(path: string): Promise<void> {
+  const res = await fetch(path, { method: "DELETE" });
+  if (!res.ok) await throwHttpError(res);
+}
+
 const capParam = (cap: number | null) => (cap == null ? "" : `?cap=${cap}`);
 
 export const api = {
@@ -435,4 +440,5 @@ export const api = {
     fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
   generateChapter: (novelId: string, number: number, ingest: boolean) =>
     postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/generate`, { number, ingest }),
+  deleteNovel: (id: string) => deleteRequest(`/api/novels/${id}`),
 };
