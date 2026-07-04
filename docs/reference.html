@@ -983,6 +983,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   sentiment       <span class="sql-type">FLOAT</span>,           <span class="sql-comment">-- SOTA: -1.0 to 1.0</span>
   evidence_event_ids <span class="sql-type">UUID[]</span>,        <span class="sql-comment">-- SOTA: events that established this</span>
   superseded_by_id   <span class="sql-type">UUID</span>,          <span class="sql-comment">-- SOTA: points to newer relationship row</span>
+  symmetric       <span class="sql-type">BOOLEAN</span>,          <span class="sql-comment">-- NULL = unjudged; see below</span>
   created_at      <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
 );</code></pre>
     <p>
@@ -997,16 +998,25 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </p>
     <p>
       <code>entity_a_id</code>/<code>entity_b_id</code> order encodes direction, but for
-      inherently mutual <code>rel_type</code>s (<code>spouse_of</code>, <code>sibling_of</code>,
-      <code>friend_of</code>, <code>rival_of</code>, ...) that order carries no meaning. Since
-      <code>rel_type</code> is freeform LLM output rather than an enum, there is no schema column
-      for this — the API layer looks the label up in a static allowlist
-      (<code>backend/api/relationship_types.py::is_symmetric</code>) and returns a computed
-      <code>symmetric</code> boolean alongside every relationship row and graph edge. The frontend
-      uses it to suppress the direction indicator / arrowhead for mutual relationship types instead
-      of showing a meaningless "to"/"from". The extraction prompt (<code>relationship_updates</code>
-      in <code>prompts.py</code>) is instructed to emit one row per mutual pair rather than one per
-      direction.
+      inherently mutual <code>rel_type</code>s (<code>spouse_of</code>, <code>sibling_of</code>, ...)
+      that order carries no meaning — and even labels that usually read as mutual
+      (<code>friend_of</code>, <code>rival_of</code>) can be one-sided in a given story (A considers
+      B a friend; B doesn't reciprocate). A label-only lookup can't tell these apart, so the
+      extractor judges it per instance: the <code>relationship_updates</code> prompt
+      (<code>prompts.py</code>) asks the model to set <code>symmetric</code> to <code>true</code>
+      only when both sides genuinely hold the relationship (or it's true by definition), <code>false</code>
+      when it reflects one entity's unreciprocated view, and leave it <code>null</code> when the text
+      doesn't say. When the text shows the two sides genuinely differing, the extractor emits two
+      rows — one per entity's actual stance — rather than one shared label.
+    </p>
+    <p>
+      <code>symmetric</code> is nullable because older rows predate this field and the extractor
+      sometimes has no signal either way. The API resolves the displayed value via
+      <code>backend/api/relationship_types.py::resolve_symmetric(rel_type, stored_symmetric)</code>:
+      it trusts a non-null stored value, and otherwise falls back to a static label allowlist
+      (<code>is_symmetric()</code>) for a reasonable default. This computed boolean is returned
+      alongside every relationship row and graph edge; the frontend uses it to show a neutral "↔"
+      instead of "to"/"from" and to drop the arrowhead in the graph views.
     </p>
   </section>
 

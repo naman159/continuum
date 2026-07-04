@@ -227,6 +227,11 @@ CREATE INDEX IF NOT EXISTS idx_events_story_time ON events(story_time_ordinal);
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFERENCES relationships(id);
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS evidence_event_ids UUID[] DEFAULT '{}';
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
+-- NULL = extractor didn't judge it; the API falls back to a static label heuristic
+-- (api/relationship_types.py). TRUE/FALSE = the extractor read the chapter text and
+-- judged whether the relationship is genuinely mutual or reflects one side's view
+-- (e.g. A considers B a friend, but B doesn't feel the same).
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS symmetric BOOLEAN;
 
 -- ---- Ingestion provenance + replayability ----
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'human';

@@ -35,10 +35,13 @@ class RelFakeDB:
             self.inserts.append((query, tuple(params or ())))
 
 
-def _persist(db):
+def _persist(db, rel_overrides=None):
     from pipeline.extraction.resolver import EntityResolver
 
     resolver = EntityResolver(db, novel_id="n1", chapter_number=2)
+    rel = {"entity_a": "Alice", "entity_b": "Bob", "rel_type": "rival",
+           "from_chapter": 2, "to_chapter": None, "notes": None}
+    rel.update(rel_overrides or {})
     extracted = {
         "new_entities": {},
         "entity_deltas": [],
@@ -48,10 +51,7 @@ def _persist(db):
         "dynamics_updates": [],
         "custom_entities": [],
         "canon_facts": [],
-        "relationship_updates": [
-            {"entity_a": "Alice", "entity_b": "Bob", "rel_type": "rival",
-             "from_chapter": 2, "to_chapter": None, "notes": None}
-        ],
+        "relationship_updates": [rel],
     }
     return _persist_extraction(
         db, resolver=resolver, chapter_id=str(uuid.uuid4()),
@@ -69,3 +69,24 @@ def test_new_relationship_is_inserted():
     db = RelFakeDB(existing_active_rel=False)
     _persist(db)
     assert len(db.inserts) == 1
+
+
+def test_symmetric_bool_from_extractor_is_persisted():
+    db = RelFakeDB(existing_active_rel=False)
+    _persist(db, {"symmetric": False})
+    _, params = db.inserts[0]
+    assert params[3] is False
+
+
+def test_symmetric_missing_persists_as_none():
+    db = RelFakeDB(existing_active_rel=False)
+    _persist(db)
+    _, params = db.inserts[0]
+    assert params[3] is None
+
+
+def test_symmetric_non_bool_persists_as_none():
+    db = RelFakeDB(existing_active_rel=False)
+    _persist(db, {"symmetric": "true"})
+    _, params = db.inserts[0]
+    assert params[3] is None

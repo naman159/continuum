@@ -1304,10 +1304,16 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
     </table>
     <p>
       <code>entity_a_id</code>/<code>entity_b_id</code> order is meaningless for inherently mutual
-      relationship types (<code>spouse_of</code>, <code>sibling_of</code>, etc.), since <code>rel_type</code>
-      is freeform extractor output rather than a fixed enum. The API computes a <code>symmetric</code>
-      boolean per edge via a static label lookup (<code>backend/api/relationship_types.py</code>) and the
-      graph views drop the arrowhead when it's set, rather than implying a direction the data doesn't have.
+      relationship types (<code>spouse_of</code>, <code>sibling_of</code>, etc.) — and even a label
+      that usually reads as mutual (<code>friend_of</code>, <code>rival_of</code>) can be one-sided
+      in a given story, so a label-only lookup can't fully capture it. The extractor is asked to
+      judge each instance from the chapter text and set <code>relationships.symmetric</code>
+      directly; the API resolves the displayed value via
+      <code>resolve_symmetric()</code> in <code>backend/api/relationship_types.py</code>, which trusts
+      that judgment when present and otherwise falls back to a static label allowlist
+      (<code>is_symmetric()</code>). Graph views drop the arrowhead when the resolved value is true,
+      rather than implying a direction the data doesn't have. See
+      <a href="reference.html#schema-relationships">Schema: relationships</a> for the full rubric.
     </p>
 
     <p>

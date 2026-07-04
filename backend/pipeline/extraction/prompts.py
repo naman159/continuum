@@ -104,6 +104,7 @@ PASS_SCHEMAS = {
                 "entity_a": "string",
                 "entity_b": "string",
                 "rel_type": "string",
+                "symmetric": "boolean|null  # true if genuinely mutual, false if one-sided, null if unclear",
                 "from_chapter": "integer|null",
                 "to_chapter": "integer|null",
                 "notes": "string|null",
@@ -275,10 +276,20 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         Use lowercase, specific labels (e.g. "rival", "employer", "romantic_interest")
         rather than vague or compound ones ("guide/subject", "friends/colleagues").
 
-        For relationships that are inherently mutual (e.g. "spouse_of", "sibling_of",
-        "friend_of", "rival_of"), emit exactly one row for the pair — not one row per
-        direction. Reserve two separate rows only for relationships that genuinely
-        differ by direction (e.g. "mentor" vs. "employer" between the same two entities).
+        Set "symmetric" based on what the text actually shows, not what the label usually
+        implies:
+          - true: both sides hold the relationship equally, or it is true by definition
+            regardless of feelings (spouses, siblings, an explicitly mutual friendship).
+          - false: the label reflects one entity's view or treatment of the other, and the
+            other side's view isn't confirmed as the same (A believes they're B's friend
+            but B doesn't reciprocate; A resents B with no indication B feels it back).
+          - null: the text doesn't give enough signal either way.
+        Labels like "friend_of" or "rival_of" are NOT automatically mutual — judge each
+        instance from the text. If the two entities' feelings genuinely differ, emit two
+        separate rows (one per entity's actual stance, each with symmetric=false) rather
+        than forcing one shared label. For relationships that are definitionally mutual
+        (e.g. "spouse_of", "sibling_of"), emit exactly one row for the pair, not one per
+        direction.
         Return JSON only.
         """
     ).strip(),

@@ -513,17 +513,21 @@ def _persist_extraction(
         )
         if duplicate:
             continue
+        symmetric = rel.get("symmetric")
+        if not isinstance(symmetric, bool):
+            symmetric = None
         db.execute(
             """
             INSERT INTO relationships (
-                entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter, notes, chapter_id
+                entity_a_id, entity_b_id, rel_type, symmetric, from_chapter, to_chapter, notes, chapter_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 a_universal,
                 b_universal,
                 rel.get("rel_type"),
+                symmetric,
                 rel.get("from_chapter"),
                 rel.get("to_chapter"),
                 rel.get("notes"),

@@ -48,3 +48,16 @@ def is_symmetric(rel_type: str | None) -> bool:
     if rel_type is None:
         return False
     return rel_type.strip().lower() in SYMMETRIC_REL_TYPES
+
+
+def resolve_symmetric(rel_type: str | None, stored_symmetric: bool | None) -> bool:
+    """Prefer the extractor's per-instance judgment; fall back to the static label lookup.
+
+    The extractor sees the actual chapter text and can tell a one-sided "friend_of"
+    (A considers B a friend; B doesn't) from a genuinely mutual one, which a label-only
+    lookup never can. `stored_symmetric` is the `relationships.symmetric` column, which
+    is NULL for rows written before this field existed or when the extractor left it unset.
+    """
+    if stored_symmetric is not None:
+        return bool(stored_symmetric)
+    return is_symmetric(rel_type)
