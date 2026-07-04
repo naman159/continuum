@@ -496,6 +496,12 @@ def _persist_extraction(
             continue
         a_universal = resolver.resolve_any_entity(a_name)
         b_universal = resolver.resolve_any_entity(b_name)
+        if a_universal == b_universal:
+            logger.warning(
+                "relationship_updates: entity_a %r and entity_b %r both resolved to the "
+                "same entity; skipping self-referential relationship", a_name, b_name,
+            )
+            continue
         # Identical active relationship already recorded -> don't re-insert.
         # Different rel_types between the same pair coexist by design.
         duplicate = db.fetchone(
@@ -543,6 +549,12 @@ def _persist_extraction(
             continue
         a_universal = resolver.resolve_any_entity(a_name)
         b_universal = resolver.resolve_any_entity(b_name)
+        if a_universal == b_universal:
+            logger.warning(
+                "dynamics_updates: entity_a %r and entity_b %r both resolved to the "
+                "same entity; skipping self-referential dynamic", a_name, b_name,
+            )
+            continue
         db.execute(
             """
             INSERT INTO shared_dynamics (entity_a_id, entity_b_id, chapter_id, description)

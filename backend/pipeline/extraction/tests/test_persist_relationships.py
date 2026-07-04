@@ -90,3 +90,12 @@ def test_symmetric_non_bool_persists_as_none():
     _persist(db, {"symmetric": "true"})
     _, params = db.inserts[0]
     assert params[3] is None
+
+
+def test_self_referential_relationship_is_skipped():
+    # Both names resolve to the same entity (e.g. the extractor emitted the
+    # same collective-noun reference for entity_a and entity_b) — inserting
+    # would violate the relationships.entity_a_id <> entity_b_id check.
+    db = RelFakeDB(existing_active_rel=False)
+    _persist(db, {"entity_a": "Alice", "entity_b": "Alice"})
+    assert db.inserts == []
