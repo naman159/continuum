@@ -13,9 +13,8 @@ from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
     EntityCanonicalizer,
     IntraExtractionDeduplicator,
-    _apply_rename_map,
+    apply_merges_to_extraction,
     collect_names_by_type,
-    rename_map_for_merges,
 )
 from pipeline.extraction.chunker import sliding_window_chunks
 from pipeline.extraction.context_select import select_context_entities
@@ -294,13 +293,10 @@ def process_chapter(
             chapter_text=raw_text,
             candidate_names_by_type=collect_names_by_type(extracted),
         )
-        if merges:
-            # Rewrite merged candidates to their targets' canonical names so
-            # every merge takes effect this chapter — for reasoning-only
-            # (non-persisted-alias) merges this rename is the only mechanism.
-            extracted = _apply_rename_map(
-                extracted, rename_map_for_merges(client, merges)
-            )
+        # Rewrite merged candidates to their targets' canonical names so
+        # every merge takes effect this chapter — for reasoning-only
+        # (non-persisted-alias) merges this rename is the only mechanism.
+        extracted = apply_merges_to_extraction(client, extracted, merges)
         if progress is not None:
             progress.on_pass_done("canonicalization")
 
