@@ -144,3 +144,31 @@ Open http://localhost:8000. The FastAPI server serves both the API and the built
 - **Threads** — plot threads with status filter (open/progressing/closed) and linked events
 - **Continuity flags** — foreshadowing, setups, callbacks with resolved/open filter
 - **Relationships** — interactive vis-network graph (double-click a node to open the character); table fallback below
+
+## Writing agents (MCP)
+
+The data layer is exposed to writing agents as an MCP server (`novel-mcp`,
+stdio). Every lookup takes a `writing_chapter` and returns only facts from
+earlier chapters, so an agent drafting chapter N sees the world as of N−1.
+Tools: list_novels, list_chapters, search_story, get_character,
+character_knowledge, relationships, open_threads, unresolved_commitments,
+timeline_events, canon_facts, scene_list, check_continuity, save_chapter.
+
+- **Claude Code (this repo):** picked up automatically via `.mcp.json`.
+- **Claude Code (anywhere):**
+  `claude mcp add continuum -- uv run --directory /path/to/continuum/backend novel-mcp`
+- **Claude Desktop:** add to `claude_desktop_config.json`:
+
+  ```json
+  {
+    "mcpServers": {
+      "continuum": {
+        "command": "uv",
+        "args": ["run", "--directory", "/path/to/continuum/backend", "novel-mcp"]
+      }
+    }
+  }
+  ```
+
+Suggested agent workflow: `open_threads` + `unresolved_commitments` +
+`get_character` → draft → `check_continuity` → revise → `save_chapter`.

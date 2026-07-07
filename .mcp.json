@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "continuum": {
+      "command": "uv",
+      "args": ["run", "--directory", "backend", "novel-mcp"]
+    }
+  }
+}
