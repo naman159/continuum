@@ -14,6 +14,7 @@ dependencies = [
   "tiktoken>=0.9.0",
   "fastapi>=0.136.1",
   "uvicorn[standard]>=0.46.0",
+  "mcp>=1.2.0",
 ]
 
 [project.scripts]
@@ -28,6 +29,7 @@ novel-wiki-canon = "cli.canon:main"
 novel-wiki-knowledge = "cli.knowledge:main"
 novel-wiki-merge-entity = "cli.merge:main"
 novel-webapp = "api.app:run"
+novel-mcp = "mcp_server.server:main"
 
 [tool.setuptools]
 package-dir = {"" = "."}
