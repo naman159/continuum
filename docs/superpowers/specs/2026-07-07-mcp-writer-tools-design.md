@@ -18,12 +18,11 @@ an agent surface must not add a fourth copy.
 
 ## Decision
 
-Expose the data layer to writing agents via a single **MCP server**, built
-in its own directory. The existing `cli/` package is **left untouched** —
-the user will archive it separately; nothing new may import from it. Query
-logic the MCP tools need is ported from the CLI functions (which already
-implement the cutoff-aware composite lookups) into the MCP package, so the
-MCP package is self-contained and survives the CLI's removal.
+Expose the data layer to writing agents via a single **MCP server** that
+**replaces the CLI**. The CLI's composite query functions (which already
+implement the cutoff-aware lookups the agent needs) move into the MCP
+package; the `cli/` directory, its argparse wrappers, and its console
+scripts are deleted in the same change. No duplication, no interim state.
 
 The writing agent itself lives outside Continuum (Claude Code, Claude
 Desktop, or an Agent SDK app — all speak MCP). Wiring these tools into the
@@ -33,11 +32,10 @@ built-in `generate_chapter` pipeline is explicitly out of scope for now.
 
 ```
 backend/
-  mcp_server/       # NEW: self-contained MCP package
+  mcp_server/       # NEW: replaces cli/
     __init__.py
     server.py       # FastMCP (official `mcp` package), stdio transport; tool defs only
-    queries.py      # composite lookup functions ported from cli/ (cutoff-aware)
-  cli/              # unchanged; user archives it separately
+    queries.py      # composite lookup functions moved from cli/ (cutoff-aware)
   api/              # unchanged (serves the frontend)
   pipeline/         # unchanged (ingestion, generation loop)
 .mcp.json           # project-level registration for Claude Code
@@ -46,18 +44,21 @@ backend/
 - The directory is named `mcp_server`, not `mcp`, because `package-dir`
   is the backend root and a local `mcp/` package would shadow the `mcp`
   pip package the server imports.
-- `mcp_server/queries.py` holds the composite query functions ported from
+- `mcp_server/queries.py` holds the composite query functions moved from
   `cli/` (`build_character_page`, thread / commitment / knowledge /
   timeline / canon / scene / relationship queries), adapted only as needed
-  for tool output. `mcp_server/` imports from `pipeline/` and `api/` where
-  useful but **never from `cli/`**.
+  for tool output. The argparse `main()`s are not carried over.
+- `backend/cli/` is deleted in the same change. Nothing else imports it,
+  and its one non-lookup command (`novel-wiki-merge-entity`) is a thin
+  wrapper over `pipeline/db/entity_merge.py`, which stays and remains
+  exposed via `POST /api/novels/{id}/entities/merge`.
 - `server.py` owns zero SQL; it only defines tools over `queries.py`,
   `HybridRetriever`, `ContinuityCritic`, and `process_chapter`. It connects
   to Postgres via `DBClient` directly — the FastAPI server does not need
   to be running.
-- `pyproject.toml`: add one console script `novel-mcp =
-  "mcp_server.server:main"`; existing scripts are left alone (they go away
-  when the CLI is archived).
+- `pyproject.toml`: remove the nine `novel-wiki-*` console scripts, add
+  `novel-mcp = "mcp_server.server:main"`. `novel-pipeline` (raw-chapter
+  ingestion) and `novel-webapp` stay.
 
 ## Tools
 
@@ -105,7 +106,8 @@ already exists; save_chapter does not overwrite`.
   passes on a clean draft, mock LLM), `save_chapter` guard (existing
   chapter refused).
 - One smoke test: the MCP server starts and lists the expected tool names.
-- `cli/` tests (if any) are untouched.
+- Any tests importing `cli/` move with the functions to
+  `mcp_server/tests/` or are deleted with the argparse layer.
 
 ## Docs
 
@@ -116,8 +118,6 @@ instead (CLAUDE.md requires docs updates with every change).
 
 ## Out of scope
 
-- Archiving/deleting `cli/` and its console scripts — the user handles this
-  separately.
 - Wiring the MCP query functions into the built-in `generate_chapter` loop.
 - HTTP/streamable transport (mounting MCP on the FastAPI app). The stdio
   design can grow into this later without rework.
