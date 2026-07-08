@@ -29,6 +29,7 @@ from pipeline.extraction.persist_extras import (
 from pipeline.extraction.resolver import EntityResolver
 from pipeline.generation.style import compute_style_fingerprint
 from pipeline.ingestion.ingest import delete_chapter_data, ingest_chapter
+from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
 
@@ -389,6 +390,17 @@ def process_chapter(
                 resolver=resolver,
             )
 
+        # Rebuild derived projections (located_in_edges, possesses_edges,
+        # character_states) from the now-committed event log. Runs outside the
+        # transaction above: the materializer opens its own, and replays the
+        # whole novel through its latest chapter so replace=True of an earlier
+        # chapter can't leave later projections stale.
+        max_chapter = client.fetchval(
+            "SELECT COALESCE(MAX(number), %s) FROM chapters WHERE novel_id = %s",
+            (chapter_number, novel_id),
+        )
+        StateMaterializer(client).materialize(novel_id, int(max_chapter))
+
         return {
             "chapter_id": chapter_id,
             "chunks": len(chunks),
@@ -541,6 +553,10 @@ def _persist_extraction(
             ),
         )
 
+    # The extractor may emit several dynamics for the same pair in one chapter
+    # (including with entity_a/entity_b swapped); UNIQUE(entity_a_id,
+    # entity_b_id, chapter_id) allows only one row, so collapse them first.
+    dynamics_by_pair: dict[frozenset[str], dict] = {}
     for dyn in extracted.get("dynamics_updates", []):
         a_name = str(dyn.get("entity_a", "")).strip()
         b_name = str(dyn.get("entity_b", "")).strip()
@@ -555,12 +571,21 @@ def _persist_extraction(
                 "same entity; skipping self-referential dynamic", a_name, b_name,
             )
             continue
+        pair = frozenset((str(a_universal), str(b_universal)))
+        entry = dynamics_by_pair.get(pair)
+        if entry is None:
+            dynamics_by_pair[pair] = {
+                "a": a_universal, "b": b_universal, "descriptions": [description],
+            }
+        elif description not in entry["descriptions"]:
+            entry["descriptions"].append(description)
+    for entry in dynamics_by_pair.values():
         db.execute(
             """
             INSERT INTO shared_dynamics (entity_a_id, entity_b_id, chapter_id, description)
             VALUES (%s, %s, %s, %s)
             """,
-            (a_universal, b_universal, chapter_id, description),
+            (entry["a"], entry["b"], chapter_id, " ".join(entry["descriptions"])),
         )
 
     inserted_events: list[dict[str, str]] = []

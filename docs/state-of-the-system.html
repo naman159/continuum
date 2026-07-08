@@ -221,15 +221,17 @@
 
   <h1>State of the System</h1>
   <div class="subtitle">Where Continuum stands today, and where it needs to be to close the gap with SOTA.</div>
-  <div class="meta">branch: closing-the-gap-with-sota · 199 backend tests green · assessed 2026-06-10</div>
+  <div class="meta">branch: closing-the-gap-with-sota · 251 backend tests green · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in)</div>
 
   <p class="lead">
     Continuum has built an excellent set of organs and has not yet connected the circulatory system.
     The relational + vector knowledge base is largely state-of-the-art, the extraction pipeline is
     deep and disciplined, and four advanced subsystems — hybrid retrieval, a continuity critic, a
     scene planner, and an event-sourced state materializer — are individually well-engineered and
-    unit-tested. But none of those four is wired into a running pipeline, several of the marquee
-    tables they depend on have no producer, and the one component that would turn this from a
+    unit-tested. All four now have callers — the state materializer runs automatically at the end of
+    every processed chapter, and the planner, retriever, and critic drive the generation loop — but
+    several of the marquee tables they depend on have no producer, and the one component that would
+    turn this from a
     <em>continuity analyzer</em> into the <em>agentic writing system</em> the research describes — a
     Drafter inside an orchestrated loop — does not exist. This page is the honest map of that gap.
   </p>
@@ -251,13 +253,14 @@
     <li><strong>What the research describes is a generator.</strong> Plan → Retrieve → Draft → Critique
       → Revise → Update, run by a deterministic orchestrator. The <strong>Drafter and the orchestrator
       do not exist.</strong></li>
-    <li><strong>Four advanced subsystems are built but orphaned.</strong> <code>planner/</code>,
-      <code>retrieval/</code>, <code>critic/</code>, and <code>state/</code> are imported <em>nowhere</em>
-      outside their own packages and tests. They are islands.</li>
+    <li><strong>The four advanced subsystems are no longer orphaned.</strong> <code>state/</code> now
+      runs automatically inside <code>process_chapter</code>; <code>planner/</code>,
+      <code>retrieval/</code>, and <code>critic/</code> are consumed by the generation loop
+      (<code>generation/loop.py</code>).</li>
     <li><strong>The schema is one or two phases ahead of the extractor.</strong>
       <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> have
-      <em>no producer at all</em>; the bitemporal edges only fill if you manually run a CLI that nothing
-      calls automatically. <code>canon_facts</code> now has a live producer (pass 13) with lock/contradiction semantics.</li>
+      <em>no producer at all</em>. The bitemporal edges now fill automatically — the state materializer
+      runs at the end of every processed chapter. <code>canon_facts</code> has a live producer (pass 13) with lock/contradiction semantics.</li>
     <li><strong>So half the critic is hollow.</strong> Three of its six checks query tables that are never
       populated, and the critic itself is never invoked because nothing produces the <code>DraftChapter</code>
       it consumes.</li>
@@ -299,6 +302,7 @@ flowchart TB
       ING --> EXT["ChapterExtractor<br/>12 LLM passes per chunk"]
       EXT --> DED["IntraDeduplicator +<br/>EntityCanonicalizer"]
       DED --> PER["persist: entities · events · scenes<br/>knows_edges · commitments · canon_facts<br/>multi-summaries · relationships · dynamics"]
+      PER --> MAT["StateMaterializer<br/>event replay → bitemporal edges"]
       PER --> APIW["Wiki API (FastAPI) + React UI"]
     end
 
@@ -307,7 +311,6 @@ flowchart TB
       PLAN["ScenePlanner<br/>→ ChapterPlan"]
       RETR["HybridRetriever<br/>BM25+dense+RRF+rerank+MMR"]
       CRIT["ContinuityCritic<br/>6 typed checks"]
-      MAT["StateMaterializer<br/>event replay → bitemporal edges"]
     end
 
     subgraph MISS["🔴 Missing entirely"]
@@ -321,22 +324,20 @@ flowchart TB
       direction LR
       TC["temporal_constraints"]
       SVO["events.subject/verb/object<br/>+ story_time_ordinal"]
-      BTE["located_in / possesses edges<br/>(only via un-called CLI)"]
     end
 
-    PER -. "should call, doesn't" .-> MAT
     CRIT -. "needs a DraftChapter<br/>nothing produces one" .-> DRAFT
 
     classDef live fill:#13351f,stroke:#3fb950,color:#e6edf3;
     classDef orphan fill:#3a2a12,stroke:#f0883e,color:#e6edf3;
     classDef missing fill:#3a1715,stroke:#f85149,color:#e6edf3;
     classDef schema fill:#332d12,stroke:#d29922,color:#e6edf3;
-    class TXT,ING,EXT,DED,PER,APIW live;
-    class PLAN,RETR,CRIT,MAT orphan;
+    class TXT,ING,EXT,DED,PER,MAT,APIW live;
+    class PLAN,RETR,CRIT orphan;
     class ORCH,DRAFT,REV missing;
-    class CF,TC,SVO,BTE schema;
+    class CF,TC,SVO schema;
     </div>
-    <div class="diagram-cap">The four orange modules and three red modules never touch the green spine. That disconnection is the headline finding.</div>
+    <div class="diagram-cap">The three orange modules and three red modules never touch the green spine. That disconnection is the headline finding. (The StateMaterializer joined the green spine in July 2026 — process_chapter now runs it after every chapter.)</div>
   </div>
   </section>
 
@@ -388,9 +389,9 @@ flowchart TB
       </tr>
       <tr>
         <td><strong>State Materializer</strong></td>
-        <td><span class="badge orange">Orphaned</span></td>
-        <td>Sound event-replay → bitemporal edges; only reachable via <code>python -m pipeline.state.cli</code></td>
-        <td>Run automatically after every chapter, inside the chapter transaction</td>
+        <td><span class="badge green">Wired</span></td>
+        <td>Event-replay → bitemporal edges; <code>process_chapter</code> now runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
+        <td>Resolve the dual-writer tension with the extractor's <code>character_states</code> rows (see <a href="#dual-truth">Dual Source of Truth</a>)</td>
       </tr>
       <tr>
         <td><code>canon_facts</code> + lock bit</td>
@@ -476,7 +477,7 @@ flowchart TB
       <tr><td><code>planner/</code></td><td>Clean types, mock mode for tests (real-mode failures raise), JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
       <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Now serves the drafter's per-scene context queries</td></tr>
       <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Now fed by <code>generation/draft_claims.py</code> and gates generated-chapter ingestion</td></tr>
-      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Reachable only via an unregistered CLI nothing calls</td></tr>
+      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Now runs automatically at the end of <code>process_chapter</code></td></tr>
     </tbody>
   </table>
 
@@ -507,14 +508,14 @@ flowchart TB
       <tr><td><code>events.subject_entity_id / verb / object_entity_id</code></td><td>nothing — events inserted without SVO</td><td><span class="badge red">no producer</span></td></tr>
       <tr><td><code>events.story_time_ordinal / narrative_order / scene_id</code></td><td>nothing</td><td><span class="badge red">no producer</span></td></tr>
       <tr><td><code>temporal_constraints</code></td><td><strong>nothing</strong> — no INSERT exists</td><td><span class="badge red">no producer</span></td></tr>
-      <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> only — never called automatically</td><td><span class="badge orange">orphaned producer</span></td></tr>
+      <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> — runs automatically at the end of <code>process_chapter</code></td><td><span class="badge green">live</span></td></tr>
     </tbody>
   </table>
 
   <div class="callout bad">
-    <strong>Consequence:</strong> the bitemporal model, the lockable-canon mechanism (the research's
-    single highest-leverage addition), and timeline checking are <em>decorative today</em> — the columns
-    exist but stay empty, so anything querying them no-ops.
+    <strong>Consequence:</strong> timeline checking is <em>decorative today</em> — the SVO and
+    temporal columns exist but stay empty, so anything querying them no-ops. (The bitemporal
+    location/possession edges and the lockable-canon mechanism have since gained live producers.)
   </div>
   </section>
 
@@ -679,7 +680,7 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
 
   <!-- ════════════════ STATE ════════════════ -->
   <section id="state">
-  <h2>Deep Dive — State Materializer <span class="badge orange">Orphaned</span></h2>
+  <h2>Deep Dive — State Materializer <span class="badge green">Wired</span></h2>
   <p><code>EventReplay</code> walks events in story order and derives character snapshots plus
      <code>located_in</code> and <code>possesses</code> facts; <code>StateMaterializer</code> persists them
      in a single transaction as a full novel-scoped rebuild (delete the novel's edge projection,
@@ -687,10 +688,13 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      edges from removed events do not survive. This is the event-sourcing core the research asks
      for, and it is well done.</p>
 
-  <p>But it is reachable only through <code>python -m pipeline.state.cli</code> — and that entry point is
-     not even registered in <code>pyproject.toml</code>'s <code>[project.scripts]</code>, unlike the wiki
-     CLIs. Nothing in <code>process_chapter</code> calls it. So the bitemporal edges are empty on any
-     freshly processed novel, and the critic's location/possession check has nothing to read.</p>
+  <p><code>process_chapter</code> now invokes it automatically after each chapter's persistence
+     transaction commits, replaying through the novel's <em>latest</em> chapter so a
+     <code>replace=true</code> re-process of an earlier chapter also rebuilds later projections.
+     Bitemporal edges are therefore populated on every freshly processed novel, and the critic's
+     location/possession check has real data to read. The CLI
+     (<code>python -m pipeline.state.cli</code>) remains for manual backfills of novels processed
+     before this wiring landed.</p>
 
   <div class="callout warn">
     There is also a deeper design tension here — see <a href="#dual-truth">Dual Source of Truth</a>. The
@@ -701,12 +705,13 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <div class="nn">
     <div class="stand">
       <h4>Where we stand</h4>
-      <p>Correct, idempotent replay; never runs automatically; bitemporal edges therefore empty in practice.</p>
+      <p>Correct, idempotent replay; runs automatically at the end of every processed chapter; bitemporal
+         edges populated in practice.</p>
     </div>
     <div class="need">
       <h4>Where we need to be</h4>
-      <p>Invoked automatically at the end of every chapter, inside the chapter's transaction, as the sole
-         writer of derived state.</p>
+      <p>The sole writer of derived state — the extractor still writes <code>character_states</code>
+         directly (see <a href="#dual-truth">Dual Source of Truth</a>).</p>
     </div>
   </div>
   </section>
@@ -724,7 +729,7 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
       <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">yes</span> — knowledge_state_deltas pass</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>commitments</code></td><td><code>commitments</code></td><td><span class="badge green">yes</span> — commitments pass</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge green">yes</span> — thread_updates pass</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge orange">only via un-called materializer</span></td><td><span class="badge yellow">Partial</span> — auto-run materializer first</td></tr>
+      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">yes</span> — materializer auto-runs after each chapter</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
       <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
       <tr><td><code>temporal_consistency</code></td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code></td><td><span class="badge red">no</span> (both empty)</td><td><span class="badge red">No</span> — needs SVO + temporal extraction</td></tr>
     </tbody>
@@ -750,8 +755,8 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <div class="nn">
     <div class="stand">
       <h4>Where we stand</h4>
-      <p>Two writers, no declared winner. Running the materializer after the extractor partially overwrites
-         delta-derived state with replay-derived state.</p>
+      <p>Two writers, no declared winner — and since the materializer now runs after the extractor on
+         every chapter, replay-derived state partially overwrites delta-derived state in practice.</p>
     </div>
     <div class="need">
       <h4>Where we need to be</h4>

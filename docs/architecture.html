@@ -678,7 +678,7 @@ graph LR
         <tr>
           <td><span class="badge blue">8</span></td>
           <td><code>dynamics_updates</code></td>
-          <td>Chapter-level snapshots of how two entities interact (tone, tension)</td>
+          <td>Chapter-level snapshots of how two entities interact (tone, tension). Multiple updates for the same pair in one chapter (in either order) are merged into a single row — descriptions concatenated — to satisfy the one-row-per-pair-per-chapter unique constraint</td>
           <td><code>shared_dynamics</code></td>
         </tr>
         <tr>
@@ -1395,13 +1395,14 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
     </p>
 
     <div class="callout warn">
-      <strong>Integration status.</strong> The four "Advanced Modules" in this group — Hybrid Retrieval,
-      Continuity Critic, Scene Planner, and State Materializer — are built and unit-tested but
-      <strong>not yet wired into the ingestion pipeline</strong>. They are imported only by their own
-      tests; <code>process_chapter</code> does not call them, and the retriever currently has no caller
-      (the Planner gathers context by recency rather than through this retriever). See
-      <a href="state-of-the-system.html">State of the System</a> for the full wiring map and the roadmap
-      to integrate them.
+      <strong>Integration status.</strong> All four "Advanced Modules" in this group now have live
+      callers. The <strong>State Materializer</strong> runs automatically at the end of
+      <code>process_chapter</code>, so <code>located_in_edges</code> and <code>possesses_edges</code>
+      are populated on every processed chapter. The <strong>Scene Planner, Hybrid Retriever, and
+      Continuity Critic</strong> are consumed by the generation loop
+      (<code>pipeline/generation/loop.py</code>) when drafting chapters — note the critic gates
+      <em>generated</em> chapters only; it does not yet run over human-ingested prose. See
+      <a href="state-of-the-system.html">State of the System</a> for the full wiring map.
     </div>
 
     <div class="diagram-wrap">
@@ -1549,6 +1550,14 @@ flowchart LR
 
     <p>
       Each run is logged to <code>materialized_state_runs</code> for auditability.
+    </p>
+
+    <p>
+      <strong>Invocation.</strong> <code>process_chapter</code> runs the materializer automatically
+      after the chapter's persistence transaction commits, replaying through the novel's
+      <em>latest</em> chapter (not just the one processed) so re-processing an earlier chapter with
+      <code>replace=true</code> also rebuilds later projections. The standalone CLI
+      (<code>python -m pipeline.state.cli</code>) remains available for manual backfills.
     </p>
   </section>
 
