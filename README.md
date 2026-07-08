@@ -83,32 +83,6 @@ Run with mock extraction/embeddings:
 uv run novel-pipeline process-chapter --novel-id <uuid> --number 1 --file chapter1.txt --mock-llm
 ```
 
-## Wiki Outputs
-
-Character page:
-
-```bash
-uv run novel-wiki-character --novel-id <uuid> --name "Protagonist"
-```
-
-Timeline:
-
-```bash
-uv run novel-wiki-timeline --novel-id <uuid> --up-to-chapter 5
-```
-
-Thread tracker:
-
-```bash
-uv run novel-wiki-threads --novel-id <uuid> --status open
-```
-
-Relationship graph JSON:
-
-```bash
-uv run novel-wiki-relationships --novel-id <uuid> --up-to-chapter 5
-```
-
 ## Wiki Web App
 
 Local read-only browser UI over the pipeline data. Supports all four data views — characters, chapters, timeline, threads, continuity flags, and an interactive relationship graph — with a global "as of chapter N" cap slider.
@@ -144,6 +118,10 @@ Open http://localhost:8000. The FastAPI server serves both the API and the built
 - **Threads** — plot threads with status filter (open/progressing/closed) and linked events
 - **Continuity flags** — foreshadowing, setups, callbacks with resolved/open filter
 - **Relationships** — interactive vis-network graph (double-click a node to open the character); table fallback below
+
+## Wiki lookups
+
+The former `novel-wiki-*` commands were replaced by the MCP server — see [Writing agents (MCP)](#writing-agents-mcp).
 
 ## Writing agents (MCP)
 

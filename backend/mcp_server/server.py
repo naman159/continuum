@@ -89,7 +89,9 @@ def relationships(novel_id: str, writing_chapter: int) -> Any:
 @mcp.tool()
 def open_threads(novel_id: str, writing_chapter: int) -> Any:
     """Plot threads opened before writing_chapter and not yet closed at that
-    point, each with its capped event history."""
+    point, each with its capped event history. Thread status/closed_chapter fields
+    reflect the full novel; point-in-time filtering is accurate when writing the
+    next unwritten chapter."""
     return _call(
         lambda: queries.list_open_threads(novel_id, up_to_chapter=writing_chapter - 1)
     )
@@ -97,7 +99,10 @@ def open_threads(novel_id: str, writing_chapter: int) -> Any:
 
 @mcp.tool()
 def unresolved_commitments(novel_id: str, writing_chapter: int) -> Any:
-    """Foreshadowing planted before writing_chapter that still awaits payoff."""
+    """Foreshadowing planted before writing_chapter that still awaits payoff. Uses
+    the novel-wide 'pending' status, so results are point-in-time accurate only when
+    writing the next unwritten chapter (a commitment paid off in a later existing
+    chapter won't appear)."""
     return _call(
         lambda: api_queries.list_commitments(
             UUID(novel_id), writing_chapter - 1, "pending"

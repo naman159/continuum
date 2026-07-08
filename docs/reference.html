@@ -445,7 +445,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>list_chapters</code></td><td><code>novel_id</code></td><td>—</td><td>Every chapter (number, title, summary) for orientation <span class="badge blue">orientation</span></td></tr>
         <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Hybrid (semantic + keyword) search over prose and extracted facts — "has X happened yet?"</td></tr>
         <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character</td></tr>
-        <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history</td></tr>
+        <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>relationships</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Character relationship graph (nodes + typed edges)</td></tr>
         <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads opened and not yet closed, each with capped event history</td></tr>
         <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing planted that still awaits payoff <span class="badge orange">SOTA</span></td></tr>

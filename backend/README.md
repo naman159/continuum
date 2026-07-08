@@ -159,9 +159,6 @@ Defined in `pyproject.toml`:
 
 | Command | Entry point |
 |---|---|
-| `novel-webapp` | `api.app:run` |
 | `novel-pipeline` | `pipeline.pipeline:main` |
-| `novel-wiki-character` | `pipeline.wiki.character:main` |
-| `novel-wiki-timeline` | `pipeline.wiki.timeline:main` |
-| `novel-wiki-threads` | `pipeline.wiki.threads:main` |
-| `novel-wiki-relationships` | `pipeline.wiki.relationships:main` |
+| `novel-webapp` | `api.app:run` |
+| `novel-mcp` | `mcp_server.server:main` |

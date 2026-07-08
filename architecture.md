@@ -78,10 +78,10 @@ Chapter text (file/stdin)
 
 | Module | Purpose |
 |--------|---------|
-| `wiki/character.py` | `build_character_page()` -- assembles identity, current state, state history, events, and relationships for a character. Supports spoiler cap (`--up-to-chapter`). CLI: `novel-wiki-character`. |
-| `wiki/timeline.py` | `build_timeline()` -- queries events with optional filters: chapter cap, character, location, event type, impact level. CLI: `novel-wiki-timeline`. |
-| `wiki/threads.py` | `build_thread_tracker()` -- lists plot threads with linked events and unresolved continuity flags. Filterable by status and thread type. CLI: `novel-wiki-threads`. |
-| `wiki/relationships.py` | `build_relationship_graph()` -- produces a node+edge graph of all entities and their relationships. Nodes: characters, locations, factions, objects. CLI: `novel-wiki-relationships`. |
+| `wiki/character.py` | `build_character_page()` -- assembles identity, current state, state history, events, and relationships for a character. Supports spoiler cap (`--up-to-chapter`). Now exposed via MCP server. |
+| `wiki/timeline.py` | `build_timeline()` -- queries events with optional filters: chapter cap, character, location, event type, impact level. Now exposed via MCP server. |
+| `wiki/threads.py` | `build_thread_tracker()` -- lists plot threads with linked events and unresolved continuity flags. Filterable by status and thread type. Now exposed via MCP server. |
+| `wiki/relationships.py` | `build_relationship_graph()` -- produces a node+edge graph of all entities and their relationships. Nodes: characters, locations, factions, objects. Now exposed via MCP server. |
 
 ## Database Schema (ERD summary)
 
@@ -141,10 +141,7 @@ Results from multiple chunks are merged via `merge_extractions()` which deduplic
 | `novel-pipeline create-novel` | `pipeline:main` |
 | `novel-pipeline list-novels` | `pipeline:main` |
 | `novel-pipeline process-chapter` | `pipeline:main` |
-| `novel-wiki-character` | `wiki.character:main` |
-| `novel-wiki-timeline` | `wiki.timeline:main` |
-| `novel-wiki-threads` | `wiki.threads:main` |
-| `novel-wiki-relationships` | `wiki.relationships:main` |
+| `novel-mcp` | `mcp_server.server:main` |
 
 ## Configuration
 
