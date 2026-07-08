@@ -545,7 +545,9 @@ graph LR
 │   │   ├── llm.py                <span class="cmt"># Shared litellm loader + lenient JSON parser</span>
 │   │   ├── entity_tables.py      <span class="cmt"># Single source of the entity type → table map</span>
 │   │   └── ingestion/ingest.py   <span class="cmt"># Raw chapter INSERT</span>
-│   ├── cli/                      <span class="cmt"># CLI entry points (query each domain)</span>
+│   ├── <span class="dir">mcp_server/</span>          <span class="cmt"># FastMCP stdio server (novel-mcp): 13 tools for writing agents</span>
+│   │   ├── server.py             <span class="cmt"># @mcp.tool definitions + entry point (main)</span>
+│   │   └── queries.py            <span class="cmt"># Cutoff-aware SQL backing the tools</span>
 │   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
 └── <span class="dir">frontend/src/</span>
     ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 23 routes</span>
@@ -781,8 +783,7 @@ flowchart TD
       one transaction: every reference is repointed (relationships, dynamics, canon facts, commitments,
       events arrays, states, scenes, knowledge and possession edges), the source's name and aliases
       become aliases of the target (so old references keep resolving), and the source rows are deleted.
-      Exposed as <code>POST /api/novels/{id}/entities/merge</code> and the
-      <code>novel-wiki-merge-entity</code> CLI.
+      Exposed as <code>POST /api/novels/{id}/entities/merge</code> — no longer a CLI command.
     </p>
   </section>
 

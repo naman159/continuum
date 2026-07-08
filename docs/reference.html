@@ -155,6 +155,7 @@
   <a href="#setup">Getting Started</a>
   <a href="#config">Configuration</a>
   <a href="#scripts">CLI Scripts</a>
+  <a href="#mcp-server">MCP Server</a>
 
   <div class="sidebar-section">Pipeline API</div>
   <a href="#process-chapter">process_chapter()</a>
@@ -394,17 +395,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       </thead>
       <tbody>
         <tr><td><code>novel-pipeline</code></td><td><code>pipeline.pipeline:main</code></td><td>Main pipeline CLI: <code>init-db</code>, <code>create-novel</code>, <code>list-novels</code>, <code>process-chapter</code></td></tr>
-        <tr><td><code>novel-wiki-character</code></td><td><code>cli.character:main</code></td><td>Render a character page for a novel</td></tr>
-        <tr><td><code>novel-wiki-timeline</code></td><td><code>cli.timeline:main</code></td><td>Query events / timeline</td></tr>
-        <tr><td><code>novel-wiki-threads</code></td><td><code>cli.threads:main</code></td><td>Query plot threads</td></tr>
-        <tr><td><code>novel-wiki-relationships</code></td><td><code>cli.relationships:main</code></td><td>Emit the relationship graph as JSON</td></tr>
-        <tr><td><code>novel-wiki-scenes</code></td><td><code>cli.scenes:main</code></td><td>Query scenes <span class="badge orange">SOTA</span></td></tr>
-        <tr><td><code>novel-wiki-commitments</code></td><td><code>cli.commitments:main</code></td><td>Query foreshadow/payoff commitments <span class="badge orange">SOTA</span></td></tr>
-        <tr><td><code>novel-wiki-canon</code></td><td><code>cli.canon:main</code></td><td>Query canon facts <span class="badge orange">SOTA</span></td></tr>
-        <tr><td><code>novel-wiki-knowledge</code></td><td><code>cli.knowledge:main</code></td><td>Query knows_edges <span class="badge orange">SOTA</span></td></tr>
-        <tr><td><code>novel-wiki-merge-entity</code></td><td><code>cli.merge:main</code></td><td>Merge a duplicate entity into its canonical twin (<code>--novel-id --source --target</code>, universal entity ids)</td></tr>
         <tr><td><code>novel-pipeline generate-chapter</code></td><td><code>pipeline.pipeline:main</code></td><td>Plan, draft, critique, and optionally ingest the next chapter (<code>--novel-id --number [--ingest] [--mock-llm] [--out FILE]</code>) <span class="badge purple">GEN</span></td></tr>
         <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
+        <tr><td><code>novel-mcp</code></td><td><code>mcp_server.server:main</code></td><td>Run the MCP stdio server exposing 13 tools to writing agents — see <a href="#mcp-server">MCP Server</a></td></tr>
       </tbody>
     </table>
 
@@ -413,6 +406,61 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>python -m pipeline.state.cli --novel-id &lt;uuid&gt; [--through-chapter N]</code> — it has no
       <code>[project.scripts]</code> entry and nothing calls it automatically. See
       <a href="state-of-the-system.html#state">State of the System</a>.
+    </div>
+
+    <div class="callout info">
+      <strong>The old per-domain query CLI is retired.</strong> Character, timeline, thread,
+      relationship, scene, commitment, canon, and knowledge lookups now live in the MCP server below;
+      entity merge moved to <code>POST /api/novels/{id}/entities/merge</code>.
+    </div>
+  </section>
+
+
+  <!-- ══════════ MCP SERVER ══════════ -->
+  <section id="mcp-server">
+    <h2>MCP Server <span class="badge blue">novel-mcp</span></h2>
+    <p>
+      <code>backend/mcp_server/</code> is a <a href="https://modelcontextprotocol.io">FastMCP</a> stdio
+      server (entry point <code>novel-mcp</code>, see the scripts table above) that exposes the data
+      layer to writing agents in place of the retired per-domain query CLI. It's registered for this
+      repo via the root <code>.mcp.json</code> (<code>uv run --directory backend novel-mcp</code>);
+      see the repo <code>README.md</code>'s "Writing agents (MCP)" section for Claude Code (anywhere)
+      and Claude Desktop setup.
+    </p>
+
+    <div class="callout tip">
+      <strong>Cutoff-aware by default.</strong> Every lookup below takes a <code>writing_chapter</code>
+      and returns only facts from chapters strictly before it — an agent drafting chapter N sees the
+      world as of N−1. The exceptions are <code>timeline_events</code> (timeline rows aren't
+      chapter-anchored; its docstring warns callers about spoilers) and <code>canon_facts</code>,
+      <code>list_novels</code>, <code>list_chapters</code> (no cutoff parameter at all).
+    </div>
+
+    <table>
+      <thead>
+        <tr><th>Tool</th><th>Parameters</th><th>Cutoff</th><th>What It Does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>list_novels</code></td><td>—</td><td>—</td><td>List all novels: id, title, author, highest chapter number <span class="badge blue">orientation</span></td></tr>
+        <tr><td><code>list_chapters</code></td><td><code>novel_id</code></td><td>—</td><td>Every chapter (number, title, summary) for orientation <span class="badge blue">orientation</span></td></tr>
+        <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Hybrid (semantic + keyword) search over prose and extracted facts — "has X happened yet?"</td></tr>
+        <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character</td></tr>
+        <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history</td></tr>
+        <tr><td><code>relationships</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Character relationship graph (nodes + typed edges)</td></tr>
+        <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads opened and not yet closed, each with capped event history</td></tr>
+        <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing planted that still awaits payoff <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>timeline_events</code></td><td><code>novel_id</code></td><td>no <span class="badge yellow">spoiler risk</span></td><td>Chronological story timeline — not chapter-anchored, treat late entries as spoilers</td></tr>
+        <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False</code></td><td>no</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. Always run before <code>save_chapter</code> <span class="badge purple">GEN</span></td></tr>
+        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="generated"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>) <span class="badge purple">GEN</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <strong>Suggested agent workflow:</strong> <code>open_threads</code> +
+      <code>unresolved_commitments</code> + <code>get_character</code> → draft →
+      <code>check_continuity</code> → revise → <code>save_chapter</code>.
     </div>
   </section>
 

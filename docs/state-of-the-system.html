@@ -538,10 +538,10 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      without an LLM call, and caps the roster sent per canonicalization call
      (<code>CANONICALIZER_MAX_ROSTER</code>, default 80) so per-chapter cost stays bounded as the cast
      grows. Custom entity types get aliases via <code>entities.aliases</code>. When dedup still gets it
-     wrong, manual repair now exists: <code>POST /api/novels/{id}/entities/merge</code> (and the
-     <code>novel-wiki-merge-entity</code> CLI) merges a duplicate into its canonical twin in one
-     transaction. Duplicate relationship edges are also deduped at persist time. The mock-LLM path keeps
-     the whole thing testable offline.</p>
+     wrong, manual repair now exists: <code>POST /api/novels/{id}/entities/merge</code> merges a
+     duplicate into its canonical twin in one transaction (no longer a CLI command — see
+     <code>pipeline/db/entity_merge.py</code>). Duplicate relationship edges are also deduped at
+     persist time. The mock-LLM path keeps the whole thing testable offline.</p>
 
   <h3>The gaps that matter</h3>
   <ul>
