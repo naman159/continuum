@@ -253,12 +253,14 @@ def _apply_rename_map(
         if key in new_entities:
             new_entities[key] = deduped
 
-    for delta in data.get("entity_deltas", []) or []:
+    for delta in data.get("state_deltas", []) or []:
         if not isinstance(delta, dict):
             continue
         delta["character_name"] = _r(delta.get("character_name", ""), char_map)
-        if delta.get("location"):
-            delta["location"] = _r(delta["location"], loc_map)
+        if delta.get("object_name"):
+            delta["object_name"] = _r(str(delta["object_name"]), obj_map)
+        if delta.get("location_name"):
+            delta["location_name"] = _r(str(delta["location_name"]), loc_map)
 
     for event in data.get("events", []) or []:
         if not isinstance(event, dict):
@@ -742,13 +744,12 @@ def collect_names_by_type(extracted: dict[str, Any]) -> dict[str, set[str]]:
     _collect_from_list(new_entities.get("factions"), "faction", result)
     _collect_from_list(new_entities.get("objects"), "object", result)
 
-    for delta in extracted.get("entity_deltas", []) or []:
+    for delta in extracted.get("state_deltas", []) or []:
         if not isinstance(delta, dict):
             continue
         _add_name(str(delta.get("character_name", "")), "character", result)
-        _add_name(str(delta.get("location", "")), "location", result)
-        for target in (delta.get("relationships") or {}).keys():
-            _add_name(str(target), "character", result)
+        _add_name(str(delta.get("object_name") or ""), "object", result)
+        _add_name(str(delta.get("location_name") or ""), "location", result)
 
     for event in extracted.get("events", []) or []:
         if not isinstance(event, dict):

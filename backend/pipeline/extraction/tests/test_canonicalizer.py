@@ -9,6 +9,7 @@ from pipeline.extraction.canonicalizer import (
     CharacterCanonicalizer,
     EntityCanonicalizer,
     IntraExtractionDeduplicator,
+    apply_merges_to_extraction,
     collect_character_names,
     collect_names_by_type,
 )
@@ -242,9 +243,9 @@ def test_collect_character_names_pulls_from_all_sources():
         "new_entities": {
             "characters": [{"name": "John"}, {"name": ""}, {"name": "  "}],
         },
-        "entity_deltas": [
-            {"character_name": "Eliza", "relationships": {"the master of Pemberley": "lover"}},
-            {"character_name": "  "},
+        "state_deltas": [
+            {"kind": "status", "character_name": "Eliza", "attribute": "goals", "value": "x"},
+            {"kind": "status", "character_name": "  ", "attribute": "goals", "value": "x"},
         ],
         "events": [
             {"involved_characters": ["John", "Mr. Bennet"]},
@@ -252,13 +253,27 @@ def test_collect_character_names_pulls_from_all_sources():
         ],
     }
     names = collect_character_names(extracted)
-    assert names == {"John", "Eliza", "the master of Pemberley", "Mr. Bennet"}
+    assert names == {"John", "Eliza", "Mr. Bennet"}
+
+
+def test_collect_names_by_type_state_deltas():
+    extracted = {
+        "state_deltas": [
+            {"kind": "status", "character_name": "Jane", "attribute": "goals", "value": "x"},
+            {"kind": "location", "character_name": "Jane", "location_name": "Netherfield Park"},
+            {"kind": "possession", "character_name": "Bingley", "object_name": "the letter", "change": "gain"},
+        ],
+    }
+    by_type = collect_names_by_type(extracted)
+    assert by_type["character"] == {"Jane", "Bingley"}
+    assert by_type["location"] == {"Netherfield Park"}
+    assert by_type["object"] == {"the letter"}
 
 
 def test_collect_names_by_type_characters():
     extracted = {
         "new_entities": {"characters": [{"name": "Jane Bennet"}, {"name": ""}, {"name": "  "}]},
-        "entity_deltas": [{"character_name": "Jane", "location": "Netherfield Park"}],
+        "state_deltas": [{"kind": "location", "character_name": "Jane", "location_name": "Netherfield Park"}],
         "events": [
             {
                 "involved_characters": ["Jane Bennet"],
@@ -294,7 +309,7 @@ def test_collect_names_by_type_locations_and_objects():
 def test_collect_character_names_is_still_correct():
     extracted = {
         "new_entities": {"characters": [{"name": "Eliza"}]},
-        "entity_deltas": [{"character_name": "Mr. Darcy"}],
+        "state_deltas": [{"kind": "status", "character_name": "Mr. Darcy", "attribute": "goals", "value": "x"}],
         "events": [{"involved_characters": ["Eliza"]}],
     }
     assert collect_character_names(extracted) == {"Eliza", "Mr. Darcy"}
@@ -312,7 +327,7 @@ def test_intra_dedup_renames_character_variant():
                 {"name": "Jane", "aliases": [], "description": ""},
             ],
         },
-        "entity_deltas": [{"character_name": "Jane", "location": None}],
+        "state_deltas": [{"kind": "status", "character_name": "Jane", "attribute": "goals", "value": "x"}],
         "events": [{"involved_characters": ["Jane", "Jane Bennet"], "involved_locations": [], "involved_objects": []}],
         "relationship_updates": [],
         "dynamics_updates": [],
@@ -322,9 +337,52 @@ def test_intra_dedup_renames_character_variant():
     chars = [c["name"] for c in result["new_entities"]["characters"]]
     assert "Jane" not in chars
     assert chars.count("Jane Bennet") == 1
-    assert result["entity_deltas"][0]["character_name"] == "Jane Bennet"
+    assert result["state_deltas"][0]["character_name"] == "Jane Bennet"
     # Renaming variants to one canonical form also drops the resulting duplicates.
     assert result["events"][0]["involved_characters"] == ["Jane Bennet"]
+
+
+def test_intra_dedup_renames_state_delta_name_fields():
+    """Dedup rewrite must cover state_deltas' character_name, object_name, and
+    location_name — not just character_name — since kind=possession/location
+    deltas carry object/location references too."""
+    extracted = {
+        "new_entities": {
+            "characters": [{"name": "Jane Bennet"}, {"name": "Jane"}],
+            "locations": [{"name": "Netherfield Park"}, {"name": "Netherfield"}],
+            "objects": [{"name": "the One Ring"}, {"name": "the Ring"}],
+        },
+        "state_deltas": [
+            {"kind": "status", "character_name": "Jane", "attribute": "goals", "value": "find peace", "quote": "q"},
+            {"kind": "location", "character_name": "Jane", "location_name": "Netherfield", "quote": "q"},
+            {"kind": "possession", "character_name": "Jane", "object_name": "the Ring", "change": "gain", "quote": "q"},
+        ],
+        "events": [],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+
+    def completion(**kwargs):
+        user = kwargs["messages"][1]["content"]
+        if "CHARACTER" in user:
+            return _make_completion({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})()
+        if "LOCATION" in user:
+            return _make_completion(
+                {"groups": [{"names": ["Netherfield", "Netherfield Park"], "reasoning": "shorthand"}]}
+            )()
+        if "OBJECT" in user:
+            return _make_completion(
+                {"groups": [{"names": ["the One Ring", "the Ring"], "reasoning": "same object"}]}
+            )()
+        return _make_completion({"groups": []})()
+
+    dedup = IntraExtractionDeduplicator(use_mock=False, completion_fn=completion)
+    result = dedup.deduplicate(extracted, "Jane Bennet went to Netherfield Park carrying the One Ring.")
+    assert result["state_deltas"][0]["character_name"] == "Jane Bennet"
+    assert result["state_deltas"][1]["character_name"] == "Jane Bennet"
+    assert result["state_deltas"][1]["location_name"] == "Netherfield Park"
+    assert result["state_deltas"][2]["character_name"] == "Jane Bennet"
+    assert result["state_deltas"][2]["object_name"] == "the One Ring"
 
 
 def test_intra_dedup_renames_location_variant():
@@ -371,7 +429,7 @@ def test_intra_dedup_does_not_mutate_original():
                 {"name": "Jane", "aliases": [], "description": ""},
             ],
         },
-        "entity_deltas": [{"character_name": "Jane", "location": None}],
+        "state_deltas": [{"kind": "status", "character_name": "Jane", "attribute": "goals", "value": "x"}],
         "events": [],
         "relationship_updates": [],
         "dynamics_updates": [],
@@ -379,14 +437,14 @@ def test_intra_dedup_does_not_mutate_original():
     dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})
     dedup.deduplicate(extracted, "Jane walked. Jane Bennet smiled.")
     # Original must be unchanged
-    assert extracted["entity_deltas"][0]["character_name"] == "Jane"
+    assert extracted["state_deltas"][0]["character_name"] == "Jane"
     assert extracted["new_entities"]["characters"][1]["name"] == "Jane"
 
 
 def test_intra_dedup_renames_relationship_and_dynamics():
     extracted = {
         "new_entities": {"characters": [{"name": "Jane Bennet"}, {"name": "Jane"}]},
-        "entity_deltas": [],
+        "state_deltas": [],
         "events": [],
         "relationship_updates": [{"entity_a": "Jane", "entity_b": "Mr. Bingley"}],
         "dynamics_updates": [{"entity_a": "Mr. Bingley", "entity_b": "Jane"}],
@@ -568,7 +626,7 @@ def test_intra_dedup_objects_different_owners_not_merged():
                 {"name": "black sedan", "owner_name": "Sarah", "description": "Sarah's car"},
             ],
         },
-        "entity_deltas": [],
+        "state_deltas": [],
         "events": [],
         "relationship_updates": [],
         "dynamics_updates": [],
@@ -829,7 +887,7 @@ def test_intra_dedup_renames_scenes_learnings_and_event_factions():
             "characters": [{"name": "Jane Bennet"}, {"name": "Jane"}],
             "factions": [{"name": "The Galactic Empire"}, {"name": "the Empire"}],
         },
-        "entity_deltas": [],
+        "state_deltas": [],
         "events": [
             {
                 "involved_characters": [],
@@ -879,7 +937,7 @@ def test_intra_dedup_custom_entities_renamed_and_deduped():
             {"name": "The 93rd Universe", "type": "realm", "description": "A dimension."},
             {"name": "93rd Universe", "type": "realm", "description": "Same place."},
         ],
-        "entity_deltas": [],
+        "state_deltas": [],
         "events": [],
         "relationship_updates": [],
         "dynamics_updates": [],
@@ -898,7 +956,7 @@ def test_intra_dedup_ignores_hallucinated_group_members():
         "new_entities": {
             "characters": [{"name": "Jane"}, {"name": "Mr. Bingley"}],
         },
-        "entity_deltas": [],
+        "state_deltas": [],
         "events": [],
         "relationship_updates": [],
         "dynamics_updates": [],
@@ -1077,6 +1135,76 @@ def test_rename_map_for_merges_skips_identity_renames():
 
     out = rename_map_for_merges(FakeDB(), {"location": {"halcyon tower": "loc-1"}})
     assert out == {}
+
+
+# ---------------------------------------------------------------------------
+# apply_merges_to_extraction — state_deltas name fields must be rewritten too,
+# since resolver.py resolves these names with create=False (reference-only):
+# for reasoning-only merges (no persisted alias) this rewrite is the ONLY
+# mechanism that makes the delta's name resolvable.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_merges_to_extraction_rewrites_state_delta_character_name():
+    class FakeDB:
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            assert "FROM characters" in query
+            return [{"id": "char-1", "name": "Elizabeth Bennet"}]
+
+    extracted = {
+        "state_deltas": [
+            {
+                "kind": "status",
+                "character_name": "Lizzy",
+                "attribute": "goals",
+                "value": "escape Longbourn",
+                "quote": "q",
+            },
+        ],
+    }
+    result = apply_merges_to_extraction(FakeDB(), extracted, {"character": {"Lizzy": "char-1"}})
+    assert result["state_deltas"][0]["character_name"] == "Elizabeth Bennet"
+
+
+def test_apply_merges_to_extraction_rewrites_state_delta_object_name():
+    class FakeDB:
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            assert "FROM objects" in query
+            return [{"id": "obj-1", "name": "the One Ring"}]
+
+    extracted = {
+        "state_deltas": [
+            {
+                "kind": "possession",
+                "character_name": "Frodo",
+                "object_name": "the Ring",
+                "change": "gain",
+                "quote": "q",
+            },
+        ],
+    }
+    result = apply_merges_to_extraction(FakeDB(), extracted, {"object": {"the Ring": "obj-1"}})
+    assert result["state_deltas"][0]["object_name"] == "the One Ring"
+
+
+def test_apply_merges_to_extraction_rewrites_state_delta_location_name():
+    class FakeDB:
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            assert "FROM locations" in query
+            return [{"id": "loc-1", "name": "Pemberley Estate"}]
+
+    extracted = {
+        "state_deltas": [
+            {
+                "kind": "location",
+                "character_name": "Darcy",
+                "location_name": "Pemberley",
+                "quote": "q",
+            },
+        ],
+    }
+    result = apply_merges_to_extraction(FakeDB(), extracted, {"location": {"Pemberley": "loc-1"}})
+    assert result["state_deltas"][0]["location_name"] == "Pemberley Estate"
 
 
 def test_lexically_close_but_ambiguous_does_not_persist_alias():
