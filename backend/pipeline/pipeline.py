@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.config import settings
+from pipeline.critic.adapter import build_draft_from_extraction
+from pipeline.critic.persist import persist_critique
+from pipeline.critic.runner import ContinuityCritic
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
@@ -228,7 +231,7 @@ def load_story_context(
     }
 
 
-def process_chapter(
+def analyze_chapter(
     *,
     novel_id: str,
     chapter_number: int,
@@ -402,16 +405,34 @@ def process_chapter(
                 resolver=resolver,
             )
 
-        # Rebuild derived projections (located_in_edges, possesses_edges,
-        # character_states) from the now-committed event log. Runs outside the
-        # transaction above: the materializer opens its own, and replays the
-        # whole novel through its latest chapter so replace=True of an earlier
-        # chapter can't leave later projections stale.
-        max_chapter = client.fetchval(
-            "SELECT COALESCE(MAX(number), %s) FROM chapters WHERE novel_id = %s",
-            (chapter_number, novel_id),
-        )
-        StateMaterializer(client).materialize(novel_id, int(max_chapter))
+        # ---- phase 4: MATERIALIZE / phase 5: CRITIQUE ----
+        # Both derive from the committed data and are idempotent; a failure
+        # here must not roll back the saved chapter. materialized/critique in
+        # the result tell callers whether a manual re-run is needed.
+        materialized = False
+        critique_summary: dict[str, Any] | None = None
+        try:
+            max_chapter = client.fetchval(
+                "SELECT COALESCE(MAX(number), %s) FROM chapters WHERE novel_id = %s",
+                (chapter_number, novel_id),
+            )
+            StateMaterializer(client).materialize(novel_id, int(max_chapter))
+            materialized = True
+        except Exception:
+            logger.exception("materialize failed for novel %s; re-run pipeline.state.cli", novel_id)
+        try:
+            draft = build_draft_from_extraction(
+                client,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                text=raw_text,
+                extracted=extracted,
+            )
+            report = ContinuityCritic(client).critique(draft)
+            persist_critique(client, chapter_id=chapter_id, report=report)
+            critique_summary = report.summary()
+        except Exception:
+            logger.exception("critique failed for chapter %s of novel %s", chapter_number, novel_id)
 
         return {
             "chapter_id": chapter_id,
@@ -423,6 +444,8 @@ def process_chapter(
             "state_deltas": len(extracted.get("state_deltas", [])),
             "thread_updates": len(extracted.get("thread_updates", [])),
             "continuity_flags": len(extracted.get("continuity_flags", [])),
+            "materialized": materialized,
+            "critique": critique_summary,
         }
     finally:
         if owned:
@@ -802,7 +825,7 @@ def main() -> None:
         if not chapter_text.strip():
             raise SystemExit("Chapter text is empty.")
 
-        result = process_chapter(
+        result = analyze_chapter(
             novel_id=args.novel_id,
             chapter_number=args.number,
             raw_text=chapter_text,

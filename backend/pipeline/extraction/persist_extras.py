@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Persistence helpers for the Phase 3 extraction passes.
 
-These functions are called from ``pipeline.pipeline.process_chapter`` after
+These functions are called from ``pipeline.pipeline.analyze_chapter`` after
 the core extraction has been persisted. They populate the SOTA tables added
 on the closing-the-gap-with-sota branch: ``scenes``, ``knows_edges``, and
 ``commitments``, plus the multi-granularity summary columns on ``chapters``.

@@ -15,7 +15,7 @@ from pipeline.critic.adapter import build_draft_chapter, extract_draft_claims
 from pipeline.critic.runner import ContinuityCritic
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService
-from pipeline.pipeline import process_chapter
+from pipeline.pipeline import analyze_chapter
 from pipeline.retrieval.hybrid import HybridRetriever
 from pipeline.retrieval.types import RetrievalQuery
 
@@ -395,7 +395,7 @@ def save_chapter(
     if not text or not text.strip():
         return {"error": "text must not be empty"}
     try:
-        outcome = process_chapter(
+        outcome = analyze_chapter(
             novel_id=novel_id,
             chapter_number=chapter_number,
             raw_text=text,

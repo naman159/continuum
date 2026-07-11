@@ -135,7 +135,7 @@ def test_save_chapter_reports_duplicate_as_error(monkeypatch):
     def boom(**kwargs):
         raise ValueError("chapter 3 already ingested for this novel")
 
-    monkeypatch.setattr(queries, "process_chapter", boom)
+    monkeypatch.setattr(queries, "analyze_chapter", boom)
     out = queries.save_chapter("novel-1", 3, "some prose", db=FakeDB())
     assert "error" in out
     assert "already ingested" in out["error"]
@@ -148,7 +148,7 @@ def test_save_chapter_success_and_flags(monkeypatch):
         seen.update(kwargs)
         return {"chapter_id": "abc-123"}
 
-    monkeypatch.setattr(queries, "process_chapter", fake_process)
+    monkeypatch.setattr(queries, "analyze_chapter", fake_process)
     out = queries.save_chapter("novel-1", 9, "some prose", title="The Gate", db=FakeDB())
     assert out == {"ingested": True, "chapter_id": "abc-123"}
     assert seen["source"] == "agent"

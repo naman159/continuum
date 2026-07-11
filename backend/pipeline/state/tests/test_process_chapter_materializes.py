@@ -1,4 +1,4 @@
-"""process_chapter must rebuild the state projections (character_states,
+"""analyze_chapter must rebuild the state projections (character_states,
 located_in_edges, possesses_edges) after persisting a chapter, so the
 Knowledge page never shows stale/empty possession and location history.
 
@@ -25,7 +25,7 @@ import uuid
 import pytest
 
 from pipeline.db.client import DBClient
-from pipeline.pipeline import process_chapter
+from pipeline.pipeline import analyze_chapter
 
 CHAPTER_TEXT = """
 Aelric walked the halls of Fogwood Keep. He picked up the silver dagger
@@ -56,7 +56,7 @@ def novel_id(db: DBClient):
 
 
 def test_process_chapter_records_materialization_run(db: DBClient, novel_id: str):
-    process_chapter(
+    analyze_chapter(
         novel_id=novel_id,
         chapter_number=1,
         raw_text=CHAPTER_TEXT,
@@ -79,7 +79,7 @@ def test_process_chapter_records_materialization_run(db: DBClient, novel_id: str
 def test_process_chapter_folds_status_delta_into_character_states(
     db: DBClient, novel_id: str
 ):
-    process_chapter(
+    analyze_chapter(
         novel_id=novel_id,
         chapter_number=1,
         raw_text=CHAPTER_TEXT,
@@ -113,7 +113,7 @@ def test_process_chapter_drops_possession_for_unresolved_object(
     # never creates objects, so persist_state_deltas (create=False) cannot
     # resolve it — the delta is dropped before it ever reaches the
     # materializer, and no possesses_edges row is produced.
-    process_chapter(
+    analyze_chapter(
         novel_id=novel_id,
         chapter_number=1,
         raw_text=CHAPTER_TEXT,

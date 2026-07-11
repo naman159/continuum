@@ -3,7 +3,7 @@ from .pipeline import (
     init_db,
     create_novel,
     list_novels,
-    process_chapter,
+    analyze_chapter,
     load_story_context,
     main,
 )
@@ -14,7 +14,7 @@ __all__ = [
     "init_db",
     "create_novel",
     "list_novels",
-    "process_chapter",
+    "analyze_chapter",
     "load_story_context",
     "main",
 ]

@@ -3,7 +3,7 @@ from __future__ import annotations
 """generate_chapter: plan -> retrieve -> draft -> claims -> critique -> revise
 -> (optionally) ingest with source='generated'.
 
-Requires Project 1 (process_chapter(db=, source=, replace=)).
+Requires Project 1 (analyze_chapter(db=, source=, replace=)).
 """
 
 import json
@@ -19,7 +19,7 @@ from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService
 from pipeline.generation.drafter import SceneDrafter
 from pipeline.generation.style import average_fingerprints
-from pipeline.pipeline import process_chapter
+from pipeline.pipeline import analyze_chapter
 from pipeline.planner.context import gather_plan_context
 from pipeline.planner.planner import ScenePlanner, _mock_plan
 from pipeline.planner.types import ChapterPlan
@@ -250,7 +250,7 @@ def generate_chapter(
 
         if ingest and report.passed:
             _tick("ingest")
-            outcome = process_chapter(
+            outcome = analyze_chapter(
                 novel_id=novel_id,
                 chapter_number=chapter_number,
                 raw_text=text,

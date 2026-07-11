@@ -568,7 +568,7 @@ graph LR
     <h2>Pipeline Overview</h2>
     <p>
       The pipeline lives in <code>backend/pipeline/pipeline.py</code>. The entry point for processing a
-      chapter is <code>process_chapter()</code>. Here's the full flow:
+      chapter is <code>analyze_chapter()</code>. Here's the full flow:
     </p>
 
     <ol class="steps">
@@ -597,7 +597,7 @@ graph LR
         <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs. Only the <code>new_entities</code> pass is allowed to <em>create</em> characters; every other pass resolves with <code>create=False</code> (resolve-or-skip) so a name it merely references can't mint a phantom character.
       </li>
       <li>
-        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It never writes <code>character_states</code>: state changes go through the typed <code>state_deltas</code> log instead, and <code>character_states</code> is the sole responsibility of the <a href="#state-materializer">State Materializer</a>, which runs at the end of <code>process_chapter</code>.
+        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It never writes <code>character_states</code>: state changes go through the typed <code>state_deltas</code> log instead, and <code>character_states</code> is the sole responsibility of the <a href="#state-materializer">State Materializer</a>, which runs at the end of <code>analyze_chapter</code>.
       </li>
       <li>
         <strong>Persist state deltas</strong> — <code>persist_state_deltas()</code> (<code>persist_deltas.py</code>) writes the <code>state_deltas</code> extraction pass into the <code>state_deltas</code> table: reference-only resolution (<code>create=False</code>) for the subject character, and for possession/location kinds the object/location too, so a delta naming an unknown entity is dropped rather than minting one. Rows carry <code>subject_id</code>/<code>object_id</code> as universal <code>entities.id</code> and <code>location_id</code> as the typed <code>locations.id</code>, with an <code>ordinal</code> preserving narrative order within the chapter — this is the tier-2 log the state materializer replays.
@@ -607,6 +607,12 @@ graph LR
       </li>
       <li>
         <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_canon_facts()</code> fill the newer tables added in the SOTA branch. Canon facts upsert unless locked — a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) rather than an overwrite.
+      </li>
+      <li>
+        <strong>4 · MATERIALIZE</strong> — runs outside the persistence transaction, after it commits: <code>StateMaterializer</code> replays <code>state_deltas</code> through the novel's latest chapter. A failure here is caught and logged, not raised — the already-committed chapter stays saved, and the result dict's <code>"materialized"</code> flag tells the caller a manual re-run (<code>python -m pipeline.state.cli</code>) is needed.
+      </li>
+      <li>
+        <strong>5 · CRITIQUE — persisted per chapter</strong> — <code>build_draft_from_extraction()</code> (<code>pipeline/critic/adapter.py</code>) reuses this chapter's already-extracted claims to build a <code>DraftChapter</code> (no second LLM pass), <code>ContinuityCritic</code> runs its five typed checks against it, and <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the result to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter. Like phase 4, this is derived-and-idempotent: a failure is caught and logged, and the result dict's <code>"critique"</code> key is <code>None</code> rather than raising. Because the checks compare this chapter's claims against the world state <em>entering</em> this chapter, running critique after the chapter is committed and materialized is correct by design, not a temporal bug.
       </li>
     </ol>
 
@@ -1453,11 +1459,15 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
     <div class="callout warn">
       <strong>Integration status.</strong> All four "Advanced Modules" in this group now have live
       callers. The <strong>State Materializer</strong> runs automatically at the end of
-      <code>process_chapter</code>, so <code>located_in_edges</code> and <code>possesses_edges</code>
-      are populated on every processed chapter. The <strong>Scene Planner, Hybrid Retriever, and
-      Continuity Critic</strong> are consumed by the generation loop
-      (<code>pipeline/generation/loop.py</code>) when drafting chapters — note the critic gates
-      <em>generated</em> chapters only; it does not yet run over human-ingested prose. See
+      <code>analyze_chapter</code>, so <code>located_in_edges</code> and <code>possesses_edges</code>
+      are populated on every processed chapter. The <strong>Continuity Critic</strong> also runs at
+      the end of every <code>analyze_chapter</code> call (phase 5) and persists its report to
+      <code>critique_reports</code>/<code>critique_findings</code> — for human-ingested and agent
+      chapters this is informational only (it never blocks the already-committed chapter); the
+      generation loop is the one caller where a failing report actually gates ingestion, via a
+      separate in-loop critique pass before the chapter is drafted-and-ingested. The
+      <strong>Scene Planner and Hybrid Retriever</strong> are consumed by the generation loop
+      (<code>pipeline/generation/loop.py</code>) when drafting chapters. See
       <a href="state-of-the-system.html">State of the System</a> for the full wiring map.
     </div>
 
@@ -1572,7 +1582,7 @@ flowchart LR
       <li><strong>Draft</strong> — <code>SceneDrafter</code> writes prose per scene with the retrieved context, the plan's key facts, the prior text tail, and the novel's voice (averaged <code>style_fingerprint</code> of the last 3 chapters).</li>
       <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its five typed checks. Both functions now live in <code>pipeline/critic/adapter.py</code>, alongside <code>build_draft_from_extraction</code>, which builds the same <code>DraftChapter</code> shape straight from a chapter's already-extracted <code>state_deltas</code>/<code>learnings</code>/<code>canon_facts</code>/<code>events</code> — no second LLM pass.</li>
       <li><strong>Revise</strong> — blocking findings become revision notes injected into a redraft, up to <code>GENERATION_MAX_REVISIONS</code> times.</li>
-      <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>process_chapter</code> path with <code>source='generated'</code>. A failing draft is returned for human review, never ingested.</li>
+      <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>analyze_chapter</code> path with <code>source='generated'</code>. A failing draft is returned for human review, never ingested. <code>analyze_chapter</code> then re-runs its own phase-5 critique (via <code>build_draft_from_extraction</code>) over the ingested chapter and persists that report too — the in-loop critique above is what gates ingestion; the phase-5 one is the same persisted record every other chapter gets.</li>
     </ol>
     <table>
       <thead><tr><th>Module</th><th>Responsibility</th></tr></thead>
@@ -1625,7 +1635,7 @@ flowchart LR
     </p>
 
     <p>
-      <strong>Invocation.</strong> <code>process_chapter</code> runs the materializer automatically
+      <strong>Invocation.</strong> <code>analyze_chapter</code> runs the materializer automatically
       after the chapter's persistence transaction commits, replaying through the novel's
       <em>latest</em> chapter (not just the one processed) so re-processing an earlier chapter with
       <code>replace=true</code> also rebuilds later projections. The standalone CLI
@@ -1656,8 +1666,8 @@ flowchart LR
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
-          <td>661</td>
-          <td><strong>Pipeline orchestration.</strong> Process order matters — resolvers run before persistence, extras run after core persist. Watch for missing steps when adding new tables.</td>
+          <td>867</td>
+          <td><strong>Pipeline orchestration.</strong> Process order matters — resolvers run before persistence, extras run after core persist, materialize (phase 4) and critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/extractor.py</code></td>
@@ -1737,7 +1747,7 @@ flowchart LR
         <tr><th>Module</th><th>What It Does</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 5 typed pre-persistence checks against DB state</td></tr>
+        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 5 typed checks against DB state; <code>persist.py</code> writes the report to <code>critique_reports</code>/<code>critique_findings</code></td></tr>
         <tr><td><code>pipeline/planner/</code></td><td><code>ScenePlanner</code> — LLM-based next-chapter narrative plan from story context</td></tr>
         <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → LLM rerank → MMR</td></tr>
         <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from <code>state_deltas</code></td></tr>

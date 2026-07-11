@@ -94,7 +94,7 @@ def submit_job(*, novel_id: str, chapter_number: int, text: str, replace: bool =
     from pipeline.config import settings
     from pipeline.extraction.chunker import sliding_window_chunks
     from pipeline.extraction.prompts import PASS_ORDER
-    from pipeline.pipeline import process_chapter
+    from pipeline.pipeline import analyze_chapter
 
     chunks = sliding_window_chunks(
         text, chunk_size=settings.chunk_size, overlap=settings.chunk_overlap
@@ -106,7 +106,7 @@ def submit_job(*, novel_id: str, chapter_number: int, text: str, replace: bool =
 
     def _run() -> None:
         try:
-            result = process_chapter(
+            result = analyze_chapter(
                 novel_id=novel_id,
                 chapter_number=chapter_number,
                 raw_text=text,

@@ -66,12 +66,12 @@ def test_generate_chapter_mock_end_to_end_no_ingest():
 def test_generate_chapter_ingests_when_passing():
     captured: dict = {}
 
-    def fake_process_chapter(**kwargs):
+    def fake_analyze_chapter(**kwargs):
         captured.update(kwargs)
         return {"chapter_id": str(uuid.uuid4())}
 
     p1, p2 = _plan_seam()
-    with p1, p2, patch("pipeline.generation.loop.process_chapter", fake_process_chapter):
+    with p1, p2, patch("pipeline.generation.loop.analyze_chapter", fake_analyze_chapter):
         result = generate_chapter(
             "novel-1", 7, db=LoopFakeDB(), ingest=True, use_mock=True, max_revisions=2
         )
@@ -100,14 +100,14 @@ def test_generate_chapter_revises_then_gives_up_without_ingesting():
 
     ingest_called = {"n": 0}
 
-    def fake_process_chapter(**kwargs):
+    def fake_analyze_chapter(**kwargs):
         ingest_called["n"] += 1
         return {"chapter_id": "x"}
 
     p1, p2 = _plan_seam()
     with p1, p2, \
          patch("pipeline.generation.loop.ContinuityCritic", AlwaysFailCritic), \
-         patch("pipeline.generation.loop.process_chapter", fake_process_chapter):
+         patch("pipeline.generation.loop.analyze_chapter", fake_analyze_chapter):
         result = generate_chapter(
             "novel-1", 7, db=LoopFakeDB(), ingest=True, use_mock=True, max_revisions=1
         )
