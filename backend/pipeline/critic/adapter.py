@@ -205,26 +205,31 @@ def build_draft_from_extraction(
             for l in extracted.get("learnings", [])
             if isinstance(l, dict)
         ],
-        "location_claims": [
+        # One claim per character: the LAST location-kind delta for that
+        # character in extraction order. Each delta is a legitimate intra-
+        # chapter transition, not a simultaneous claim — emitting one claim per
+        # delta made location_possession FAIL any character who moved more than
+        # once in a chapter. The claim represents where the character ends the
+        # chapter, which is the only thing worth checking against prior state.
+        "location_claims": list(
             {
-                "character_name": d.get("character_name"),
-                "location_name": d.get("location_name"),
-                "quote": d.get("quote"),
-            }
-            for d in extracted.get("state_deltas", [])
-            if isinstance(d, dict) and d.get("kind") == "location"
-        ],
-        "possession_claims": [
-            {
-                "character_name": d.get("character_name"),
-                "object_name": d.get("object_name"),
-                "quote": d.get("quote"),
-            }
-            for d in extracted.get("state_deltas", [])
-            if isinstance(d, dict)
-            and d.get("kind") == "possession"
-            and d.get("change") == "gain"
-        ],
+                d.get("character_name"): {
+                    "character_name": d.get("character_name"),
+                    "location_name": d.get("location_name"),
+                    "quote": d.get("quote"),
+                }
+                for d in extracted.get("state_deltas", [])
+                if isinstance(d, dict) and d.get("kind") == "location"
+            }.values()
+        ),
+        # No possession claims from extraction deltas: a possession GAIN this
+        # chapter is self-evidencing (there is by definition no active
+        # possesses_edge entering the chapter for a fresh pickup), so mapping
+        # gains to claims made location_possession WARN on every acquisition.
+        # The check's own carve-out already says "if the chapter introduces the
+        # pickup this is fine" — the pre-save MCP path still gets possession
+        # claims from the LLM draft-claims extractor (extract_draft_claims).
+        "possession_claims": [],
         "events": [
             {"description": e.get("description"), "event_type": e.get("event_type")}
             for e in extracted.get("events", [])

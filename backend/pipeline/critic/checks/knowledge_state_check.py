@@ -73,16 +73,11 @@ def check_knowledge_state(
         fact = _normalize(k.get("fact_description", ""))
         if not fact:
             continue
-        # If the draft itself indicates the character is learning the fact this
-        # chapter (source_type in {dialogue,observation,witnessed,told}), allow it.
-        learning_in_chapter = (k.get("source_type") or "").lower() in {
-            "dialogue",
-            "observation",
-            "witnessed",
-            "told",
-        } and k.get("learned_this_chapter", True)
-
-        if learning_in_chapter:
+        # learned_this_chapter is the authoritative signal that the character
+        # acquires this fact within this draft, regardless of source_type —
+        # inference/assumed are valid ways to learn something too, and gating
+        # the exemption on a source_type allowlist FAILed those spuriously.
+        if k.get("learned_this_chapter", True):
             continue
         # Otherwise the character must already know the fact.
         if not _fact_is_known(fact, known.get(cid, set())):
