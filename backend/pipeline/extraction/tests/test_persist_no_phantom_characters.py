@@ -41,7 +41,6 @@ def _base_extraction() -> dict:
     return {
         "new_entities": {},
         "custom_entities": [],
-        "entity_deltas": [],
         "events": [],
         "thread_updates": [],
         "continuity_flags": [],
@@ -80,15 +79,6 @@ def test_event_involving_unknown_name_does_not_create_character():
     assert "characters" not in db.inserted_tables
     # The event itself is still recorded (just with no involved characters).
     assert "events" in db.inserted_tables
-
-
-def test_entity_delta_for_unknown_name_does_not_create_character():
-    extracted = _base_extraction()
-    extracted["entity_deltas"] = [
-        {"character_name": "Healer Class", "emotional_state": "n/a", "knowledge": []}
-    ]
-    db = _run(extracted)
-    assert "characters" not in db.inserted_tables
 
 
 def test_new_entities_character_is_still_created():

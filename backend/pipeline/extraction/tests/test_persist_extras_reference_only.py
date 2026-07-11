@@ -6,7 +6,7 @@ persist_scenes / persist_knows_edges / persist_commitments all resolve names
 with create=False (see resolver.EntityResolver docstring): an unknown name
 must not mint a phantom entity. This module exercises the "drop when
 unresolvable" branches directly against persist_extras.py, complementing
-test_persist_no_phantom_characters.py which covers events/entity_deltas via
+test_persist_no_phantom_characters.py which covers events via
 pipeline._persist_extraction instead.
 """
 
