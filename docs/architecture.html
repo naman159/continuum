@@ -649,9 +649,9 @@ graph LR
         </tr>
         <tr>
           <td><span class="badge blue">3</span></td>
-          <td><code>entity_deltas</code></td>
-          <td>Character state changes: location, emotional state, goals, knowledge</td>
-          <td><code>character_states</code></td>
+          <td><code>state_deltas</code></td>
+          <td>Typed state changes: possession gain/loss, location moves, knowledge learned, status updates (emotional_state/goals/physical_state/appearance/notes) — each with a verbatim evidence quote</td>
+          <td><code>state_deltas</code> (folded into <code>character_states</code> and the bitemporal edges by the materializer)</td>
         </tr>
         <tr>
           <td><span class="badge blue">4</span></td>
@@ -766,7 +766,7 @@ flowchart TD
     </div>
 
     <div class="callout warn">
-      <strong>Only <code>new_entities</code> mints characters</strong> — the "Create new entity" leaf above fires only when the caller passes <code>create=True</code>, which just the authoritative <code>new_entities</code> pass does. Every reference-only pass — event <code>involved_characters</code>, scene <code>pov</code>/<code>present_character_names</code>, <code>entity_deltas</code>, knowledge <code>learnings</code>, relationship/dynamics/commitment endpoints (<code>resolve_any_entity</code>), and canon-fact subjects — calls with <code>create=False</code> and simply drops the reference when the name resolves to nothing. This is what keeps game-system nouns (an "Archer Class", a "Tutorial" window, a "Skills" screen) out of the <code>characters</code> table: the <code>new_entities</code> prompt already excludes them, and no downstream pass can re-introduce them by naming them as an actor. The <code>new_entities</code> pass runs first within the persist transaction, so a legitimately new character is created before any reference pass needs it.
+      <strong>Only <code>new_entities</code> mints characters</strong> — the "Create new entity" leaf above fires only when the caller passes <code>create=True</code>, which just the authoritative <code>new_entities</code> pass does. Every reference-only pass — event <code>involved_characters</code>, scene <code>pov</code>/<code>present_character_names</code>, <code>state_deltas</code>, knowledge <code>learnings</code>, relationship/dynamics/commitment endpoints (<code>resolve_any_entity</code>), and canon-fact subjects — calls with <code>create=False</code> and simply drops the reference when the name resolves to nothing. This is what keeps game-system nouns (an "Archer Class", a "Tutorial" window, a "Skills" screen) out of the <code>characters</code> table: the <code>new_entities</code> prompt already excludes them, and no downstream pass can re-introduce them by naming them as an actor. The <code>new_entities</code> pass runs first within the persist transaction, so a legitimately new character is created before any reference pass needs it.
     </div>
 
     <p>
