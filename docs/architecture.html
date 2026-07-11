@@ -519,6 +519,8 @@ graph LR
 │   │   │   ├── canonicalizer.py  <span class="cmt"># Intra-extraction dedup + cross-chapter canonicalizer</span>
 │   │   │   ├── resolver.py       <span class="cmt"># Entity name → DB ID resolution (exact/alias/partial)</span>
 │   │   │   ├── chunker.py        <span class="cmt"># Sliding window tokenizer</span>
+│   │   │   ├── persist_deltas.py <span class="cmt"># Persist typed state_deltas (reference-only resolution)</span>
+│   │   │   ├── persist_canon.py  <span class="cmt"># Persist canon_facts (lock/contradiction semantics)</span>
 │   │   │   └── persist_extras.py <span class="cmt"># Persist SOTA tables (scenes, knows, etc.)</span>
 │   │   ├── <span class="dir">critic/</span>           <span class="cmt"># ContinuityCritic: 6 typed checks</span>
 │   │   │   ├── runner.py         <span class="cmt"># Orchestrates all checks → CritiqueReport</span>
@@ -594,7 +596,10 @@ graph LR
         <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs. Only the <code>new_entities</code> pass is allowed to <em>create</em> characters; every other pass resolves with <code>create=False</code> (resolve-or-skip) so a name it merely references can't mint a phantom character.
       </li>
       <li>
-        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes everything: entities, character states, events, relationships, shared dynamics, plot threads, continuity flags.
+        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It no longer writes <code>character_states</code> directly: state changes go through the typed <code>state_deltas</code> log instead (next step), and <code>character_states</code> is derived later by the materializer.
+      </li>
+      <li>
+        <strong>Persist state deltas</strong> — <code>persist_state_deltas()</code> (<code>persist_deltas.py</code>) writes the <code>state_deltas</code> extraction pass into the <code>state_deltas</code> table: reference-only resolution (<code>create=False</code>) for the subject character, and for possession/location kinds the object/location too, so a delta naming an unknown entity is dropped rather than minting one. Rows carry <code>subject_id</code>/<code>object_id</code> as universal <code>entities.id</code> and <code>location_id</code> as the typed <code>locations.id</code>, with an <code>ordinal</code> preserving narrative order within the chapter — this is the tier-2 log the state materializer replays.
       </li>
       <li>
         <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for each event description, plus the chapter summary only when no medium summary exists (otherwise <code>persist_multi_summaries()</code> embeds the chapter from <code>summary_medium</code>, so the extra call is skipped).
@@ -717,7 +722,7 @@ graph LR
     </table>
 
     <div class="callout info">
-      <strong>Persistence via persist_extras.py and persist_canon.py:</strong> Passes 9–13 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers: <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, and <code>persist_multi_summaries()</code> in <code>persist_extras.py</code>, and <code>persist_canon_facts()</code> in <code>persist_canon.py</code>. These handle the extra logic needed for those tables (embedding, entity linking, deduplication). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>: if the existing row is <strong>locked</strong>, the incoming value is not overwritten — instead a <code>continuity_flag</code> of type <code>canon_contradiction</code> is raised.
+      <strong>Persistence via persist_extras.py, persist_canon.py, and persist_deltas.py:</strong> Passes 9–13 are extracted by <code>ChapterExtractor</code> like all other passes, but their results are written to the DB by dedicated helpers: <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, and <code>persist_multi_summaries()</code> in <code>persist_extras.py</code>, and <code>persist_canon_facts()</code> in <code>persist_canon.py</code>. These handle the extra logic needed for those tables (embedding, entity linking, deduplication). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>: if the existing row is <strong>locked</strong>, the incoming value is not overwritten — instead a <code>continuity_flag</code> of type <code>canon_contradiction</code> is raised. Pass 3 (<code>state_deltas</code>) is likewise persisted by a dedicated helper, <code>persist_state_deltas()</code> in <code>persist_deltas.py</code>, run inside the same transaction right after <code>persist_canon_facts()</code>.
     </div>
 
     <div class="callout tip">
@@ -1656,6 +1661,11 @@ flowchart LR
           <td><code>backend/pipeline/extraction/persist_extras.py</code></td>
           <td>200+</td>
           <td><strong>SOTA table persistence.</strong> Scenes, knows_edges, commitments. Watch for missing novel_id scoping, missing cap columns.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/extraction/persist_deltas.py</code></td>
+          <td>~85</td>
+          <td><strong>Typed state_deltas persistence.</strong> Reference-only resolution per kind (possession/location/knowledge/status); a delta naming an unknown entity is dropped, never minted. <code>ordinal</code> preserves narrative order for the materializer replay.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/presets.py</code></td>

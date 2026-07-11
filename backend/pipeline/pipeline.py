@@ -20,6 +20,7 @@ from pipeline.extraction.chunker import sliding_window_chunks
 from pipeline.extraction.context_select import select_context_entities
 from pipeline.extraction.extractor import ChapterExtractor
 from pipeline.extraction.persist_canon import persist_canon_facts
+from pipeline.extraction.persist_deltas import persist_state_deltas
 from pipeline.extraction.persist_extras import (
     persist_commitments,
     persist_knows_edges,
@@ -394,6 +395,12 @@ def process_chapter(
                 facts=extracted.get("canon_facts", []),
                 resolver=resolver,
             )
+            persist_state_deltas(
+                s,
+                chapter_id=chapter_id,
+                deltas=extracted.get("state_deltas", []),
+                resolver=resolver,
+            )
 
         # Rebuild derived projections (located_in_edges, possesses_edges,
         # character_states) from the now-committed event log. Runs outside the
@@ -413,6 +420,7 @@ def process_chapter(
             "new_characters": len(extracted.get("new_entities", {}).get("characters", [])),
             "new_locations": len(extracted.get("new_entities", {}).get("locations", [])),
             "events": len(extracted.get("events", [])),
+            "state_deltas": len(extracted.get("state_deltas", [])),
             "thread_updates": len(extracted.get("thread_updates", [])),
             "continuity_flags": len(extracted.get("continuity_flags", [])),
         }
@@ -461,56 +469,6 @@ def _persist_extraction(
         if not name or not entity_type:
             continue
         resolver.resolve_custom_entity(name, entity_type, custom_entity)
-
-    for delta in extracted.get("entity_deltas", []):
-        character_name = str(delta.get("character_name", "")).strip()
-        if not character_name:
-            continue
-        # Reference-only: a state delta must attach to a character that already
-        # exists (from the new_entities pass). Never mint one here — that is how
-        # non-characters (skills, classes, system windows) leaked into the table.
-        resolved_char = resolver.resolve_character(character_name, create=False)
-        if resolved_char is None:
-            continue
-        character_id = resolved_char.entity_id
-
-        location_name = str(delta.get("location", "")).strip()
-        location_id = None
-        if location_name:
-            location_id = resolver.resolve_location(location_name).entity_id
-
-        knowledge = delta.get("knowledge")
-        if not isinstance(knowledge, list):
-            knowledge = []
-        knowledge = [str(item) for item in knowledge if str(item).strip()]
-
-        db.execute(
-            """
-            INSERT INTO character_states (
-                character_id,
-                chapter_id,
-                location_id,
-                emotional_state,
-                goals,
-                knowledge,
-                physical_state,
-                appearance,
-                notes
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            (
-                character_id,
-                chapter_id,
-                location_id,
-                delta.get("emotional_state"),
-                delta.get("goals"),
-                knowledge,
-                delta.get("physical_state"),
-                delta.get("appearance"),
-                delta.get("notes"),
-            ),
-        )
 
     for rel in extracted.get("relationship_updates", []):
         a_name = str(rel.get("entity_a", "")).strip()
