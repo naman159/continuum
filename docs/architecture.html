@@ -539,9 +539,9 @@ graph LR
 │   │   │   ├── rerank.py         <span class="cmt"># LLM reranker</span>
 │   │   │   ├── mmr.py            <span class="cmt"># Max marginal relevance diversification</span>
 │   │   │   └── types.py          <span class="cmt"># RetrievalQuery, RetrievalResult, RetrievalBundle</span>
-│   │   ├── <span class="dir">state/</span>            <span class="cmt"># StateMaterializer: derives projections from event log</span>
-│   │   │   ├── materializer.py   <span class="cmt"># Writes character_states, located_in_edges, possesses_edges</span>
-│   │   │   ├── event_replay.py   <span class="cmt"># Replays events to build state snapshots</span>
+│   │   ├── <span class="dir">state/</span>            <span class="cmt"># StateMaterializer: derives projections from state_deltas</span>
+│   │   │   ├── materializer.py   <span class="cmt"># Sole writer of character_states; also writes located_in_edges, possesses_edges</span>
+│   │   │   ├── replay.py         <span class="cmt"># Folds typed state_deltas into state snapshots</span>
 │   │   │   └── types.py          <span class="cmt"># StateSnapshot, LocationFact, PossessionFact</span>
 │   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding + hash fallback</span>
 │   │   ├── llm.py                <span class="cmt"># Shared litellm loader + lenient JSON parser</span>
@@ -596,7 +596,7 @@ graph LR
         <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs. Only the <code>new_entities</code> pass is allowed to <em>create</em> characters; every other pass resolves with <code>create=False</code> (resolve-or-skip) so a name it merely references can't mint a phantom character.
       </li>
       <li>
-        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It no longer writes <code>character_states</code> directly: state changes go through the typed <code>state_deltas</code> log instead (next step), and <code>character_states</code> is derived later by the materializer.
+        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It never writes <code>character_states</code>: state changes go through the typed <code>state_deltas</code> log instead, and <code>character_states</code> is the sole responsibility of the <a href="#state-materializer">State Materializer</a>, which runs at the end of <code>process_chapter</code>.
       </li>
       <li>
         <strong>Persist state deltas</strong> — <code>persist_state_deltas()</code> (<code>persist_deltas.py</code>) writes the <code>state_deltas</code> extraction pass into the <code>state_deltas</code> table: reference-only resolution (<code>create=False</code>) for the subject character, and for possession/location kinds the object/location too, so a delta naming an unknown entity is dropped rather than minting one. Rows carry <code>subject_id</code>/<code>object_id</code> as universal <code>entities.id</code> and <code>location_id</code> as the typed <code>locations.id</code>, with an <code>ordinal</code> preserving narrative order within the chapter — this is the tier-2 log the state materializer replays.
@@ -1588,19 +1588,34 @@ flowchart LR
     <h2>State Materializer</h2>
     <p>
       <code>backend/pipeline/state/</code> provides <code>StateMaterializer</code>, which derives
-      state projections from the event log rather than from LLM extraction. This is an alternative
-      write path for <code>character_states</code>, <code>located_in_edges</code>, and <code>possesses_edges</code>
-      that is purely deterministic and idempotent.
+      state projections from the typed <code>state_deltas</code> log rather than from LLM
+      extraction directly. It is the <strong>sole writer</strong> of <code>character_states</code>,
+      and also owns <code>located_in_edges</code> and <code>possesses_edges</code> — purely
+      deterministic and idempotent given the same delta log.
     </p>
 
     <p>
-      <code>EventReplay</code> scans all events for a novel up to a given chapter, infers
-      <code>StateSnapshot</code>, <code>LocationFact</code>, and <code>PossessionFact</code> objects
-      by reading event descriptions, then <code>StateMaterializer</code> persists them in a single
-      transaction. Each run deletes the novel's entire <code>located_in_edges</code> /
-      <code>possesses_edges</code> projection and re-derives it from the event log, so re-running is
-      idempotent <em>and</em> edges whose source events have since been removed (e.g. a chapter
-      re-processed with <code>replace=true</code>) disappear instead of surviving as stale rows.
+      <code>StateReplay</code> (<code>replay.py</code>) reads <code>state_deltas</code> for a novel
+      up to a given chapter — ordered <code>chapter.number ASC, delta.ordinal ASC, delta.id ASC</code>
+      — and folds them into <code>StateSnapshot</code>, <code>LocationFact</code>, and
+      <code>PossessionFact</code> objects: <code>location</code> deltas move the active location edge
+      (chaining <code>until_chapter</code>/<code>superseded_by_id</code> on a move) and set the
+      snapshot's <code>location_id</code>; <code>possession</code> deltas open/close a
+      <code>possesses_edges</code> fact on gain/loss; <code>knowledge</code> deltas append to the
+      snapshot's <code>knowledge</code> list; <code>status</code> deltas set one of
+      <code>emotional_state</code>/<code>goals</code>/<code>physical_state</code>/<code>appearance</code>/<code>notes</code>
+      by attribute name. There are no verb lists or event-type heuristics (the old
+      <code>EMOTIONAL_HINTS</code> table is gone) — every field is set by an explicit typed delta.
+      <code>location</code>/<code>goals</code>/<code>knowledge</code>/<code>physical_state</code>/<code>appearance</code>
+      carry forward from the prior chapter's snapshot when a chapter has no delta touching that
+      field; <code>emotional_state</code> intentionally does <em>not</em> carry forward — it reflects
+      only what was explicitly stated for that chapter. <code>StateMaterializer</code> then persists
+      the result in a single transaction. Every write is <strong>novel-scoped rebuild, not
+      incremental upsert</strong>: each run deletes the novel's entire <code>character_states</code>,
+      <code>located_in_edges</code>, and <code>possesses_edges</code> projection and re-derives it
+      from <code>state_deltas</code>, so re-running is idempotent <em>and</em> snapshots/edges whose
+      source deltas have since been removed or edited (e.g. a chapter re-processed with
+      <code>replace=true</code>) disappear instead of surviving as stale rows.
     </p>
 
     <p>

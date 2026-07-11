@@ -1,14 +1,17 @@
-"""End-to-end tests for the event-sourcing state materializer.
+"""End-to-end tests for the state_deltas-replaying state materializer.
 
-These hit the real branch-isolated Postgres DB. They seed a tiny novel,
-run materialize(), and assert that:
+These hit the real branch-isolated Postgres DB. They seed a tiny novel
+with typed state_deltas rows, run materialize(), and assert that:
 
   - character_states rows exist for each (character, chapter) the character
     appears in,
   - located_in_edges show the character's location per chapter,
   - when the character moves, the prior open edge gets until_chapter set
     and superseded_by_id chained to the new edge,
-  - possesses_edges reflect a pickup,
+  - possesses_edges reflect a gain/loss,
+  - status/knowledge deltas fold into character_states,
+  - the materializer is the sole writer: stale snapshots whose source
+    deltas disappeared do not survive a re-materialize,
   - re-running materialize is idempotent (no duplicates).
 
 Each test owns its own novel (UUID-named) and deletes it in teardown so
@@ -37,13 +40,16 @@ def db():
 @pytest.fixture
 def seeded(db: DBClient):
     """Seed a small novel with 3 chapters, 2 characters, 2 locations, 1 object,
-    and 6 events that imply movement and an object pickup.
+    and typed state_deltas rows telling a story of movement, a possession
+    gain/loss, and a status/knowledge update.
 
     Story:
         ch 1: Aelric is at Fogwood Keep.
-        ch 2: Aelric is at Fogwood Keep, picks up the silver dagger.
-        ch 3: Aelric travels to Pellis Harbor (location change).
-                Mira (other character) is at Pellis Harbor.
+        ch 2: Aelric gains the silver dagger.
+        ch 3: Aelric travels to Pellis Harbor (location change);
+                Mira (other character) is at Pellis Harbor;
+                Aelric loses the silver dagger; Aelric becomes wary;
+                Aelric learns the harbor is watched.
     """
     novel_id = str(uuid.uuid4())
     title = f"TestNovel-{novel_id[:8]}"
@@ -108,52 +114,42 @@ def seeded(db: DBClient):
         )
         dagger_id = str(cur.fetchone()[0])
 
-        # Events. The replay reads chapters in ORDER BY number, then events
-        # within a chapter in (created_at, id).
-        def make_event(
-            chap_idx: int,
-            description: str,
-            event_type: str,
-            chars: list[str],
-            locs: list[str],
-            objs: list[str],
-        ) -> str:
+        # story as typed deltas:
+        #   ch1: Aelric at Fogwood Keep (location)
+        #   ch2: Aelric gains silver dagger (possession)
+        #   ch3: Aelric moves to Pellis Harbor; Mira at Pellis Harbor;
+        #        Aelric loses silver dagger; Aelric wary (status)
+        ordinal_counter = {"n": 0}
+
+        def add_delta(chapter_ix, kind, subject_eid, *, object_eid=None,
+                      location_typed_id=None, change=None, attribute=None, detail=None):
             cur.execute(
                 """
-                INSERT INTO events (
-                    chapter_id, description, event_type,
-                    involved_characters, involved_locations, involved_objects
-                ) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id
+                INSERT INTO state_deltas (chapter_id, ordinal, kind, subject_id,
+                                          object_id, location_id, change, attribute, detail)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (
-                    chapter_ids[chap_idx],
-                    description,
-                    event_type,
-                    chars,
-                    locs,
-                    objs,
-                ),
+                (chapter_ids[chapter_ix], ordinal_counter["n"], kind, subject_eid,
+                 object_eid, location_typed_id, change, attribute, detail),
             )
-            return str(cur.fetchone()[0])
+            ordinal_counter["n"] += 1
 
-        make_event(0, "Aelric walks the halls of the keep.", "action",
-                   [aelric_id], [keep_id], [])
-        make_event(1, "Aelric trains in the courtyard.", "action",
-                   [aelric_id], [keep_id], [])
-        make_event(1, "Aelric picked up the silver dagger from the armory.", "action",
-                   [aelric_id], [keep_id], [dagger_id])
-        make_event(2, "Aelric arrives at Pellis Harbor.", "arrival",
-                   [aelric_id], [harbor_id], [])
-        make_event(2, "Mira waits at the harbor.", "action",
-                   [mira_id], [harbor_id], [])
-        make_event(2, "Mira and Aelric speak on the docks.", "action",
-                   [aelric_id, mira_id], [harbor_id], [])
+        add_delta(0, "location", aelric_eid, location_typed_id=keep_id, change="move")
+        add_delta(1, "possession", aelric_eid, object_eid=dagger_eid, change="gain")
+        add_delta(2, "location", aelric_eid, location_typed_id=harbor_id, change="move")
+        add_delta(2, "location", mira_eid, location_typed_id=harbor_id, change="move")
+        add_delta(2, "possession", aelric_eid, object_eid=dagger_eid, change="loss")
+        add_delta(2, "status", aelric_eid, change="update",
+                  attribute="emotional_state", detail="wary")
+        add_delta(2, "knowledge", aelric_eid, change="learn",
+                  detail="the harbor is watched")
 
     yield {
         "novel_id": novel_id,
         "chapter_ids": chapter_ids,
         "aelric_id": aelric_id,
         "mira_id": mira_id,
+        "aelric_char_id": aelric_id,
         "aelric_eid": aelric_eid,
         "mira_eid": mira_eid,
         "keep_id": keep_id,
@@ -211,10 +207,12 @@ def _fetch_possession_edges(db: DBClient, character_id: str) -> list[dict]:
 def test_materialize_writes_character_states(db, seeded):
     StateMaterializer(db).materialize(seeded["novel_id"], through_chapter=3)
     rows = _fetch_state(db, seeded["novel_id"])
-    # Aelric appears in all 3 chapters, Mira only in chapter 3.
+    # Snapshots are only folded for chapters with a location/status/knowledge
+    # delta touching the character. Chapter 2 only has a possession delta for
+    # Aelric (no snapshot-affecting kind), so no row exists there.
     by_char = {(r["character_name"], r["chapter_number"]) for r in rows}
     assert ("Aelric", 1) in by_char
-    assert ("Aelric", 2) in by_char
+    assert ("Aelric", 2) not in by_char
     assert ("Aelric", 3) in by_char
     assert ("Mira", 3) in by_char
 
@@ -242,13 +240,12 @@ def test_materialize_chains_location_edges_on_move(db, seeded):
 def test_materialize_records_object_pickup(db, seeded):
     StateMaterializer(db).materialize(seeded["novel_id"], through_chapter=3)
     edges = _fetch_possession_edges(db, seeded["aelric_id"])
-    # The "picked up the silver dagger" event in chapter 2 produces a possession edge.
+    # Gained in chapter 2, lost in chapter 3: a single closed possession edge.
     assert len(edges) == 1
     edge = edges[0]
     assert str(edge["object_id"]) == seeded["dagger_id"]
     assert edge["since_chapter"] == 2
-    # Never lost — stays open.
-    assert edge["until_chapter"] is None
+    assert edge["until_chapter"] == 3
 
 
 def test_materialize_is_idempotent(db, seeded):
@@ -264,7 +261,7 @@ def test_materialize_is_idempotent(db, seeded):
     states = _fetch_state(db, seeded["novel_id"])
     aelric_loc_edges = _fetch_location_edges(db, seeded["aelric_eid"])
     aelric_obj_edges = _fetch_possession_edges(db, seeded["aelric_id"])
-    assert len(states) == 4  # Aelric ch1-3 (3) + Mira ch3 (1)
+    assert len(states) == 3  # Aelric ch1, ch3 (2) + Mira ch3 (1)
     assert len(aelric_loc_edges) == 2
     assert len(aelric_obj_edges) == 1
 
@@ -275,3 +272,34 @@ def test_materialize_is_idempotent(db, seeded):
         dict_rows=True,
     )
     assert len(runs) == 2
+
+
+def test_status_and_knowledge_fold_into_snapshots(db, seeded):
+    StateMaterializer(db).materialize(seeded["novel_id"], 3)
+    row = db.fetchone(
+        """
+        SELECT cs.emotional_state, cs.knowledge FROM character_states cs
+          JOIN chapters ch ON ch.id = cs.chapter_id
+         WHERE cs.character_id = %s AND ch.number = 3
+        """,
+        (seeded["aelric_char_id"],),
+    )
+    assert row[0] == "wary"
+    assert "the harbor is watched" in (row[1] or [])
+
+
+def test_materializer_is_sole_writer_and_prunes_stale_snapshots(db, seeded):
+    StateMaterializer(db).materialize(seeded["novel_id"], 3)
+    # A snapshot for a (character, chapter) pair with no surviving deltas must
+    # not survive a re-materialize (novel-scoped rebuild).
+    db.execute("DELETE FROM state_deltas WHERE detail = 'wary'")
+    StateMaterializer(db).materialize(seeded["novel_id"], 3)
+    row = db.fetchone(
+        """
+        SELECT cs.emotional_state FROM character_states cs
+          JOIN chapters ch ON ch.id = cs.chapter_id
+         WHERE cs.character_id = %s AND ch.number = 3
+        """,
+        (seeded["aelric_char_id"],),
+    )
+    assert row is None or row[0] is None

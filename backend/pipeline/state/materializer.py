@@ -4,7 +4,7 @@ import logging
 from typing import Any
 
 from pipeline.db.client import DBClient
-from pipeline.state.event_replay import EventReplay
+from pipeline.state.replay import StateReplay
 from pipeline.state.types import (
     LocationFact,
     MaterializeResult,
@@ -25,7 +25,7 @@ class StateMaterializer:
 
     def __init__(self, db: DBClient) -> None:
         self.db = db
-        self.replay = EventReplay(db)
+        self.replay = StateReplay(db)
 
     def materialize(self, novel_id: str, through_chapter: int) -> MaterializeResult:
         snapshots, location_facts, possession_facts = self.replay.replay(
@@ -37,7 +37,7 @@ class StateMaterializer:
         possession_edges_written = 0
 
         with self.db.transaction() as cur:
-            snapshots_written = self._write_character_states(cur, snapshots)
+            snapshots_written = self._write_character_states(cur, novel_id, snapshots)
             location_edges_written = self._write_location_edges(
                 cur, novel_id, location_facts
             )
@@ -69,28 +69,22 @@ class StateMaterializer:
         )
 
     # ------------------------------------------------------------------
-    # character_states: DELETE-then-INSERT scoped to (character_id, chapter_id).
+    # character_states: sole writer — novel-scoped DELETE-then-INSERT.
 
-    def _write_character_states(self, cur: Any, snapshots: list[StateSnapshot]) -> int:
-        if not snapshots:
-            return 0
-
-        # Delete only the pairs we will rewrite. This is the idempotent
-        # equivalent of an UPSERT when no unique constraint exists.
-        pairs = sorted({(s.character_id, s.chapter_id) for s in snapshots})
+    def _write_character_states(
+        self, cur: Any, novel_id: str, snapshots: list[StateSnapshot]
+    ) -> int:
+        # Sole writer: rebuild the whole novel's snapshot projection so
+        # snapshots whose source deltas disappeared don't survive.
         cur.execute(
             """
             DELETE FROM character_states
-             WHERE (character_id, chapter_id) IN (
-               SELECT (v.character_id)::uuid, (v.chapter_id)::uuid
-                 FROM unnest(%s::uuid[], %s::uuid[]) AS v(character_id, chapter_id)
-             )
+             WHERE character_id IN (SELECT id FROM characters WHERE novel_id = %s)
             """,
-            (
-                [p[0] for p in pairs],
-                [p[1] for p in pairs],
-            ),
+            (novel_id,),
         )
+        if not snapshots:
+            return 0
 
         for snap in snapshots:
             cur.execute(
