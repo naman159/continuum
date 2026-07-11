@@ -71,6 +71,15 @@ def test_self_referential_dynamic_is_skipped():
     assert db.inserts == []
 
 
+def test_dynamic_with_unresolvable_entity_is_dropped():
+    # entity_b doesn't correspond to any known entity (reference-only
+    # resolution, create=False) — the edge is dropped rather than minting a
+    # phantom character for it.
+    db = DynFakeDB()
+    _persist(db, {"entity_a": "Alice", "entity_b": "Ghost"})
+    assert db.inserts == []
+
+
 def test_duplicate_pair_dynamics_merge_into_one_row():
     # The extractor can emit several dynamics for the same pair in one
     # chapter; a second INSERT would violate

@@ -99,3 +99,12 @@ def test_self_referential_relationship_is_skipped():
     db = RelFakeDB(existing_active_rel=False)
     _persist(db, {"entity_a": "Alice", "entity_b": "Alice"})
     assert db.inserts == []
+
+
+def test_relationship_with_unresolvable_entity_is_dropped():
+    # entity_b doesn't correspond to any known entity (reference-only
+    # resolution, create=False) — the edge is dropped rather than minting a
+    # phantom character for it.
+    db = RelFakeDB(existing_active_rel=False)
+    _persist(db, {"entity_a": "Alice", "entity_b": "Ghost"})
+    assert db.inserts == []

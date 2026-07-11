@@ -112,11 +112,18 @@ from pipeline.extraction.persist_canon import persist_canon_facts
 
 
 class FakeResolver:
-    def __init__(self):
+    """Reference-only resolution: names outside ``known_names`` resolve to
+    None when create=False, mirroring EntityResolver's real behaviour so
+    downstream skip branches can be exercised without a live DB."""
+
+    def __init__(self, known_names=None):
         self.uid = str(uuid.uuid4())
+        self.known_names = {n.lower() for n in (known_names or ["Jake"])}
 
     def resolve_character(self, name, metadata=None, *, create=True):
         from pipeline.extraction.resolver import ResolvedEntity
+        if not create and name.lower() not in self.known_names:
+            return None
         return ResolvedEntity(entity_id="typed-id", universal_id=self.uid, created=False)
 
     resolve_location = resolve_object = resolve_faction = resolve_character
@@ -185,6 +192,21 @@ def test_persist_skips_unknown_subject_type():
         facts=[bad], resolver=FakeResolver(),
     )
     assert counts["skipped"] == 1
+
+
+def test_persist_skips_unresolvable_subject():
+    # Reference-only resolution: a fact naming a subject that doesn't already
+    # exist must not mint a phantom entity — it's skipped and no DB call is
+    # made at all (resolution short-circuits before the existing-fact lookup).
+    db = CanonFakeDB()
+    unknown_subject = dict(FACT, subject_name="Ghost")
+    resolver = FakeResolver(known_names=["Jake"])
+    counts = persist_canon_facts(
+        db, novel_id="n1", chapter_id="ch1", chapter_number=3,
+        facts=[unknown_subject], resolver=resolver,
+    )
+    assert counts == {"inserted": 0, "updated": 0, "contradictions": 0, "skipped": 1}
+    assert db.calls == []
 
 
 def test_persist_never_downgrades_confidence_on_same_value():
