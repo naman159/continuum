@@ -461,7 +461,13 @@ def _persist_extraction(
         character_name = str(delta.get("character_name", "")).strip()
         if not character_name:
             continue
-        character_id = resolver.resolve_character(character_name).entity_id
+        # Reference-only: a state delta must attach to a character that already
+        # exists (from the new_entities pass). Never mint one here — that is how
+        # non-characters (skills, classes, system windows) leaked into the table.
+        resolved_char = resolver.resolve_character(character_name, create=False)
+        if resolved_char is None:
+            continue
+        character_id = resolved_char.entity_id
 
         location_name = str(delta.get("location", "")).strip()
         location_id = None
@@ -506,8 +512,12 @@ def _persist_extraction(
         b_name = str(rel.get("entity_b", "")).strip()
         if not a_name or not b_name:
             continue
-        a_universal = resolver.resolve_any_entity(a_name)
-        b_universal = resolver.resolve_any_entity(b_name)
+        a_universal = resolver.resolve_any_entity(a_name, create=False)
+        b_universal = resolver.resolve_any_entity(b_name, create=False)
+        if a_universal is None or b_universal is None:
+            # One endpoint doesn't correspond to any known entity — dropping the
+            # edge is correct rather than minting a phantom character for it.
+            continue
         if a_universal == b_universal:
             logger.warning(
                 "relationship_updates: entity_a %r and entity_b %r both resolved to the "
@@ -563,8 +573,10 @@ def _persist_extraction(
         description = str(dyn.get("description", "")).strip()
         if not a_name or not b_name or not description:
             continue
-        a_universal = resolver.resolve_any_entity(a_name)
-        b_universal = resolver.resolve_any_entity(b_name)
+        a_universal = resolver.resolve_any_entity(a_name, create=False)
+        b_universal = resolver.resolve_any_entity(b_name, create=False)
+        if a_universal is None or b_universal is None:
+            continue
         if a_universal == b_universal:
             logger.warning(
                 "dynamics_updates: entity_a %r and entity_b %r both resolved to the "
@@ -594,10 +606,15 @@ def _persist_extraction(
         if not description:
             continue
 
+        # Reference-only: an event can only involve characters that already
+        # exist. Resolve-or-drop so a game-system noun named as an actor doesn't
+        # mint a phantom character row.
         involved_characters = [
-            resolver.resolve_character(name).entity_id
+            resolved.entity_id
             for name in event.get("involved_characters", [])
             if str(name).strip()
+            for resolved in (resolver.resolve_character(name, create=False),)
+            if resolved is not None
         ]
         involved_locations = [
             resolver.resolve_location(name).entity_id

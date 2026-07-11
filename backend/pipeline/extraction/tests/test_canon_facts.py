@@ -115,7 +115,7 @@ class FakeResolver:
     def __init__(self):
         self.uid = str(uuid.uuid4())
 
-    def resolve_character(self, name, metadata=None):
+    def resolve_character(self, name, metadata=None, *, create=True):
         from pipeline.extraction.resolver import ResolvedEntity
         return ResolvedEntity(entity_id="typed-id", universal_id=self.uid, created=False)
 

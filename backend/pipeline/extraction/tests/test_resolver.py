@@ -330,6 +330,57 @@ def test_resolve_any_entity_creates_character_only_as_last_resort():
     assert any("INSERT INTO characters" in q for q in db.inserts)
 
 
+# ---------------------------------------------------------------------------
+# create=False: reference-only passes must resolve-or-skip, never mint characters
+# ---------------------------------------------------------------------------
+
+def test_resolve_character_create_false_returns_none_when_absent():
+    """A reference-only lookup for an unknown name must NOT create a character."""
+    db = FakeDBForResolver()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    result = resolver.resolve_character("Tutorial", create=False)
+    assert result is None
+    assert db._characters == []
+    assert db._entities == []
+
+
+def test_resolve_character_create_false_returns_existing():
+    """create=False still resolves a character that already exists."""
+    db = FakeDBForResolver()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    created = resolver.resolve_character("Alice")  # authoritative create
+    found = resolver.resolve_character("Alice", create=False)
+    assert found is not None
+    assert found.entity_id == created.entity_id
+    assert found.created is False
+    assert len(db._characters) == 1
+
+
+def test_resolve_any_entity_create_false_returns_none_when_absent():
+    """create=False on resolve_any_entity must not fall back to creating a character."""
+    import uuid
+
+    class NothingDB:
+        def __init__(self):
+            self.inserts: list[str] = []
+
+        def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
+            return None
+
+        def fetchval(self, query, params=None, *, commit=False):
+            self.inserts.append(query)
+            return uuid.uuid4()
+
+        def execute(self, query, params=None):
+            pass
+
+    db = NothingDB()
+    resolver = EntityResolver(db, novel_id="novel-1", chapter_number=1)
+    uid = resolver.resolve_any_entity("Skills", create=False)
+    assert uid is None
+    assert db.inserts == []
+
+
 def test_resolve_custom_entity_finds_by_alias():
     """Custom entities resolve through entities.aliases (no duplicate row)."""
     import uuid

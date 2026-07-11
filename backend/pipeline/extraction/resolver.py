@@ -22,10 +22,23 @@ class EntityResolver:
         # (entity_type, lower_name) -> (entity_id, universal_id)
         self._cache: dict[tuple[str, str], tuple[str, str]] = {}
 
-    def resolve_character(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
-        return self._resolve("character", name, metadata or {})
+    def resolve_character(
+        self, name: str, metadata: dict[str, Any] | None = None, *, create: bool = True
+    ) -> ResolvedEntity | None:
+        """Resolve a character by name.
 
-    def resolve_location(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
+        With create=True (default, used by the authoritative new_entities pass)
+        an unknown name is created. With create=False (reference-only passes —
+        events, scenes, deltas, knowledge) an unknown name resolves to None and
+        NO character row is minted; this is the guard that keeps game-system
+        elements and other non-characters out of the characters table when they
+        are merely referenced by a downstream pass.
+        """
+        return self._resolve("character", name, metadata or {}, create=create)
+
+    def resolve_location(
+        self, name: str, metadata: dict[str, Any] | None = None, *, create: bool = True
+    ) -> ResolvedEntity | None:
         meta = metadata or {}
         parent_name = str(meta.get("parent_location") or "").strip()
         normalized = (name or "").strip()
@@ -36,14 +49,16 @@ class EntityResolver:
             # becomes an alias of the parent so metadata-less callers (event
             # and scene resolution) fold to the same row instead of creating a
             # standalone duplicate location.
-            parent = self._resolve("location", parent_name, {})
+            parent = self._resolve("location", parent_name, {}, create=create)
+            if parent is None:
+                return None
             self._append_location_alias(parent.entity_id, normalized)
             self._cache[("location", normalized.lower())] = (
                 parent.entity_id,
                 parent.universal_id,
             )
             return parent
-        return self._resolve("location", normalized, meta)
+        return self._resolve("location", normalized, meta, create=create)
 
     def _append_location_alias(self, location_id: str, alias: str) -> None:
         row = self.db.fetchone(
@@ -61,11 +76,15 @@ class EntityResolver:
             (aliases + [alias], location_id),
         )
 
-    def resolve_faction(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
-        return self._resolve("faction", name, metadata or {})
+    def resolve_faction(
+        self, name: str, metadata: dict[str, Any] | None = None, *, create: bool = True
+    ) -> ResolvedEntity | None:
+        return self._resolve("faction", name, metadata or {}, create=create)
 
-    def resolve_object(self, name: str, metadata: dict[str, Any] | None = None) -> ResolvedEntity:
-        return self._resolve("object", name, metadata or {})
+    def resolve_object(
+        self, name: str, metadata: dict[str, Any] | None = None, *, create: bool = True
+    ) -> ResolvedEntity | None:
+        return self._resolve("object", name, metadata or {}, create=create)
 
     def resolve_custom_entity(
         self, name: str, entity_type: str, metadata: dict[str, Any] | None = None
@@ -132,7 +151,7 @@ class EntityResolver:
         self._cache[cache_key] = (universal_id, universal_id)
         return ResolvedEntity(universal_id, universal_id, created=True)
 
-    def resolve_any_entity(self, name: str) -> str:
+    def resolve_any_entity(self, name: str, *, create: bool = True) -> str | None:
         """Return the universal entity ID for any entity type.
 
         Lookup order: entities table by name or alias, then each typed table by
@@ -140,6 +159,11 @@ class EntityResolver:
         typed table knows about). Only if nothing matches anywhere does it fall
         back to creating a character — previously an aliased faction/location/
         object reference would silently create a phantom character here.
+
+        With create=False (reference-only passes — relationships, dynamics,
+        commitment links) an unresolvable name returns None instead of minting a
+        phantom character, so a link is simply dropped rather than inventing an
+        entity for it.
         """
         normalized = (name or "").strip()
         if not normalized:
@@ -192,11 +216,17 @@ class EntityResolver:
                     self._cache[cache_key] = found
                     return found[1]
 
+        if not create:
+            return None
+
         resolved = self.resolve_character(normalized)
+        assert resolved is not None  # create defaults True — always resolves
         self._cache[cache_key] = (resolved.entity_id, resolved.universal_id)
         return resolved.universal_id
 
-    def _resolve(self, entity_type: str, name: str, metadata: dict[str, Any]) -> ResolvedEntity:
+    def _resolve(
+        self, entity_type: str, name: str, metadata: dict[str, Any], *, create: bool = True
+    ) -> ResolvedEntity | None:
         normalized_name = (name or "").strip()
         if not normalized_name:
             raise ValueError(f"Cannot resolve empty {entity_type} name")
@@ -247,6 +277,12 @@ class EntityResolver:
                     )
                 self._cache[cache_key] = (entity_id, universal_id)
                 return ResolvedEntity(entity_id, universal_id, created=False)
+
+        if not create:
+            # Reference-only resolution: the entity doesn't exist and we are not
+            # allowed to mint one. Don't cache the miss — a later authoritative
+            # pass (create=True) may still create it.
+            return None
 
         entity_id, universal_id = self._create_entity(entity_type, normalized_name, metadata)
         self._cache[cache_key] = (entity_id, universal_id)

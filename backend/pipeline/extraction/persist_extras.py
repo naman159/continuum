@@ -47,7 +47,9 @@ def persist_scenes(
         pov_character_id = None
         if pov_name:
             try:
-                pov_character_id = resolver.resolve_character(pov_name).entity_id
+                # Reference-only: resolve against existing characters, never mint.
+                resolved_pov = resolver.resolve_character(pov_name, create=False)
+                pov_character_id = resolved_pov.entity_id if resolved_pov else None
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("scene pov resolve failed (%s): %s", pov_name, exc)
 
@@ -65,7 +67,9 @@ def persist_scenes(
             if not cleaned:
                 continue
             try:
-                present_ids.append(resolver.resolve_character(cleaned).entity_id)
+                resolved_present = resolver.resolve_character(cleaned, create=False)
+                if resolved_present is not None:
+                    present_ids.append(resolved_present.entity_id)
             except Exception as exc:  # pragma: no cover
                 logger.warning("scene present resolve failed (%s): %s", cleaned, exc)
 
@@ -193,10 +197,14 @@ def persist_knows_edges(
             continue
 
         try:
-            character_id = resolver.resolve_character(character_name).entity_id
+            # Reference-only: only existing characters can hold knowledge.
+            resolved_knower = resolver.resolve_character(character_name, create=False)
         except Exception as exc:  # pragma: no cover
             logger.warning("knows_edge character resolve failed (%s): %s", character_name, exc)
             continue
+        if resolved_knower is None:
+            continue
+        character_id = resolved_knower.entity_id
 
         source_type = str(learning.get("source_type", "")).strip().lower()
         if source_type not in _VALID_SOURCE_TYPES:
@@ -216,7 +224,9 @@ def persist_knows_edges(
             if not cleaned:
                 continue
             try:
-                shared_ids.append(resolver.resolve_character(cleaned).entity_id)
+                resolved_shared = resolver.resolve_character(cleaned, create=False)
+                if resolved_shared is not None:
+                    shared_ids.append(resolved_shared.entity_id)
             except Exception as exc:  # pragma: no cover
                 logger.warning("knows_edge shared resolve failed (%s): %s", cleaned, exc)
 
@@ -264,7 +274,10 @@ def _resolve_related_entities(
         if not cleaned:
             continue
         try:
-            ids.append(resolver.resolve_any_entity(cleaned))
+            # Reference-only: link to existing entities, don't mint characters.
+            uid = resolver.resolve_any_entity(cleaned, create=False)
+            if uid is not None:
+                ids.append(uid)
         except Exception as exc:  # pragma: no cover
             logger.warning("commitment related resolve failed (%s): %s", cleaned, exc)
     return ids

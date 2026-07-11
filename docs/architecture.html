@@ -591,7 +591,7 @@ graph LR
         <strong>Cross-chapter canonicalization</strong> — <code>EntityCanonicalizer</code> matches names not yet in the DB against the per-type roster. Names whose normalized form (<code>normalize_name()</code>: case, whitespace, surrounding punctuation, leading article) equals exactly one roster name/alias merge <em>deterministically with zero LLM cost</em>; only the rest go to one LLM call per type, with the roster capped to the <code>CANONICALIZER_MAX_ROSTER</code> (default 80) most string-similar entries so prompt size stays bounded as the novel grows. Matches confirmed by strong evidence (a verbatim anchor, or unambiguous lexical closeness for non-characters) are appended to the entity's <code>aliases[]</code> — custom entity types store theirs on <code>entities.aliases</code>; reasoning-only matches are instead applied as a rename to the current extraction (no permanent alias), so the merge still takes effect this chapter.
       </li>
       <li>
-        <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs.
+        <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs. Only the <code>new_entities</code> pass is allowed to <em>create</em> characters; every other pass resolves with <code>create=False</code> (resolve-or-skip) so a name it merely references can't mint a phantom character.
       </li>
       <li>
         <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes everything: entities, character states, events, relationships, shared dynamics, plot threads, continuity flags.
@@ -754,7 +754,7 @@ flowchart TD
     D -->|yes| E["Add shorter form as alias\nReturn existing UUID"]
     D -->|no| F{Fuzzy match\n≥85% similarity?}
     F -->|yes| Z
-    F -->|no| G["Create new entity\nReturn new UUID"]
+    F -->|no| G["create=True? Create new entity, return new UUID\ncreate=False? Return None (drop reference)"]
 
     style Z fill:#1f6feb,stroke:#58a6ff,color:#e6edf3
     style G fill:#3d2b1f,stroke:#f0883e,color:#e6edf3
@@ -763,6 +763,10 @@ flowchart TD
 
     <div class="callout warn">
       <strong>Two dedup passes run first</strong> — before entity resolution, the <code>IntraExtractionDeduplicator</code> groups name variants within the extraction (rule: <em>longest form wins</em>, e.g., "Jane Bennet" beats "Jane"; only names actually present in the extraction may participate), then the <code>EntityCanonicalizer</code> merges still-unknown names into existing DB entities (deterministic normalized-equality first, LLM second) — strong-evidence merges write a permanent alias, reasoning-only merges are applied as renames to the current extraction. The resolver therefore sees cleaner input and finds canonicalized names via the renamed extraction or its alias lookup. <code>resolve_any_entity</code> additionally checks every typed table's name <em>and</em> aliases before falling back to creating a character, so an aliased faction/location/object reference can no longer create a phantom character row.
+    </div>
+
+    <div class="callout warn">
+      <strong>Only <code>new_entities</code> mints characters</strong> — the "Create new entity" leaf above fires only when the caller passes <code>create=True</code>, which just the authoritative <code>new_entities</code> pass does. Every reference-only pass — event <code>involved_characters</code>, scene <code>pov</code>/<code>present_character_names</code>, <code>entity_deltas</code>, knowledge <code>learnings</code>, relationship/dynamics/commitment endpoints (<code>resolve_any_entity</code>), and canon-fact subjects — calls with <code>create=False</code> and simply drops the reference when the name resolves to nothing. This is what keeps game-system nouns (an "Archer Class", a "Tutorial" window, a "Skills" screen) out of the <code>characters</code> table: the <code>new_entities</code> prompt already excludes them, and no downstream pass can re-introduce them by naming them as an actor. The <code>new_entities</code> pass runs first within the persist transaction, so a legitimately new character is created before any reference pass needs it.
     </div>
 
     <p>

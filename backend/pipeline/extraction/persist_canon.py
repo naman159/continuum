@@ -51,7 +51,14 @@ def persist_canon_facts(
             logger.warning("canon fact subject_type %r not supported — skipped", subject_type)
             counts["skipped"] += 1
             continue
-        subject_universal_id = getattr(resolver, method)(subject_name).universal_id
+        # Reference-only: a canon fact describes an entity that must already
+        # exist (created by the new_entities pass). Don't mint one from a fact —
+        # that would let a mislabelled subject (e.g. a skill) create a phantom.
+        resolved_subject = getattr(resolver, method)(subject_name, create=False)
+        if resolved_subject is None:
+            counts["skipped"] += 1
+            continue
+        subject_universal_id = resolved_subject.universal_id
 
         try:
             confidence = max(0.0, min(1.0, float(fact.get("confidence") or 1.0)))
