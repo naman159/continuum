@@ -221,7 +221,7 @@
 
   <h1>State of the System</h1>
   <div class="subtitle">Where Continuum stands today, and where it needs to be to close the gap with SOTA.</div>
-  <div class="meta">branch: closing-the-gap-with-sota · 251 backend tests green · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical)</div>
+  <div class="meta">branch: closing-the-gap-with-sota · 251 backend tests green · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer)</div>
 
   <p class="lead">
     Continuum has built an excellent set of organs and has not yet connected the circulatory system.
@@ -262,12 +262,13 @@
       <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> had
       <em>no producer at all</em> and were removed from the schema 2026-07-11 (write-spine). The bitemporal edges now fill automatically — the state materializer
       runs at the end of every processed chapter. <code>canon_facts</code> has a live producer (pass 13) with lock/contradiction semantics.</li>
-    <li><strong>The critic is wired but still partly hollow.</strong> One of its six checks
-      (<code>temporal_consistency</code>) queries tables that were removed with the SVO/temporal columns
-      and has no producer. The critic itself is no longer an orphan: <code>analyze_chapter</code> builds a
-      <code>DraftChapter</code> from the chapter's own extraction (<code>critic/adapter.py:
-      build_draft_from_extraction</code>) and persists a <code>critique_reports</code> /
-      <code>critique_findings</code> row set for every chapter, whether ingested or generated.</li>
+    <li><strong>The critic runs five checks, all with live producers.</strong> The sixth check,
+      <code>temporal_consistency</code>, queried tables that were removed with the SVO/temporal columns
+      and had no producer; it was deleted 2026-07-12 rather than left hollow. The critic itself is no
+      longer an orphan: <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the chapter's
+      own extraction (<code>critic/adapter.py: build_draft_from_extraction</code>) and persists a
+      <code>critique_reports</code> / <code>critique_findings</code> row set for every chapter, whether
+      ingested or generated.</li>
     <li><strong>There is no way to know if any of this is working.</strong> No eval harness, no continuity
       metric, no retrieval recall measurement. "Closing the gap with SOTA" is currently unfalsifiable.</li>
   </ul>
@@ -382,9 +383,9 @@ flowchart TB
       <tr>
         <td><strong>Continuity Critic</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>6 checks + runner; <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the
-          chapter's own extraction and persists the report for every chapter (5 of 6 checks have live
-          producers; <code>temporal_consistency</code> is still hollow)</td>
+        <td>5 checks + runner; <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the
+          chapter's own extraction and persists the report for every chapter (all five checks have live
+          producers; the sixth, <code>temporal_consistency</code>, was deleted 2026-07-12)</td>
         <td>Render findings in the UI (persisted, not yet surfaced)</td>
       </tr>
       <tr>
@@ -632,7 +633,8 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <p>The critic runs six typed checks and aggregates structured <code>Finding</code>s with FAIL / WARN /
      INFO severities; a report "passes" iff there are no FAILs. The design is right — typed, queryable
      checks rather than a vibes-based "read it and tell me if anything is off" prompt. It now has an
-     input producer and one remaining hollow check.</p>
+     input producer and five checks, all producer-backed — the sixth, <code>temporal_consistency</code>,
+     was deleted 2026-07-12 rather than left querying a removed table.</p>
 
   <p><strong>1. It has an input producer now.</strong> The critic consumes a <code>DraftChapter</code> of
      <em>already-extracted claims</em> (mentions, location/possession/knowledge claims, events,
@@ -644,19 +646,19 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      uses the sibling <code>extract_draft_claims</code> adapter for chapters that don't yet have an
      extraction to reuse.</p>
 
-  <p><strong>2. One check still queries an empty/removed table</strong> (see the dedicated scorecard below).</p>
+  <p><strong>2. The one check that queried an empty/removed table was deleted</strong> (see the dedicated scorecard below).</p>
 
   <div class="nn">
     <div class="stand">
       <h4>Where we stand</h4>
-      <p>Six well-typed checks, invoked and persisted for every analyzed chapter; one of them
-        (<code>temporal_consistency</code>) still querying tables with no producer.</p>
+      <p>Five well-typed checks, invoked and persisted for every analyzed chapter, all with live
+        producers. <code>temporal_consistency</code> was removed 2026-07-12 rather than left querying
+        tables with no producer.</p>
     </div>
     <div class="need">
       <h4>Where we need to be</h4>
       <ul>
         <li>Render persisted findings in the wiki (they are captured but not yet surfaced)</li>
-        <li>Reinstate SVO + temporal extraction so <code>temporal_consistency</code> bites</li>
         <li>Decide what a chapter-processing failure in the critique phase should do beyond logging
           (today it leaves <code>critique: None</code> in the result and the chapter still saved)</li>
       </ul>
@@ -696,12 +698,12 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ STATE ════════════════ -->
   <section id="state">
   <h2>Deep Dive — State Materializer <span class="badge green">Wired</span></h2>
-  <p><code>EventReplay</code> walks events in story order and derives character snapshots plus
-     <code>located_in</code> and <code>possesses</code> facts; <code>StateMaterializer</code> persists them
-     in a single transaction as a full novel-scoped rebuild (delete the novel's edge projection,
-     re-derive from the event log, chain <code>superseded_by_id</code>), and is idempotent — stale
-     edges from removed events do not survive. This is the event-sourcing core the research asks
-     for, and it is well done.</p>
+  <p><code>StateReplay</code> folds typed <code>state_deltas</code> (chapter order, insertion order) —
+     not a walk over free-text events — and derives character snapshots plus <code>located_in</code> and
+     <code>possesses</code> facts; <code>StateMaterializer</code> persists them in a single transaction as
+     a full novel-scoped rebuild (delete the novel's edge projection, re-derive from the deltas, chain
+     <code>superseded_by_id</code>), and is idempotent — stale edges from removed deltas do not survive.
+     This is the event-sourcing core the research asks for, and it is well done.</p>
 
   <p><code>analyze_chapter</code> now invokes it automatically after each chapter's persistence
      transaction commits, replaying through the novel's <em>latest</em> chapter so a
@@ -712,22 +714,22 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      produced. The CLI (<code>python -m pipeline.state.cli</code>) remains for manual backfills of
      novels processed before this wiring landed.</p>
 
-  <div class="callout warn">
-    There is also a deeper design tension here — see <a href="#dual-truth">Dual Source of Truth</a>. The
-    materializer and the extractor both write <code>character_states</code>, with different notions of which
-    layer is authoritative.
+  <div class="callout tip">
+    The dual-writer tension formerly described here is resolved — see <a href="#dual-truth">Dual Source of
+    Truth</a>. The materializer is now the sole writer of <code>character_states</code>; the extractor only
+    reads it for context.
   </div>
 
   <div class="nn">
     <div class="stand">
       <h4>Where we stand</h4>
       <p>Correct, idempotent replay; runs automatically at the end of every processed chapter; bitemporal
-         edges populated in practice.</p>
+         edges populated in practice; sole writer of <code>character_states</code> as of 2026-07-12
+         (see <a href="#dual-truth">Dual Source of Truth</a>).</p>
     </div>
     <div class="need">
       <h4>Where we need to be</h4>
-      <p>The sole writer of derived state — the extractor still writes <code>character_states</code>
-         directly (see <a href="#dual-truth">Dual Source of Truth</a>).</p>
+      <p>Here — this is done.</p>
     </div>
   </div>
   </section>
@@ -735,9 +737,10 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ CRITIC SCORECARD ════════════════ -->
   <section id="critic-scorecard">
   <h2>Critic Check Scorecard</h2>
-  <p>The critic is more nuanced than "all hollow." Five checks have live producers and now run for real
-     on every analyzed chapter; one still queries tables that nothing populates — this is the order in
-     which they went live.</p>
+  <p>The critic is more nuanced than "all hollow." All five checks now have live producers and run for real
+     on every analyzed chapter — the sixth, <code>temporal_consistency</code>, queried tables that nothing
+     populated and was deleted 2026-07-12 rather than left hollow; this is the order the surviving five
+     went live.</p>
 
   <table>
     <thead><tr><th>Check</th><th>Reads</th><th>Producer exists?</th><th>Effective now that it's wired?</th></tr></thead>
@@ -747,37 +750,33 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
       <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge green">yes</span> — thread_updates pass</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">yes</span> — materializer auto-runs after each chapter</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>temporal_consistency</code></td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">no</span> (both removed from the schema)</td><td><span class="badge red">No</span> — would need SVO + temporal extraction and the columns reinstated</td></tr>
+      <tr><td><code>temporal_consistency</code> (deleted 2026-07-12)</td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">no</span> (both removed from the schema)</td><td><span class="badge red">N/A</span> — check itself removed, not just hollow</td></tr>
     </tbody>
   </table>
   </section>
 
   <!-- ════════════════ DUAL TRUTH ════════════════ -->
   <section id="dual-truth">
-  <h2>Data Integrity — Dual Source of Truth for State</h2>
-  <p><code>character_states</code> is written by <strong>two</strong> different layers with different
-     semantics:</p>
-  <ul>
-    <li><strong>The extractor</strong> writes one row per <code>entity_delta</code> directly from the LLM's
-        per-chapter deltas (<code>_persist_extraction</code>).</li>
-    <li><strong>The materializer</strong> rebuilds snapshots by replaying the event log (and seeds from the
-        extractor's rows), DELETE-then-INSERT scoped to <code>(character_id, chapter_id)</code>.</li>
-  </ul>
-  <p>The research is explicit: <em>event log = ground truth, snapshots = derived projection.</em> But here
-     deltas are always written and the event log is a partial, lossy shadow (events carry no SVO, no
-     possession/location semantics). That inverts the intended architecture — today the <em>deltas</em> are
-     authoritative and the event log cannot reconstruct them.</p>
+  <h2>Data Integrity — Dual Source of Truth for State <span class="badge green">Resolved 2026-07-12</span></h2>
+  <p><strong>Resolved 2026-07-12.</strong> This section previously described <code>character_states</code>
+     being written by two different layers with conflicting semantics — the extractor writing one row per
+     <code>entity_delta</code> directly (<code>_persist_extraction</code>), and the materializer separately
+     rebuilding snapshots by replaying <code>state_deltas</code>. That is no longer the case: the
+     materializer (<code>pipeline/state/materializer.py</code>) is now the <strong>sole writer</strong> of
+     <code>character_states</code> — see its own comment, "character_states: sole writer — novel-scoped
+     DELETE-then-INSERT." The extractor and canonicalizer only <em>read</em> <code>character_states</code>
+     for context; they no longer write to it. Left in place below for history rather than deleted.</p>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
-      <p>Two writers, no declared winner — and since the materializer now runs after the extractor on
-         every chapter, replay-derived state partially overwrites delta-derived state in practice.</p>
+      <h4>Where we stood</h4>
+      <p>Two writers, no declared winner — and since the materializer ran after the extractor on
+         every chapter, replay-derived state partially overwrote delta-derived state in practice.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <p>Pick one. Recommended: make <strong>events authoritative</strong> — extractor emits rich events
-         only, the materializer builds <em>all</em> snapshots and edges. Single writer, true time-travel.</p>
+      <h4>Where we are now</h4>
+      <p>Single writer: <code>StateMaterializer</code> derives all <code>character_states</code> rows from
+         <code>state_deltas</code>. The extractor no longer writes the table directly.</p>
     </div>
   </div>
   </section>

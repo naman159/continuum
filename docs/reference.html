@@ -1329,8 +1329,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <div class="callout info">
       <strong>Removed:</strong> <code>temporal_constraints</code> (event-ordering constraints) was
       dropped in the write-spine consolidation — it never got a writer (the extractor never emitted
-      temporal relations). <code>pipeline/critic/checks/temporal_check.py</code> still queries it and
-      will be retired alongside the rest of the generation-loop critic.
+      temporal relations). <code>pipeline/critic/checks/temporal_check.py</code>, which queried it, was
+      removed 2026-07-12 — the critic now runs five checks, not six.
     </div>
   </section>
 

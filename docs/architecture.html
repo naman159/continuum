@@ -510,8 +510,7 @@ graph LR
 │   │   ├── <span class="key">config.py</span>         <span class="cmt"># All tuneable settings (frozen dataclass)</span>
 │   │   ├── <span class="dir">db/</span>
 │   │   │   ├── <span class="key">schema.sql</span>        <span class="cmt"># Source of truth for DB structure</span>
-│   │   │   ├── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
-│   │   │   └── migrate_*.py      <span class="cmt"># One-shot migration helpers</span>
+│   │   │   └── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
 │   │   ├── <span class="dir">extraction/</span>
 │   │   │   ├── <span class="key">extractor.py</span>      <span class="cmt"># ChapterExtractor — drives 13 LLM passes</span>
 │   │   │   ├── <span class="key">prompts.py</span>        <span class="cmt"># All prompt templates + JSON schemas</span>
@@ -612,7 +611,7 @@ graph LR
         <strong>4 · MATERIALIZE</strong> — runs outside the persistence transaction, after it commits: <code>StateMaterializer</code> replays <code>state_deltas</code> through the novel's latest chapter. A failure here is caught and logged, not raised — the already-committed chapter stays saved, and the result dict's <code>"materialized"</code> flag tells the caller a manual re-run (<code>python -m pipeline.state.cli</code>) is needed.
       </li>
       <li>
-        <strong>5 · CRITIQUE — persisted per chapter</strong> — <code>build_draft_from_extraction()</code> (<code>pipeline/critic/adapter.py</code>) reuses this chapter's already-extracted claims to build a <code>DraftChapter</code> (no second LLM pass), <code>ContinuityCritic</code> runs its five typed checks against it, and <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the result to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter. Like phase 4, this is derived-and-idempotent: a failure is caught and logged, and the result dict's <code>"critique"</code> key is <code>None</code> rather than raising. Because the checks compare this chapter's claims against the world state <em>entering</em> this chapter, running critique after the chapter is committed and materialized is correct by design, not a temporal bug.
+        <strong>5 · CRITIQUE — persisted per chapter</strong> — <code>build_draft_from_extraction()</code> (<code>pipeline/critic/adapter.py</code>) reuses this chapter's already-extracted claims to build a <code>DraftChapter</code> (no second LLM pass), <code>ContinuityCritic</code> runs its five typed checks against it, and <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the result to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter. Like phase 4, this is derived-and-idempotent: a failure is caught and logged, and the result dict's <code>"critique"</code> key is <code>None</code> rather than raising. Because the checks compare this chapter's claims against the world state <em>entering</em> this chapter, running critique after the chapter is committed and materialized is correct by design, not a temporal bug. <strong>Caveat:</strong> this holds precisely for the location/possession and knowledge-state checks, which cut off their comparison state by chapter number — but Phase 5 runs <em>after</em> this chapter's canon facts were upserted, so the entity-mention/canon check only detects contradictions against <em>locked</em> facts; an unlocked fact is compared against the value this same chapter just wrote, which is vacuously consistent.
       </li>
     </ol>
 
