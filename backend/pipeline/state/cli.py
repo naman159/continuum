@@ -11,7 +11,14 @@ from pipeline.state.materializer import StateMaterializer
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Materialize derived state projections from the event log.",
+        description=(
+            "Materialize derived state projections from the event log. "
+            "WARNING: --through-chapter below the novel's latest chapter truncates "
+            "state_deltas replay there — every chapter after it loses its "
+            "materialized character_states/located_in/possesses projection until a "
+            "full re-run (a subsequent call with no --through-chapter, or one at/above "
+            "the novel's latest chapter) restores them."
+        ),
     )
     parser.add_argument("--novel-id", required=True, help="Novel UUID.")
     parser.add_argument(
@@ -19,7 +26,9 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=None,
         help="Replay events up to and including this chapter number. "
-        "Defaults to the highest chapter number for the novel.",
+        "Defaults to the highest chapter number for the novel. "
+        "WARNING: a value below the novel's latest chapter truncates later "
+        "chapters' projections until a full re-run.",
     )
     args = parser.parse_args(argv)
 

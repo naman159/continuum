@@ -63,7 +63,7 @@ def seeded(db: DBClient):
         # 3 chapters
         chapter_ids: list[str] = []
         for n in range(1, 4):
-            row = cur.execute(
+            cur.execute(
                 """
                 INSERT INTO chapters (novel_id, number, raw_text)
                 VALUES (%s, %s, %s) RETURNING id
@@ -336,7 +336,7 @@ def carry_forward_seeded(db: DBClient):
 
         chapter_ids: list[str] = []
         for n in range(1, 5):
-            row = cur.execute(
+            cur.execute(
                 """
                 INSERT INTO chapters (novel_id, number, raw_text)
                 VALUES (%s, %s, %s) RETURNING id
