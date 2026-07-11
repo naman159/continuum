@@ -221,7 +221,7 @@
 
   <h1>State of the System</h1>
   <div class="subtitle">Where Continuum stands today, and where it needs to be to close the gap with SOTA.</div>
-  <div class="meta">branch: closing-the-gap-with-sota · 251 backend tests green · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in)</div>
+  <div class="meta">branch: closing-the-gap-with-sota · 251 backend tests green · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical)</div>
 
   <p class="lead">
     Continuum has built an excellent set of organs and has not yet connected the circulatory system.
@@ -258,8 +258,8 @@
       <code>retrieval/</code>, and <code>critic/</code> are consumed by the generation loop
       (<code>generation/loop.py</code>).</li>
     <li><strong>The schema is one or two phases ahead of the extractor.</strong>
-      <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> have
-      <em>no producer at all</em>. The bitemporal edges now fill automatically — the state materializer
+      <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> had
+      <em>no producer at all</em> and were removed from the schema 2026-07-11 (write-spine). The bitemporal edges now fill automatically — the state materializer
       runs at the end of every processed chapter. <code>canon_facts</code> has a live producer (pass 13) with lock/contradiction semantics.</li>
     <li><strong>So half the critic is hollow.</strong> Three of its six checks query tables that are never
       populated, and the critic itself is never invoked because nothing produces the <code>DraftChapter</code>
@@ -320,10 +320,10 @@ flowchart TB
       REV["Reviser"]
     end
 
-    subgraph SCH["🟡 Schema exists, no producer"]
+    subgraph SCH["🟡 Removed 2026-07-11 (write-spine) — had no producer"]
       direction LR
-      TC["temporal_constraints"]
-      SVO["events.subject/verb/object<br/>+ story_time_ordinal"]
+      TC["temporal_constraints (removed)"]
+      SVO["events.subject/verb/object<br/>+ story_time_ordinal (removed)"]
     end
 
     CRIT -. "needs a DraftChapter<br/>nothing produces one" .-> DRAFT
@@ -397,13 +397,13 @@ flowchart TB
         <td><code>canon_facts</code> + lock bit</td>
         <td><span class="badge green">Wired</span></td>
         <td>Pass 13 (<code>canon_facts</code>) populates the table; <code>persist_canon_facts()</code> upserts with lock semantics; contradiction → <code>continuity_flag</code>. Frontend lock toggle via <code>PATCH /canon/{id}</code>.</td>
-        <td>Connect <code>knows_edges.fact_id</code> FK; surface <code>canon_contradiction</code> flags in the wiki Continuity view</td>
+        <td>Surface <code>canon_contradiction</code> flags in the wiki Continuity view (the planned <code>knows_edges.fact_id</code> FK was removed 2026-07-11 — see write-spine note above)</td>
       </tr>
       <tr>
-        <td><code>temporal_constraints</code> + SVO/story-time</td>
-        <td><span class="badge yellow">Schema-only</span></td>
-        <td>No producer; events inserted without subject/verb/object/<code>story_time_ordinal</code></td>
-        <td>Extractor emits ordered SVO events + temporal relations</td>
+        <td><code>temporal_constraints</code> + SVO/story-time (removed 2026-07-11)</td>
+        <td><span class="badge yellow">Removed</span></td>
+        <td>Had no producer; events were inserted without subject/verb/object/<code>story_time_ordinal</code>; the columns and <code>temporal_constraints</code> table were dropped from the schema</td>
+        <td>If reintroduced, extractor would need to emit ordered SVO events + temporal relations</td>
       </tr>
       <tr>
         <td><strong>Orchestrator / state machine</strong></td>
@@ -503,18 +503,19 @@ flowchart TB
       <tr><td><code>commitments</code></td><td><code>persist_commitments</code> (commitments pass)</td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>chapters.summary_short/long</code></td><td><code>persist_multi_summaries</code></td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>thread_events</code></td><td><code>_persist_extraction</code></td><td><span class="badge green">live</span></td></tr>
-      <tr><td><code>knows_edges.fact_id</code> → <code>canon_facts</code></td><td>not yet linked — still NULL in practice</td><td><span class="badge yellow">empty</span></td></tr>
+      <tr><td><code>knows_edges.fact_id</code> → <code>canon_facts</code> (removed 2026-07-11)</td><td>never linked — column dropped from the schema</td><td><span class="badge yellow">removed</span></td></tr>
       <tr><td><code>canon_facts</code> (+ <code>locked</code>)</td><td><code>persist_canon_facts()</code> (pass 13) — upsert-unless-locked; contradiction → continuity_flag</td><td><span class="badge green">live</span></td></tr>
-      <tr><td><code>events.subject_entity_id / verb / object_entity_id</code></td><td>nothing — events inserted without SVO</td><td><span class="badge red">no producer</span></td></tr>
-      <tr><td><code>events.story_time_ordinal / narrative_order / scene_id</code></td><td>nothing</td><td><span class="badge red">no producer</span></td></tr>
-      <tr><td><code>temporal_constraints</code></td><td><strong>nothing</strong> — no INSERT exists</td><td><span class="badge red">no producer</span></td></tr>
+      <tr><td><code>events.subject_entity_id / verb / object_entity_id</code> (removed 2026-07-11)</td><td>nothing — events were inserted without SVO; columns dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
+      <tr><td><code>events.story_time_ordinal / narrative_order / scene_id</code> (removed 2026-07-11)</td><td>nothing; columns dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
+      <tr><td><code>temporal_constraints</code> (removed 2026-07-11)</td><td><strong>nothing</strong> — no INSERT ever existed; table dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
       <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> — runs automatically at the end of <code>process_chapter</code></td><td><span class="badge green">live</span></td></tr>
     </tbody>
   </table>
 
   <div class="callout bad">
-    <strong>Consequence:</strong> timeline checking is <em>decorative today</em> — the SVO and
-    temporal columns exist but stay empty, so anything querying them no-ops. (The bitemporal
+    <strong>Consequence:</strong> timeline checking was <em>decorative</em> before 2026-07-11 — the SVO and
+    temporal columns existed but stayed empty, so anything querying them no-op'd; the write-spine change
+    then removed those columns and <code>temporal_constraints</code> from the schema entirely. (The bitemporal
     location/possession edges and the lockable-canon mechanism have since gained live producers.)
   </div>
   </section>
@@ -731,7 +732,7 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
       <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge green">yes</span> — thread_updates pass</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">yes</span> — materializer auto-runs after each chapter</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
       <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
-      <tr><td><code>temporal_consistency</code></td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code></td><td><span class="badge red">no</span> (both empty)</td><td><span class="badge red">No</span> — needs SVO + temporal extraction</td></tr>
+      <tr><td><code>temporal_consistency</code></td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">no</span> (both removed from the schema)</td><td><span class="badge red">No</span> — would need SVO + temporal extraction and the columns reinstated</td></tr>
     </tbody>
   </table>
   </section>
@@ -978,10 +979,12 @@ flowchart TB
     <li>
       <span class="phase-tag">P1 · close the extractor → schema gap</span><br>
       <strong>Make the empty tables fill.</strong> Emit SVO event triples + <code>story_time_ordinal</code> +
-      <code>scene_id</code>; emit typed possession/location deltas; add a canon-fact proposal pass with a
+      <code>scene_id</code> <em>(note: as of 2026-07-11 the write-spine change removed these columns and
+      <code>temporal_constraints</code> from the schema rather than filling them — this task would need to
+      reinstate them first)</em>; emit typed possession/location deltas; add a canon-fact proposal pass with a
       lock workflow; emit <code>before/after</code> temporal links.<br>
-      <em>Done when:</em> <code>canon_facts</code>, <code>temporal_constraints</code>, and the SVO columns
-      are non-empty after processing, and all six critic checks can bite.
+      <em>Done when:</em> <code>canon_facts</code> is non-empty after processing, and all six critic checks
+      can bite (the temporal_consistency check depends on schema elements removed 2026-07-11; see above).
     </li>
     <li>
       <span class="phase-tag">P2 · critic as a service</span><br>

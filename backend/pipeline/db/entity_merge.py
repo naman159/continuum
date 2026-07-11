@@ -150,21 +150,6 @@ def merge_entities(
                 )
 
         # canon_facts: drop source facts whose predicate the target already has.
-        # knows_edges.fact_id references canon_facts with NO ACTION; repoint
-        # edges from soon-to-be-deleted source facts to the target's
-        # same-predicate twin before the collision delete below.
-        cur.execute(
-            """
-            UPDATE knows_edges k
-               SET fact_id = t.id
-              FROM canon_facts s
-              JOIN canon_facts t
-                ON t.subject_entity_id = %s AND t.predicate = s.predicate
-             WHERE s.subject_entity_id = %s
-               AND k.fact_id = s.id
-            """,
-            (tgt, src),
-        )
         cur.execute(
             """
             DELETE FROM canon_facts s
