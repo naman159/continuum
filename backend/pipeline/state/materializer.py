@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class StateMaterializer:
     """Persists derived projections (character_states, located_in_edges,
-    possesses_edges) from the event log in a single transaction.
+    possesses_edges) computed from state_deltas, in a single transaction.
 
     The materializer is idempotent: re-running for the same
     (novel_id, through_chapter) will not produce duplicate rows.
@@ -165,11 +165,21 @@ class StateMaterializer:
                 inserted_ids.append(str(new_id))
                 written += 1
 
-            # Now stitch consecutive edges.
+            # Now stitch consecutive edges. Normally until_chapter is the
+            # chapter before the next fact's since_chapter, but when one
+            # entity has two location facts in the SAME chapter (e.g. two
+            # location deltas from separate extraction chunks), that would
+            # invert the interval (since > until), which
+            # since<=N AND (until IS NULL OR until>=N) queries silently
+            # exclude. Clamp to the current fact's own since_chapter so a
+            # same-chapter supersession still yields a valid single-chapter
+            # interval.
             for i in range(len(entity_facts) - 1):
                 prior_id = inserted_ids[i]
+                fact = entity_facts[i]
                 next_fact = entity_facts[i + 1]
                 next_id = inserted_ids[i + 1]
+                until_chapter = max(next_fact.since_chapter - 1, fact.since_chapter)
                 cur.execute(
                     """
                     UPDATE located_in_edges
@@ -177,7 +187,7 @@ class StateMaterializer:
                            superseded_by_id = %s::uuid
                      WHERE id = %s::uuid
                     """,
-                    (next_fact.since_chapter - 1, next_id, prior_id),
+                    (until_chapter, next_id, prior_id),
                 )
 
         return written

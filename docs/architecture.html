@@ -1738,7 +1738,7 @@ flowchart LR
         <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 6 typed pre-persistence checks against DB state</td></tr>
         <tr><td><code>pipeline/planner/</code></td><td><code>ScenePlanner</code> — LLM-based next-chapter narrative plan from story context</td></tr>
         <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → LLM rerank → MMR</td></tr>
-        <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from event log</td></tr>
+        <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from <code>state_deltas</code></td></tr>
       </tbody>
     </table>
 
