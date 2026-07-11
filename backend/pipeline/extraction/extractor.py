@@ -21,7 +21,7 @@ def empty_extraction() -> dict[str, Any]:
             "factions": [],
             "objects": [],
         },
-        "entity_deltas": [],
+        "state_deltas": [],
         "events": [],
         "thread_updates": [],
         "continuity_flags": [],
@@ -75,6 +75,42 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
+_VALID_DELTA_KINDS = {"possession", "location", "knowledge", "status"}
+_VALID_STATUS_ATTRIBUTES = {
+    "emotional_state", "goals", "physical_state", "appearance", "notes"
+}
+
+
+def _clean_state_delta(item: Any) -> dict[str, Any] | None:
+    """Validate a single state_delta and fill in its kind-derived `change`.
+
+    Returns the (mutated in place) dict, or None if the item is malformed.
+    Shared by `_normalize_extraction` (LLM/mock output) and `merge_extractions`
+    (so deltas that arrive pre-normalized, or hand-built in tests, still get
+    the same kind-based `change` default).
+    """
+    if not isinstance(item, dict):
+        return None
+    kind = str(item.get("kind", "")).strip().lower()
+    if kind not in _VALID_DELTA_KINDS:
+        return None
+    item["kind"] = kind
+    if kind == "possession":
+        change = str(item.get("change", "")).strip().lower()
+        if change not in {"gain", "loss"}:
+            return None
+        item["change"] = change
+    elif kind == "location":
+        item["change"] = "move"
+    elif kind == "knowledge":
+        item["change"] = "learn"
+    else:  # status
+        item["change"] = "update"
+        if str(item.get("attribute", "")).strip() not in _VALID_STATUS_ATTRIBUTES:
+            return None
+    return item
+
+
 def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
     output = empty_extraction()
 
@@ -89,9 +125,12 @@ def _normalize_extraction(raw: dict[str, Any]) -> dict[str, Any]:
                     item for item in entity_items if isinstance(item, dict)
                 ]
 
-    entity_deltas = raw.get("entity_deltas", raw.get("character_deltas", []))
-    if isinstance(entity_deltas, list):
-        output["entity_deltas"] = [item for item in entity_deltas if isinstance(item, dict)]
+    state_deltas = raw.get("state_deltas", [])
+    if isinstance(state_deltas, list):
+        output["state_deltas"] = [
+            cleaned for item in state_deltas
+            if (cleaned := _clean_state_delta(item)) is not None
+        ]
 
     events = raw.get("events", [])
     if isinstance(events, list):
@@ -168,38 +207,17 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             combined, include_owner=(entity_type == "objects")
         )
 
-    # Merge deltas by character name, keeping latest non-empty values.
-    delta_index: dict[str, dict[str, Any]] = {}
-    for extraction in extractions:
-        for delta in extraction.get("entity_deltas", []):
-            character_name = str(delta.get("character_name", "")).strip()
-            if not character_name:
-                continue
-            key = character_name.lower()
-            if key not in delta_index:
-                delta_index[key] = {
-                    "character_name": character_name,
-                    "location": None,
-                    "emotional_state": None,
-                    "goals": None,
-                    "knowledge": [],
-                    "physical_state": None,
-                    "notes": None,
-                }
-            existing = delta_index[key]
-            for field in ("location", "emotional_state", "goals", "physical_state", "appearance", "notes"):
-                value = delta.get(field)
-                if value:
-                    existing[field] = value
-
-            knowledge = delta.get("knowledge")
-            if isinstance(knowledge, list):
-                existing["knowledge"] = _dedupe_strings([
-                    *existing.get("knowledge", []),
-                    *(str(item) for item in knowledge),
-                ])
-
-    merged["entity_deltas"] = list(delta_index.values())
+    # State deltas: straight concatenation — chunk order across extractions IS
+    # the narrative order the replay folds in, so no dedup/merge-by-key here.
+    # Still route each item through _clean_state_delta so kind-derived
+    # defaults (e.g. status -> change="update") apply even to deltas that
+    # weren't already normalized.
+    merged["state_deltas"] = [
+        cleaned
+        for extraction in extractions
+        for delta in extraction.get("state_deltas", [])
+        if (cleaned := _clean_state_delta(delta)) is not None
+    ]
 
     seen_events: set[str] = set()
     for extraction in extractions:
@@ -451,7 +469,6 @@ class ChapterExtractor:
     def _compose_from_pass_payload(self, pass_payload: dict[str, dict[str, Any]]) -> dict[str, Any]:
         chapter_summary = pass_payload.get("chapter_summary", {})
         new_entities = pass_payload.get("new_entities", {})
-        entity_deltas = pass_payload.get("entity_deltas", {})
         events = pass_payload.get("events", {})
         thread_updates = pass_payload.get("thread_updates", {})
         continuity_flags = pass_payload.get("continuity_flags", {})
@@ -466,7 +483,7 @@ class ChapterExtractor:
         return {
             "summary": chapter_summary.get("summary", ""),
             "new_entities": new_entities,
-            "entity_deltas": entity_deltas.get("character_deltas", entity_deltas.get("entity_deltas", [])),
+            "state_deltas": pass_payload.get("state_deltas", {}).get("state_deltas", []),
             "events": events.get("events", []),
             "thread_updates": thread_updates.get("thread_updates", []),
             "continuity_flags": continuity_flags.get("continuity_flags", []),
@@ -524,17 +541,26 @@ class ChapterExtractor:
             extraction["events"].append(event)
 
         for name in candidate_names[:10]:
-            extraction["entity_deltas"].append(
+            extraction["state_deltas"].append(
                 {
+                    "kind": "status",
                     "character_name": name,
-                    "location": None,
-                    "emotional_state": None,
-                    "goals": None,
-                    "knowledge": [],
-                    "physical_state": None,
-                    "notes": "Generated by mock extraction.",
+                    "attribute": "notes",
+                    "value": f"mock delta for {name}",
+                    "change": "update",
+                    "quote": chunk[:40],
                 }
             )
+            if "took" in chunk.lower() or "picked up" in chunk.lower():
+                extraction["state_deltas"].append(
+                    {
+                        "kind": "possession",
+                        "character_name": name,
+                        "object_name": "silver dagger",
+                        "change": "gain",
+                        "quote": chunk[:40],
+                    }
+                )
 
         if extraction["events"]:
             extraction["thread_updates"].append(

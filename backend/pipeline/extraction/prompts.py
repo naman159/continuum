@@ -7,7 +7,7 @@ from textwrap import dedent
 PASS_ORDER = [
     "chapter_summary",
     "new_entities",
-    "entity_deltas",
+    "state_deltas",
     "events",
     "thread_updates",
     "continuity_flags",
@@ -51,17 +51,18 @@ PASS_SCHEMAS = {
             }
         ],
     },
-    "entity_deltas": {
-        "character_deltas": [
+    "state_deltas": {
+        "state_deltas": [
             {
-                "character_name": "string",
-                "location": "string|null",
-                "emotional_state": "string|null",
-                "goals": "string|null",
-                "knowledge": ["string"],
-                "physical_state": "string|null",
-                "appearance": "string|null — visible description (clothing, hair, distinguishing features) only when explicitly described",
-                "notes": "string|null",
+                "kind": "possession|location|knowledge|status",
+                "character_name": "string  # the character affected (or the entity moving, for location)",
+                "object_name": "string|null  # possession only: the object gained/lost",
+                "location_name": "string|null  # location only: where the character now is",
+                "change": "gain|loss|null  # possession only",
+                "fact": "string|null  # knowledge only: what the character now knows",
+                "attribute": "emotional_state|goals|physical_state|appearance|notes|null  # status only",
+                "value": "string|null  # status only: the new value of that attribute",
+                "quote": "string  # short verbatim evidence from the chapter text",
             }
         ]
     },
@@ -216,6 +217,40 @@ def build_system_prompt(pass_name: str, custom_entity_types: list[dict] | None =
 
 
 PASS_TASK_INSTRUCTIONS: dict[str, str] = {
+    "state_deltas": dedent(
+        """
+        Extract every EXPLICIT state change in this chunk as a typed delta.
+        These deltas are the machine-readable event log for character state —
+        downstream code applies them literally and never re-reads the prose,
+        so precision beats recall.
+
+        KINDS
+        - possession: a character gains or loses a physical object.
+          Set character_name, object_name, change=gain|loss.
+          The actor must be explicit in the text. "Aelric took the dagger"
+          -> gain. "Aelric handed Mira the dagger" -> TWO deltas: loss for
+          Aelric, gain for Mira.
+        - location: a character (or significant object) arrives at / is
+          established to be at a location. Set character_name (the mover)
+          and location_name. Emit one delta per arrival, not per mention.
+        - knowledge: a character learns something new. Set character_name
+          and fact (one sentence). Only knowledge acquired IN THIS CHUNK.
+        - status: a lasting change to a character's condition. Set
+          character_name, attribute (one of emotional_state|goals|
+          physical_state|appearance|notes) and value. Emit only when the
+          text establishes a new state, not for momentary reactions.
+
+        RULES
+        - Failed or negated actions are NOT deltas ("tried to grab", "did
+          not take", "refused the sword" -> nothing).
+        - Hypotheticals, plans, and dialogue about actions are NOT deltas
+          unless the chunk shows them happening.
+        - Every delta needs a short verbatim quote as evidence.
+        - Use canonical entity names from STORY CONTEXT when the chunk uses
+          an alias.
+        Return JSON only.
+        """
+    ).strip(),
     "new_entities": dedent(
         """
         Extract ONLY entities that are genuinely new — not already present in the
