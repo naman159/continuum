@@ -124,6 +124,83 @@ def test_character_merge_repoints_and_deletes_source():
     assert result["source_entity_id"] == SRC
 
 
+def test_character_merge_repoints_state_deltas_subject_and_object():
+    """state_deltas.subject_id/object_id REFERENCE entities(id) ON DELETE CASCADE.
+    If the merge deletes the source entity without repointing these first, the
+    chapter's possession/knowledge/status deltas vanish silently."""
+    db = _db_for_character_merge()
+    calls = {"n": 0}
+    orig = db.script_response
+
+    def script(query, params):
+        if "FROM entities WHERE id" in query:
+            calls["n"] += 1
+            return [{"id": params[0], "entity_type": "character",
+                     "name": "Jane" if calls["n"] == 1 else "Jane Bennet",
+                     "aliases": []}]
+        if "FROM characters WHERE entity_id" in query:
+            typed = SRC_TYPED if str(params[0]) == SRC else TGT_TYPED
+            return [{"id": typed, "name": "x", "aliases": []}]
+        return orig(query, params)
+
+    db.script_response = script
+    merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+
+    sql_params = [(q, p) for q, p in db.statements]
+    subject_updates = [
+        (q, p) for q, p in sql_params
+        if "UPDATE state_deltas" in q and "subject_id" in q
+    ]
+    object_updates = [
+        (q, p) for q, p in sql_params
+        if "UPDATE state_deltas" in q and "object_id" in q
+    ]
+    assert subject_updates, "expected an UPDATE state_deltas ... subject_id statement"
+    assert object_updates, "expected an UPDATE state_deltas ... object_id statement"
+    assert subject_updates[0][1] == (TGT, SRC)
+    assert object_updates[0][1] == (TGT, SRC)
+
+    sql = [q for q, _ in db.statements]
+    subject_idx = next(i for i, q in enumerate(sql) if "UPDATE state_deltas" in q and "subject_id" in q)
+    delete_idx = next(i for i, q in enumerate(sql) if "DELETE FROM entities WHERE id" in q)
+    assert subject_idx < delete_idx, "state_deltas repoint must happen before the source entity is deleted"
+
+
+def test_location_merge_repoints_state_deltas_location_id():
+    """state_deltas.location_id REFERENCES locations(id) (the typed row id, not
+    entities(id)) ON DELETE CASCADE — must repoint with typed ids in the
+    location merge path."""
+    src_loc_typed = str(uuid.uuid4())
+    tgt_loc_typed = str(uuid.uuid4())
+    db = MergeFakeDB({
+        "FROM shared_dynamics": [],
+        "FROM canon_facts": [],
+    })
+    orig = db.script_response
+    calls = {"n": 0}
+
+    def script(query, params):
+        if "FROM entities WHERE id" in query:
+            calls["n"] += 1
+            return [{"id": params[0], "entity_type": "location",
+                     "name": "Old Forest" if calls["n"] == 1 else "The Forest",
+                     "aliases": []}]
+        if "FROM locations WHERE entity_id" in query:
+            typed = src_loc_typed if str(params[0]) == SRC else tgt_loc_typed
+            return [{"id": typed, "name": "x", "aliases": []}]
+        return orig(query, params)
+
+    db.script_response = script
+    merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+
+    loc_updates = [
+        (q, p) for q, p in db.statements
+        if "UPDATE state_deltas" in q and "location_id" in q
+    ]
+    assert loc_updates, "expected an UPDATE state_deltas ... location_id statement"
+    assert loc_updates[0][1] == (tgt_loc_typed, src_loc_typed)
+
+
 def test_src_tgt_relationship_deleted_before_repoint():
     """A pre-existing src<->tgt edge must be deleted BEFORE the UPDATEs, or the
     CHECK (entity_a_id <> entity_b_id) constraint aborts the transaction."""

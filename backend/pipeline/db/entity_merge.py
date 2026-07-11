@@ -172,6 +172,13 @@ def merge_entities(
         )
         cur.execute("UPDATE located_in_edges SET entity_id = %s WHERE entity_id = %s", (tgt, src))
 
+        # state_deltas.subject_id/object_id reference entities(id) directly (not a
+        # typed table) and CASCADE on delete — repoint before the source entity is
+        # dropped, or tier-2 extraction data (possession/knowledge/status deltas)
+        # is silently destroyed.
+        cur.execute("UPDATE state_deltas SET subject_id = %s WHERE subject_id = %s", (tgt, src))
+        cur.execute("UPDATE state_deltas SET object_id = %s WHERE object_id = %s", (tgt, src))
+
         # ---- typed-table references ----
         table = TYPED_TABLES.get(entity_type)
         if table is not None:
@@ -195,6 +202,10 @@ def merge_entities(
                 cur.execute("UPDATE scenes SET location_id = %s WHERE location_id = %s", (tt, st))
                 cur.execute("UPDATE locations SET parent_location_id = %s WHERE parent_location_id = %s", (tt, st))
                 cur.execute("UPDATE located_in_edges SET location_id = %s WHERE location_id = %s", (tt, st))
+                # state_deltas.location_id references locations(id) (the typed
+                # row), not entities(id) — repoint with the typed ids, same
+                # CASCADE-before-delete reasoning as the subject/object repoint above.
+                cur.execute("UPDATE state_deltas SET location_id = %s WHERE location_id = %s", (tt, st))
             elif entity_type == "object":
                 cur.execute("UPDATE possesses_edges SET object_id = %s WHERE object_id = %s", (tt, st))
 
