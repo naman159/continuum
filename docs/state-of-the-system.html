@@ -254,16 +254,20 @@
       → Revise → Update, run by a deterministic orchestrator. The <strong>Drafter and the orchestrator
       do not exist.</strong></li>
     <li><strong>The four advanced subsystems are no longer orphaned.</strong> <code>state/</code> now
-      runs automatically inside <code>process_chapter</code>; <code>planner/</code>,
-      <code>retrieval/</code>, and <code>critic/</code> are consumed by the generation loop
-      (<code>generation/loop.py</code>).</li>
+      runs automatically inside <code>analyze_chapter</code> (renamed from <code>process_chapter</code>,
+      2026-07-12); <code>planner/</code> and <code>retrieval/</code> are consumed by the generation loop
+      (<code>generation/loop.py</code>), and <code>critic/</code> now runs and persists a critique for
+      <em>every</em> analyzed chapter, not only chapters produced by the generation loop.</li>
     <li><strong>The schema is one or two phases ahead of the extractor.</strong>
       <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> had
       <em>no producer at all</em> and were removed from the schema 2026-07-11 (write-spine). The bitemporal edges now fill automatically — the state materializer
       runs at the end of every processed chapter. <code>canon_facts</code> has a live producer (pass 13) with lock/contradiction semantics.</li>
-    <li><strong>So half the critic is hollow.</strong> Three of its six checks query tables that are never
-      populated, and the critic itself is never invoked because nothing produces the <code>DraftChapter</code>
-      it consumes.</li>
+    <li><strong>The critic is wired but still partly hollow.</strong> One of its six checks
+      (<code>temporal_consistency</code>) queries tables that were removed with the SVO/temporal columns
+      and has no producer. The critic itself is no longer an orphan: <code>analyze_chapter</code> builds a
+      <code>DraftChapter</code> from the chapter's own extraction (<code>critic/adapter.py:
+      build_draft_from_extraction</code>) and persists a <code>critique_reports</code> /
+      <code>critique_findings</code> row set for every chapter, whether ingested or generated.</li>
     <li><strong>There is no way to know if any of this is working.</strong> No eval harness, no continuity
       metric, no retrieval recall measurement. "Closing the gap with SOTA" is currently unfalsifiable.</li>
   </ul>
@@ -337,7 +341,7 @@ flowchart TB
     class ORCH,DRAFT,REV missing;
     class CF,TC,SVO schema;
     </div>
-    <div class="diagram-cap">The three orange modules and three red modules never touch the green spine. That disconnection is the headline finding. (The StateMaterializer joined the green spine in July 2026 — process_chapter now runs it after every chapter.)</div>
+    <div class="diagram-cap">The three orange modules and three red modules never touch the green spine. That disconnection is the headline finding. (The StateMaterializer joined the green spine in July 2026 — analyze_chapter now runs it after every chapter.)</div>
   </div>
   </section>
 
@@ -354,7 +358,7 @@ flowchart TB
       <tr>
         <td><strong>Ingestion + 12-pass extraction</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>End-to-end in <code>process_chapter</code>; <code>PASS_ORDER</code> = 12 passes</td>
+        <td>End-to-end in <code>analyze_chapter</code>; <code>PASS_ORDER</code> = 12 passes</td>
         <td>Emit SVO triples, canon facts, temporal links (see Schema gap)</td>
       </tr>
       <tr>
@@ -377,9 +381,11 @@ flowchart TB
       </tr>
       <tr>
         <td><strong>Continuity Critic</strong></td>
-        <td><span class="badge orange">Orphaned</span></td>
-        <td>6 checks + runner; consumes a <code>DraftChapter</code> nothing constructs</td>
-        <td>Run as a gate over extracted chapters; render findings in the UI</td>
+        <td><span class="badge green">Wired</span></td>
+        <td>6 checks + runner; <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the
+          chapter's own extraction and persists the report for every chapter (5 of 6 checks have live
+          producers; <code>temporal_consistency</code> is still hollow)</td>
+        <td>Render findings in the UI (persisted, not yet surfaced)</td>
       </tr>
       <tr>
         <td><strong>Scene Planner</strong></td>
@@ -390,7 +396,7 @@ flowchart TB
       <tr>
         <td><strong>State Materializer</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>Event-replay → bitemporal edges; <code>process_chapter</code> now runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
+        <td>Event-replay → bitemporal edges; <code>analyze_chapter</code> now runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
         <td>Resolve the dual-writer tension with the extractor's <code>character_states</code> rows (see <a href="#dual-truth">Dual Source of Truth</a>)</td>
       </tr>
       <tr>
@@ -436,10 +442,12 @@ flowchart TB
      the ambiguity between them is the single most important thing to resolve, because it decides what to
      build next.</p>
 
-  <p><code>pipeline.py:process_chapter</code> takes <em>existing</em> chapter text as input and ends by
-     persisting structure. There is no generation anywhere in the flow. The planner, retriever, and critic
-     were all built for the generator vision — yet the only thing that exists end-to-end is the analyzer.
-     The piece that would make this a "writing system," the Drafter, is exactly the piece that is missing.</p>
+  <p><code>pipeline.py:analyze_chapter</code> takes <em>existing</em> chapter text as input and ends by
+     persisting structure (plus, since 2026-07-12, materializing state and running the continuity critique).
+     There is no generation anywhere in the flow. The planner and retriever were built for the generator
+     vision and are only consumed by the generation loop; the critic now runs for both paths — yet the only
+     thing that exists end-to-end today is the analyzer. The piece that would make this a "writing system,"
+     the Drafter, is exactly the piece that is missing.</p>
 
   <div class="callout warn">
     <strong>Decision required.</strong> Is Continuum (a) a continuity checker / story-bible generator over
@@ -476,8 +484,8 @@ flowchart TB
     <tbody>
       <tr><td><code>planner/</code></td><td>Clean types, mock mode for tests (real-mode failures raise), JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
       <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Now serves the drafter's per-scene context queries</td></tr>
-      <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Now fed by <code>generation/draft_claims.py</code> and gates generated-chapter ingestion</td></tr>
-      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Now runs automatically at the end of <code>process_chapter</code></td></tr>
+      <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Fed by <code>critic/adapter.py:extract_draft_claims</code> and gates generated-chapter ingestion; also fed by <code>build_draft_from_extraction</code> and persisted for every chapter <code>analyze_chapter</code> processes</td></tr>
+      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Now runs automatically at the end of <code>analyze_chapter</code></td></tr>
     </tbody>
   </table>
 
@@ -508,7 +516,7 @@ flowchart TB
       <tr><td><code>events.subject_entity_id / verb / object_entity_id</code> (removed 2026-07-11)</td><td>nothing — events were inserted without SVO; columns dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
       <tr><td><code>events.story_time_ordinal / narrative_order / scene_id</code> (removed 2026-07-11)</td><td>nothing; columns dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
       <tr><td><code>temporal_constraints</code> (removed 2026-07-11)</td><td><strong>nothing</strong> — no INSERT ever existed; table dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
-      <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> — runs automatically at the end of <code>process_chapter</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> — runs automatically at the end of <code>analyze_chapter</code></td><td><span class="badge green">live</span></td></tr>
     </tbody>
   </table>
 
@@ -620,31 +628,37 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
 
   <!-- ════════════════ CRITIC ════════════════ -->
   <section id="critic">
-  <h2>Deep Dive — Continuity Critic <span class="badge orange">Orphaned</span></h2>
+  <h2>Deep Dive — Continuity Critic <span class="badge green">Wired</span></h2>
   <p>The critic runs six typed checks and aggregates structured <code>Finding</code>s with FAIL / WARN /
      INFO severities; a report "passes" iff there are no FAILs. The design is right — typed, queryable
-     checks rather than a vibes-based "read it and tell me if anything is off" prompt. But it has two
-     compounding problems.</p>
+     checks rather than a vibes-based "read it and tell me if anything is off" prompt. It now has an
+     input producer and one remaining hollow check.</p>
 
-  <p><strong>1. It has no input producer.</strong> The critic consumes a <code>DraftChapter</code> of
+  <p><strong>1. It has an input producer now.</strong> The critic consumes a <code>DraftChapter</code> of
      <em>already-extracted claims</em> (mentions, location/possession/knowledge claims, events,
-     planned thread/commitment IDs). The dataclass docstring itself admits: <em>"In the eventual pipeline
-     this is populated by the Extractor running on the draft prose; in tests it's constructed directly."</em>
-     That adapter — prose → <code>DraftChapter</code> — does not exist. So the critic only ever runs in tests.</p>
+     planned thread/commitment IDs). The dataclass docstring's aspiration — <em>"In the eventual pipeline
+     this is populated by the Extractor running on the draft prose"</em> — is now the reality:
+     <code>critic/adapter.py:build_draft_from_extraction</code> builds a <code>DraftChapter</code> straight
+     from the chapter's own extraction, and <code>analyze_chapter</code> calls it (phase 5) for every
+     chapter it processes, persisting the report via <code>persist_critique</code>. The generation loop
+     uses the sibling <code>extract_draft_claims</code> adapter for chapters that don't yet have an
+     extraction to reuse.</p>
 
-  <p><strong>2. Half its checks query empty tables</strong> (see the dedicated scorecard below).</p>
+  <p><strong>2. One check still queries an empty/removed table</strong> (see the dedicated scorecard below).</p>
 
   <div class="nn">
     <div class="stand">
       <h4>Where we stand</h4>
-      <p>Six well-typed checks, never invoked, three of them querying tables with no producer.</p>
+      <p>Six well-typed checks, invoked and persisted for every analyzed chapter; one of them
+        (<code>temporal_consistency</code>) still querying tables with no producer.</p>
     </div>
     <div class="need">
       <h4>Where we need to be</h4>
       <ul>
-        <li>An extractor → <code>DraftChapter</code> adapter (reuse the 12-pass output)</li>
-        <li>Run as a post-extraction gate; persist + render findings in the wiki</li>
-        <li>Light up canon / temporal / possession tables so all six checks bite</li>
+        <li>Render persisted findings in the wiki (they are captured but not yet surfaced)</li>
+        <li>Reinstate SVO + temporal extraction so <code>temporal_consistency</code> bites</li>
+        <li>Decide what a chapter-processing failure in the critique phase should do beyond logging
+          (today it leaves <code>critique: None</code> in the result and the chapter still saved)</li>
       </ul>
     </div>
   </div>
@@ -689,13 +703,14 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      edges from removed events do not survive. This is the event-sourcing core the research asks
      for, and it is well done.</p>
 
-  <p><code>process_chapter</code> now invokes it automatically after each chapter's persistence
+  <p><code>analyze_chapter</code> now invokes it automatically after each chapter's persistence
      transaction commits, replaying through the novel's <em>latest</em> chapter so a
      <code>replace=true</code> re-process of an earlier chapter also rebuilds later projections.
      Bitemporal edges are therefore populated on every freshly processed novel, and the critic's
-     location/possession check has real data to read. The CLI
-     (<code>python -m pipeline.state.cli</code>) remains for manual backfills of novels processed
-     before this wiring landed.</p>
+     location/possession check has real data to read — and, since the critique phase now runs
+     immediately after materialization in the same call, it reads that data the same chapter it was
+     produced. The CLI (<code>python -m pipeline.state.cli</code>) remains for manual backfills of
+     novels processed before this wiring landed.</p>
 
   <div class="callout warn">
     There is also a deeper design tension here — see <a href="#dual-truth">Dual Source of Truth</a>. The
@@ -720,18 +735,18 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ CRITIC SCORECARD ════════════════ -->
   <section id="critic-scorecard">
   <h2>Critic Check Scorecard</h2>
-  <p>The critic is more nuanced than "all hollow." Three checks have live producers and would work the
-     moment the critic is invoked; three query tables that nothing populates. None run today because the
-     critic has no caller — but this is the order in which to make them bite.</p>
+  <p>The critic is more nuanced than "all hollow." Five checks have live producers and now run for real
+     on every analyzed chapter; one still queries tables that nothing populates — this is the order in
+     which they went live.</p>
 
   <table>
-    <thead><tr><th>Check</th><th>Reads</th><th>Producer exists?</th><th>Effective once wired?</th></tr></thead>
+    <thead><tr><th>Check</th><th>Reads</th><th>Producer exists?</th><th>Effective now that it's wired?</th></tr></thead>
     <tbody>
       <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">yes</span> — knowledge_state_deltas pass</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>commitments</code></td><td><code>commitments</code></td><td><span class="badge green">yes</span> — commitments pass</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge green">yes</span> — thread_updates pass</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">yes</span> — materializer auto-runs after each chapter</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
-      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span> — once the critic is wired</td></tr>
+      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">yes</span> — materializer auto-runs after each chapter</td><td><span class="badge green">Yes</span></td></tr>
+      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span></td></tr>
       <tr><td><code>temporal_consistency</code></td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">no</span> (both removed from the schema)</td><td><span class="badge red">No</span> — would need SVO + temporal extraction and the columns reinstated</td></tr>
     </tbody>
   </table>
@@ -799,14 +814,14 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ ATOMICITY ════════════════ -->
   <section id="atomicity">
   <h2>Data Integrity — Chapter Processing Is Not Atomic</h2>
-  <p><code>process_chapter</code> performs many independent commits: events are inserted one-by-one with
+  <p><code>analyze_chapter</code> performs many independent commits: events are inserted one-by-one with
      <code>commit=True</code>, and each <code>db.execute()</code> opens its own transaction (see
      <code>db/client.py</code> — every fetch/execute borrows a connection and commits or rolls back on its
      own). A <code>transaction()</code> context manager exists and the materializer uses it correctly, but
      the main pipeline does not.</p>
 
   <div class="callout bad">
-    A failure midway through <code>process_chapter</code> leaves partial state — some events written, no
+    A failure midway through <code>analyze_chapter</code> leaves partial state — some events written, no
     commitments, scenes half-inserted — directly contradicting the research's "treat chapter generation as
     a database transaction: <code>PLAN → DRAFT → CRITIQUE → REVISE → EXTRACT → COMMIT</code>, no partial
     state escapes" discipline.

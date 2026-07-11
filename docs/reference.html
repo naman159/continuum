@@ -158,7 +158,7 @@
   <a href="#mcp-server">MCP Server</a>
 
   <div class="sidebar-section">Pipeline API</div>
-  <a href="#process-chapter">process_chapter()</a>
+  <a href="#process-chapter">analyze_chapter()</a>
   <a href="#extractor">ChapterExtractor</a>
   <a href="#canonicalizer">Deduplicator</a>
   <a href="#resolver">EntityResolver</a>
@@ -467,11 +467,15 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
   <!-- ══════════ PROCESS_CHAPTER ══════════ -->
   <section id="process-chapter">
-    <h2>process_chapter()</h2>
-    <p>Main pipeline orchestration function in <code>backend/pipeline/pipeline.py</code>.</p>
+    <h2>analyze_chapter()</h2>
+    <p>
+      Main pipeline orchestration function in <code>backend/pipeline/pipeline.py</code>.
+      Renamed from <code>process_chapter</code> (2026-07-12); the CLI subcommand is still
+      <code>process-chapter</code> (hyphenated, unchanged).
+    </p>
 
     <div class="method-sig">
-      <span class="kw">def</span> <span class="fn-name">process_chapter</span>(
+      <span class="kw">def</span> <span class="fn-name">analyze_chapter</span>(
         <span class="param">*</span>,
         <span class="param">novel_id</span>: <span class="ptype">str</span>,
         <span class="param">chapter_number</span>: <span class="ptype">int</span>,
@@ -516,9 +520,39 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       outside the transaction; only persistence is atomic.
     </div>
 
+    <h3>Return value</h3>
+    <p>
+      Beyond the extraction-count fields (<code>chapter_id</code>, <code>chunks</code>,
+      <code>summary_preview</code>, <code>new_characters</code>, <code>new_locations</code>,
+      <code>events</code>, <code>state_deltas</code>, <code>thread_updates</code>,
+      <code>continuity_flags</code>), the result dict carries two keys for the phases that run
+      after persistence commits:
+    </p>
+    <table class="param-table">
+      <tbody>
+        <tr><td>materialized</td><td>bool</td><td>Phase 4. <code>True</code> if <code>StateMaterializer</code> ran successfully for this novel up to the latest chapter.</td></tr>
+        <tr><td>critique</td><td>dict | None</td><td>Phase 5. Summary of the continuity critique: <code>{novel_id, chapter_number, passed, total_findings, fails, warns, by_check}</code>. <code>None</code> if the critique phase raised.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout warn">
+      <strong>Phases 4/5 run outside the persistence transaction.</strong> Materialization
+      (phase 4, <code>StateMaterializer</code>) and the continuity critique (phase 5,
+      <code>ContinuityCritic</code> + <code>persist_critique</code>) execute after the
+      <code>client.session()</code> block has already committed the chapter. Each is wrapped in
+      its own <code>try/except</code> and logs on failure rather than raising — a failure in either
+      phase leaves the chapter fully saved; it only shows up as <code>materialized: False</code> or
+      <code>critique: None</code> in the result, and requires a manual re-run
+      (<code>pipeline.state.cli</code> for materialization) to catch up. Every analyzed chapter gets
+      a persisted critique — one row in <code>critique_reports</code> (unique per
+      <code>chapter_id</code>) plus per-finding rows in <code>critique_findings</code>
+      (<code>severity</code> = <code>fail</code> | <code>warn</code> | <code>info</code>) — not just
+      chapters generated through the critique loop.
+    </div>
+
     <h3>load_story_context()</h3>
     <p>
-      Called at the start of <code>process_chapter()</code> to build the context string injected into
+      Called at the start of <code>analyze_chapter()</code> to build the context string injected into
       every LLM prompt. Fetches:
     </p>
     <ul style="color: var(--text-muted); padding-left: 20px;">
@@ -727,7 +761,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>resolve_custom_entity</code> resolves against the <code>entities</code> table by exact name
       <em>or</em> <code>entities.aliases</code> (written by the canonicalizer), creating an entities-only
       row when nothing matches. Custom types extracted with an unregistered or differently-cased type are
-      normalized (or dropped) in <code>process_chapter</code> before they reach the resolver.
+      normalized (or dropped) in <code>analyze_chapter</code> before they reach the resolver.
     </p>
 
     <div class="callout warn">
@@ -832,9 +866,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <strong>rolled back</strong> and the exception is re-raised.
     </p>
     <p>
-      <code>process_chapter()</code> uses <code>session()</code> for its entire persistence phase — every
+      <code>analyze_chapter()</code> uses <code>session()</code> for its entire persistence phase — every
       write (ingest, entities, events, relationships, summaries, scenes, knows-edges, commitments) is
-      atomic. The LLM extraction and canonicalization phases run <em>outside</em> the transaction.
+      atomic. The LLM extraction and canonicalization phases run <em>outside</em> the transaction, and
+      the phase-4 materialize / phase-5 critique steps run <em>after</em> it commits.
     </p>
 
     <h3>DBSession</h3>
