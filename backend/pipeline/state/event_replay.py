@@ -342,14 +342,12 @@ class EventReplay:
                    e.involved_characters,
                    e.involved_locations,
                    e.involved_objects,
-                   e.narrative_order,
                    e.created_at,
                    c.number AS chapter_number
               FROM events e
               JOIN chapters c ON c.id = e.chapter_id
              WHERE c.novel_id = %s AND c.number <= %s
              ORDER BY c.number ASC,
-                      COALESCE(e.narrative_order, 0) ASC,
                       e.created_at ASC,
                       e.id ASC
             """,

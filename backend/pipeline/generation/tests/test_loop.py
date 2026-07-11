@@ -79,7 +79,7 @@ def test_generate_chapter_ingests_when_passing():
     assert result.ingested is True
     assert captured["source"] == "generated"
     assert captured["replace"] is False
-    assert captured["generation_meta"]["chapter_goal"]
+    assert "generation_meta" not in captured
 
 
 def test_generate_chapter_revises_then_gives_up_without_ingesting():

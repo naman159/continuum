@@ -108,10 +108,12 @@ without re-paying extraction tokens.
 
 **Added**
 
-- `state_deltas`: `id, chapter_id FK cascade, event_id NULL FK, kind CHECK
+- `state_deltas`: `id, chapter_id FK cascade, event_id NULL FK, ordinal INTEGER
+  NOT NULL (narrative order within the chapter), kind CHECK
   (possession|location|knowledge|status), subject_id FK entities, object_id
   NULL FK entities, location_id NULL FK locations, change CHECK
-  (gain|loss|move|learn|update), detail TEXT, certainty FLOAT, created_at`.
+  (gain|loss|move|learn|update), attribute TEXT NULL (which character_states
+  field a status delta updates), detail TEXT, certainty FLOAT, created_at`.
 - `critique_reports`: `id, chapter_id UNIQUE FK cascade, passed BOOL, ran_at,
   stats JSONB`.
 - `critique_findings`: `id, report_id FK cascade, check_name, severity CHECK

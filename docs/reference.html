@@ -453,7 +453,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False</code></td><td>no</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. Always run before <code>save_chapter</code> <span class="badge purple">GEN</span></td></tr>
-        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="generated"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>) <span class="badge purple">GEN</span></td></tr>
+        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>) <span class="badge purple">GEN</span></td></tr>
       </tbody>
     </table>
 
@@ -483,8 +483,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <span class="param">progress</span>: <span class="ptype">Any | None</span> = None,
         <span class="param">db</span>: <span class="ptype">DBClient | None</span> = None,
         <span class="param">replace</span>: <span class="ptype">bool</span> = False,
-        <span class="param">source</span>: <span class="ptype">str</span> = <span class="str">"human"</span>,
-        <span class="param">generation_meta</span>: <span class="ptype">dict | None</span> = None
+        <span class="param">source</span>: <span class="ptype">str</span> = <span class="str">"human"</span>
       ) <span class="ret">→ dict[str, Any]</span>
     </div>
 
@@ -500,8 +499,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td>progress</td><td>Any | None</td><td>Optional progress callback object with <code>on_pass_start</code>/<code>on_pass_done</code> methods</td></tr>
         <tr><td>db</td><td>DBClient | None</td><td>Injectable DB client. If None, a new <code>DBClient</code> is created and closed on exit.</td></tr>
         <tr><td>replace</td><td>bool</td><td>If True, delete all previously extracted data for this chapter before re-processing. Default False.</td></tr>
-        <tr><td>source</td><td>str</td><td>Provenance tag stored on the chapter row (e.g. <code>"human"</code>, <code>"generated"</code>). Default <code>"human"</code>.</td></tr>
-        <tr><td>generation_meta</td><td>dict | None</td><td>Arbitrary JSON metadata stored on the chapter row (e.g. model name, temperature). Default None.</td></tr>
+        <tr><td>source</td><td>str</td><td>Provenance tag stored on the chapter row (e.g. <code>"human"</code>, <code>"generated"</code>, <code>"agent"</code>). Default <code>"human"</code>.</td></tr>
       </tbody>
     </table>
 
@@ -888,8 +886,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   style_fingerprint <span class="sql-type">TEXT</span>,                                     <span class="sql-comment">-- author's voice notes</span>
   embedding       <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,                    <span class="sql-comment">-- pgvector</span>
   processed_at    <span class="sql-type">TIMESTAMPTZ</span>,
-  source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'generated' | ...</span>
-  generation_meta <span class="sql-type">JSONB</span>,                                        <span class="sql-comment">-- arbitrary metadata (model, temperature, etc.)</span>
+  source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'generated' | 'agent'</span>
   created_at      <span class="sql-type">TIMESTAMPTZ</span>  <span class="sql-constraint">NOT NULL DEFAULT</span> now(),
   <span class="sql-constraint">UNIQUE</span>(novel_id, number)
 );</code></pre>
@@ -899,8 +896,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       The <code>summary</code> / <code>summary_short</code> / <code>summary_long</code> fields support
       three different granularities for different UI use cases.
       <code>source</code> stores provenance (<code>"human"</code> for user-supplied text, <code>"generated"</code>
-      for LLM-authored text, or any custom tag); <code>generation_meta</code> stores arbitrary JSON (e.g. model
-      name, temperature) and is <code>NULL</code> for human-sourced chapters.
+      for the self-generation loop's own ingest, <code>"agent"</code> for chapters saved through the MCP
+      <code>save_chapter</code> tool, or any custom tag).
     </p>
   </section>
 
@@ -922,7 +919,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       no dedicated table. The <code>CHECK</code> constraint on <code>entity_type</code> was removed to allow
       arbitrary type values from <code>novel_entity_types</code>. The <code>aliases[]</code> column holds
       canonicalizer-confirmed name variants for custom entity types (built-in types keep aliases on their
-      dedicated tables); migration: <code>pipeline.db.migrate_add_entities_aliases</code>.
+      dedicated tables); added by the consolidated <code>schema.sql</code> (migrate scripts were retired
+      once <code>init-db</code> became the single, idempotent source of truth for schema changes).
     </p>
     <p>
       The <code>relationships</code> table references <code>entities(id)</code> so cross-type relationships
@@ -997,12 +995,6 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   involved_locations  <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references locations(id)</span>
   involved_objects    <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references objects(id)</span>
   involved_factions   <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references factions(id)</span>
-  subject_entity_id   <span class="sql-type">UUID</span>,    <span class="sql-comment">-- SOTA: primary subject</span>
-  verb                <span class="sql-type">TEXT</span>,    <span class="sql-comment">-- SOTA: action verb (e.g., "betrayed")</span>
-  object_entity_id    <span class="sql-type">UUID</span>,    <span class="sql-comment">-- SOTA: primary object</span>
-  story_time_ordinal  <span class="sql-type">INT</span>,     <span class="sql-comment">-- SOTA: story-time ordering (not narrative order)</span>
-  narrative_order     <span class="sql-type">INT</span>,     <span class="sql-comment">-- SOTA: order in which event appears in text</span>
-  scene_id            <span class="sql-type">UUID</span>,    <span class="sql-comment">-- SOTA: which scene this event belongs to</span>
   embedding           <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,
   created_at          <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
 );</code></pre>
@@ -1012,9 +1004,11 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       These are GIN-indexed for fast containment queries.
     </p>
     <div class="callout info">
-      <strong>story_time_ordinal vs narrative_order:</strong> Stories can tell events out of order (flashbacks, reveals).
-      <code>story_time_ordinal</code> is when it <em>happened</em> in the story world.
-      <code>narrative_order</code> is when the reader encountered it.
+      <strong>Removed in the write-spine consolidation:</strong> the SVO triple
+      (<code>subject_entity_id</code>, <code>verb</code>, <code>object_entity_id</code>),
+      <code>story_time_ordinal</code>, <code>narrative_order</code>, and <code>scene_id</code> columns
+      were added on an earlier branch but never got a writer. Typed, narrative-ordered state changes
+      now live in <code>state_deltas</code> (see below) instead.
     </div>
   </section>
 
@@ -1198,7 +1192,6 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <pre><code><span class="sql-kw">CREATE TABLE</span> knows_edges (
   id               <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   character_id     <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> characters,
-  fact_id          <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> canon_facts,
   fact_description <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,
   learned_chapter  <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
   source_event_id  <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> events,
@@ -1211,6 +1204,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>
       Enables querying: "Which characters know that X is a spy?" or "What does Asha know and not know?"
       The <code>certainty</code> field handles cases where a character suspects but isn't sure.
+      (<code>fact_id</code>, an optional FK to <code>canon_facts</code>, was dropped in the write-spine
+      consolidation — it never got a writer.)
     </p>
   </section>
 
@@ -1280,19 +1275,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
 
   <section id="schema-temporal-runs">
-    <h2>Schema: temporal_constraints &amp; materialized_state_runs <span class="badge orange">SOTA</span></h2>
-    <p>Two tables that back timeline checking and state-derivation auditing.</p>
+    <h2>Schema: materialized_state_runs <span class="badge orange">SOTA</span></h2>
+    <p>Audit log for state-derivation runs.</p>
 
-    <pre><code><span class="sql-kw">CREATE TABLE</span> temporal_constraints (
-  id           <span class="sql-type">UUID</span>   <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
-  event_a_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> events,
-  event_b_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> events,
-  relation     <span class="sql-type">TEXT</span>   <span class="sql-comment">-- before | after | simultaneous | caused_by | enables</span>
-  certainty    <span class="sql-type">FLOAT</span>  <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
-  <span class="sql-constraint">UNIQUE</span>(event_a_id, event_b_id, relation)
-);
-
-<span class="sql-kw">CREATE TABLE</span> materialized_state_runs (
+    <pre><code><span class="sql-kw">CREATE TABLE</span> materialized_state_runs (
   id              <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   novel_id        <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
   through_chapter <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
@@ -1301,11 +1287,77 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 );</code></pre>
 
     <div class="callout warn">
-      <strong>Producers status:</strong> <code>temporal_constraints</code> has no writer yet (the
-      extractor does not emit temporal relations), and <code>materialized_state_runs</code> is only
-      written when the State Materializer is run manually. See
+      <strong>Producers status:</strong> <code>materialized_state_runs</code> is only written when the
+      State Materializer is run manually. See
       <a href="state-of-the-system.html#schema-ahead">State of the System → Schema Ahead of Code</a>.
     </div>
+    <div class="callout info">
+      <strong>Removed:</strong> <code>temporal_constraints</code> (event-ordering constraints) was
+      dropped in the write-spine consolidation — it never got a writer (the extractor never emitted
+      temporal relations). <code>pipeline/critic/checks/temporal_check.py</code> still queries it and
+      will be retired alongside the rest of the generation-loop critic.
+    </div>
+  </section>
+
+  <section id="schema-write-spine">
+    <h2>Schema: state_deltas, critique_reports, critique_findings, schema_version</h2>
+    <p>
+      Added by the consolidated, versioned <code>schema.sql</code>. See
+      <code>docs/superpowers/specs/2026-07-11-continuum-analyzer-architecture-design.md</code>.
+    </p>
+
+    <pre><code><span class="sql-kw">CREATE TABLE</span> state_deltas (
+  id           <span class="sql-type">UUID</span>   <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  chapter_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> chapters <span class="sql-constraint">ON DELETE CASCADE</span>,
+  event_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> events <span class="sql-constraint">ON DELETE SET NULL</span>,
+  ordinal      <span class="sql-type">INT</span>    <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">0</span>,  <span class="sql-comment">-- narrative order within the chapter</span>
+  kind         <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>, <span class="sql-comment">-- CHECK IN (possession, location, knowledge, status)</span>
+  subject_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> entities <span class="sql-constraint">ON DELETE CASCADE</span>,
+  object_id    <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> entities <span class="sql-constraint">ON DELETE CASCADE</span>,
+  location_id  <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> locations <span class="sql-constraint">ON DELETE CASCADE</span>,
+  change       <span class="sql-type">TEXT</span>,  <span class="sql-comment">-- CHECK IN (gain, loss, move, learn, update)</span>
+  attribute    <span class="sql-type">TEXT</span>,  <span class="sql-comment">-- which character_states field a status delta updates</span>
+  detail       <span class="sql-type">TEXT</span>,
+  certainty    <span class="sql-type">FLOAT</span>  <span class="sql-constraint">DEFAULT</span> <span class="sql-val">1.0</span>,
+  created_at   <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);
+
+<span class="sql-kw">CREATE TABLE</span> critique_reports (
+  id          <span class="sql-type">UUID</span>    <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  chapter_id  <span class="sql-type">UUID</span>    <span class="sql-constraint">NOT NULL UNIQUE REFERENCES</span> chapters <span class="sql-constraint">ON DELETE CASCADE</span>,
+  passed      <span class="sql-type">BOOLEAN</span> <span class="sql-constraint">NOT NULL</span>,
+  ran_at      <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now(),
+  stats       <span class="sql-type">JSONB</span>
+);
+
+<span class="sql-kw">CREATE TABLE</span> critique_findings (
+  id          <span class="sql-type">UUID</span>   <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
+  report_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> critique_reports <span class="sql-constraint">ON DELETE CASCADE</span>,
+  check_name  <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>,
+  severity    <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>, <span class="sql-comment">-- CHECK IN (fail, warn, info)</span>
+  message     <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>,
+  quote       <span class="sql-type">TEXT</span>,
+  evidence    <span class="sql-type">JSONB</span>
+);
+
+<span class="sql-kw">CREATE TABLE</span> schema_version (
+  version     <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
+  applied_at  <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
+);</code></pre>
+
+    <p>
+      <code>state_deltas</code> is the extraction-time event log for state — the tier-2, immutable,
+      cascade-deleted rows the State Materializer replays into <code>character_states</code> and the
+      bitemporal edges. <code>ordinal</code> orders rows within a chapter because <code>created_at</code>
+      can't: <code>now()</code> is transaction-stable, so every row a single chapter's extraction pass
+      writes gets the same timestamp.
+    </p>
+    <p>
+      <code>critique_reports</code> / <code>critique_findings</code> persist one continuity-critique
+      result per chapter instead of discarding it after the request. <code>schema_version</code> holds
+      a single row, rewritten on every <code>init-db</code> run, so client code can check what schema
+      it's talking to.
+    </p>
   </section>
 
 

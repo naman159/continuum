@@ -151,7 +151,7 @@ def test_save_chapter_success_and_flags(monkeypatch):
     monkeypatch.setattr(queries, "process_chapter", fake_process)
     out = queries.save_chapter("novel-1", 9, "some prose", title="The Gate", db=FakeDB())
     assert out == {"ingested": True, "chapter_id": "abc-123"}
-    assert seen["source"] == "generated"
+    assert seen["source"] == "agent"
     assert seen["replace"] is False
     assert seen["chapter_title"] == "The Gate"
 

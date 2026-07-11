@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-from typing import Any
-
 from pipeline.db.client import DBClient
 
 
@@ -14,7 +11,6 @@ def ingest_chapter(
     raw_text: str,
     title: str | None = None,
     source: str = "human",
-    generation_meta: dict[str, Any] | None = None,
 ) -> str:
     existing = db.fetchval(
         """
@@ -31,18 +27,11 @@ def ingest_chapter(
 
     chapter_id = db.fetchval(
         """
-        INSERT INTO chapters (novel_id, number, title, raw_text, source, generation_meta)
-        VALUES (%s, %s, %s, %s, %s, %s::jsonb)
+        INSERT INTO chapters (novel_id, number, title, raw_text, source)
+        VALUES (%s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (
-            novel_id,
-            chapter_number,
-            title,
-            raw_text,
-            source,
-            json.dumps(generation_meta) if generation_meta is not None else None,
-        ),
+        (novel_id, chapter_number, title, raw_text, source),
         commit=True,
     )
     return str(chapter_id)

@@ -391,7 +391,7 @@ def save_chapter(
     *,
     db: DBClient | None = None,
 ) -> dict[str, Any]:
-    """Ingest a finished draft as source='generated'. Never overwrites."""
+    """Ingest a finished draft as source='agent'. Never overwrites."""
     if not text or not text.strip():
         return {"error": "text must not be empty"}
     try:
@@ -405,8 +405,7 @@ def save_chapter(
             chunk_overlap=settings.chunk_overlap,
             db=db,
             replace=False,
-            source="generated",
-            generation_meta={"via": "mcp"},
+            source="agent",
         )
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}

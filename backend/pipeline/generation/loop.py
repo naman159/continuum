@@ -3,7 +3,7 @@ from __future__ import annotations
 """generate_chapter: plan -> retrieve -> draft -> claims -> critique -> revise
 -> (optionally) ingest with source='generated'.
 
-Requires Project 1 (process_chapter(db=, source=, generation_meta=, replace=)).
+Requires Project 1 (process_chapter(db=, source=, replace=)).
 """
 
 import json
@@ -262,12 +262,6 @@ def generate_chapter(
                 db=client,
                 replace=False,
                 source="generated",
-                generation_meta={
-                    "model": settings.draft_model,
-                    "chapter_goal": plan.chapter_goal,
-                    "critic": report.summary(),
-                    "iterations": iterations,
-                },
             )
             result.ingested = True
             result.chapter_id = str(outcome.get("chapter_id"))

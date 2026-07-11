@@ -24,7 +24,7 @@ class RecorderDB:
         self.calls.append((query, tuple(params or ())))
 
 
-def test_ingest_chapter_writes_source_and_meta():
+def test_ingest_chapter_writes_source():
     new_id = uuid.uuid4()
     db = RecorderDB(fetchval_results=[None, new_id])  # no duplicate, then insert
     chapter_id = ingest_chapter(
@@ -34,12 +34,11 @@ def test_ingest_chapter_writes_source_and_meta():
         raw_text="text",
         title="T",
         source="generated",
-        generation_meta={"model": "gpt-x"},
     )
     assert chapter_id == str(new_id)
     insert_q, insert_p = db.calls[-1]
     assert "INSERT INTO chapters" in insert_q
-    assert "source" in insert_q and "generation_meta" in insert_q
+    assert "source" in insert_q
     assert "generated" in insert_p
 
 

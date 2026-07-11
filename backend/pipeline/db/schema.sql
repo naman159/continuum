@@ -214,15 +214,6 @@ ALTER TABLE chapters ADD COLUMN IF NOT EXISTS summary_short TEXT;
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS summary_long TEXT;
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS style_fingerprint JSONB;
 
--- ---- Event log enhancements: SVO triples + story-time + scene linkage ----
-ALTER TABLE events ADD COLUMN IF NOT EXISTS subject_entity_id UUID REFERENCES entities(id);
-ALTER TABLE events ADD COLUMN IF NOT EXISTS verb TEXT;
-ALTER TABLE events ADD COLUMN IF NOT EXISTS object_entity_id UUID REFERENCES entities(id);
-ALTER TABLE events ADD COLUMN IF NOT EXISTS story_time_ordinal INTEGER;
-ALTER TABLE events ADD COLUMN IF NOT EXISTS narrative_order INTEGER;
-ALTER TABLE events ADD COLUMN IF NOT EXISTS scene_id UUID;
-CREATE INDEX IF NOT EXISTS idx_events_story_time ON events(story_time_ordinal);
-
 -- ---- Relationships: invalidate-don't-delete + evidence ----
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFERENCES relationships(id);
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS evidence_event_ids UUID[] DEFAULT '{}';
@@ -231,11 +222,12 @@ ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
 -- (api/relationship_types.py). TRUE/FALSE = the extractor read the chapter text and
 -- judged whether the relationship is genuinely mutual or reflects one side's view
 -- (e.g. A considers B a friend, but B doesn't feel the same).
-ALTER TABLE relationships ADD COLUMN IF NOT EXISTS symmetric BOOLEAN;
+-- "symmetric" is a reserved word in PostgreSQL's DDL grammar and needs
+-- quoting here (read contexts like SELECT r.symmetric work unquoted).
+ALTER TABLE relationships ADD COLUMN IF NOT EXISTS "symmetric" BOOLEAN;
 
 -- ---- Ingestion provenance + replayability ----
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'human';
-ALTER TABLE chapters ADD COLUMN IF NOT EXISTS generation_meta JSONB;
 -- relationships become traceable to the chapter that asserted them; rows with a
 -- non-NULL chapter_id cascade-delete when that chapter is replaced (rows created
 -- before this column existed have NULL and are not covered).
@@ -259,18 +251,6 @@ CREATE TABLE IF NOT EXISTS scenes (
 );
 CREATE INDEX IF NOT EXISTS idx_scenes_chapter ON scenes(chapter_id);
 
--- Add scene_id FK on events (after scenes table exists)
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint WHERE conname = 'events_scene_id_fkey'
-    ) THEN
-        ALTER TABLE events
-        ADD CONSTRAINT events_scene_id_fkey
-        FOREIGN KEY (scene_id) REFERENCES scenes(id) ON DELETE SET NULL;
-    END IF;
-END $$;
-
 -- ---- Canon facts (immutable, lockable) ----
 CREATE TABLE IF NOT EXISTS canon_facts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -292,7 +272,6 @@ CREATE INDEX IF NOT EXISTS idx_canon_facts_novel_locked ON canon_facts(novel_id,
 CREATE TABLE IF NOT EXISTS knows_edges (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     character_id UUID NOT NULL REFERENCES characters(id) ON DELETE CASCADE,
-    fact_id UUID REFERENCES canon_facts(id),
     fact_description TEXT NOT NULL,
     learned_chapter INTEGER NOT NULL,
     source_event_id UUID REFERENCES events(id),
@@ -305,7 +284,6 @@ CREATE TABLE IF NOT EXISTS knows_edges (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_knows_character ON knows_edges(character_id, learned_chapter);
-CREATE INDEX IF NOT EXISTS idx_knows_fact ON knows_edges(fact_id);
 CREATE INDEX IF NOT EXISTS idx_knows_active ON knows_edges(character_id) WHERE superseded_by_id IS NULL;
 
 -- ---- Bitemporal possession edges ----
@@ -368,22 +346,6 @@ CREATE INDEX IF NOT EXISTS idx_commitments_pending
     ON commitments(novel_id, foreshadow_chapter)
     WHERE status = 'pending';
 
--- ---- Temporal-constraint edges (for timeline consistency) ----
-CREATE TABLE IF NOT EXISTS temporal_constraints (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    event_a_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    event_b_id UUID NOT NULL REFERENCES events(id) ON DELETE CASCADE,
-    relation TEXT NOT NULL CHECK (relation IN (
-        'before','after','simultaneous','caused_by','enables'
-    )),
-    certainty FLOAT DEFAULT 1.0,
-    created_at TIMESTAMPTZ DEFAULT now(),
-    CHECK (event_a_id <> event_b_id),
-    UNIQUE(event_a_id, event_b_id, relation)
-);
-CREATE INDEX IF NOT EXISTS idx_temporal_a ON temporal_constraints(event_a_id);
-CREATE INDEX IF NOT EXISTS idx_temporal_b ON temporal_constraints(event_b_id);
-
 -- ---- Materialized state runs (audit of derived projections) ----
 CREATE TABLE IF NOT EXISTS materialized_state_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -394,6 +356,70 @@ CREATE TABLE IF NOT EXISTS materialized_state_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_materialized_state_novel
     ON materialized_state_runs(novel_id, through_chapter DESC);
+
+-- =====================================================================
+-- Write-spine consolidation (see docs/superpowers/specs/
+-- 2026-07-11-continuum-analyzer-architecture-design.md).
+-- Idempotent DROPs converge databases created before the consolidation.
+-- =====================================================================
+DROP TABLE IF EXISTS temporal_constraints;
+ALTER TABLE events DROP COLUMN IF EXISTS subject_entity_id;
+ALTER TABLE events DROP COLUMN IF EXISTS verb;
+ALTER TABLE events DROP COLUMN IF EXISTS object_entity_id;
+ALTER TABLE events DROP COLUMN IF EXISTS story_time_ordinal;
+ALTER TABLE events DROP COLUMN IF EXISTS narrative_order;
+ALTER TABLE events DROP COLUMN IF EXISTS scene_id;
+ALTER TABLE knows_edges DROP COLUMN IF EXISTS fact_id;
+ALTER TABLE chapters DROP COLUMN IF EXISTS generation_meta;
+
+-- ---- Typed state deltas: the extraction-time event log for state ----
+-- Tier-2 rows: expensive LLM output, immutable, cascade-deleted with their
+-- chapter. The materializer folds them into character_states and the
+-- bitemporal edges; nothing else interprets prose for state.
+CREATE TABLE IF NOT EXISTS state_deltas (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
+    event_id UUID REFERENCES events(id) ON DELETE SET NULL,
+    -- narrative order within the chapter; created_at can't order rows written
+    -- in one transaction (now() is transaction-stable) and UUIDs are random.
+    ordinal INTEGER NOT NULL DEFAULT 0,
+    kind TEXT NOT NULL CHECK (kind IN ('possession','location','knowledge','status')),
+    subject_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+    object_id UUID REFERENCES entities(id) ON DELETE CASCADE,
+    location_id UUID REFERENCES locations(id) ON DELETE CASCADE,
+    change TEXT CHECK (change IN ('gain','loss','move','learn','update')),
+    attribute TEXT,
+    detail TEXT,
+    certainty FLOAT DEFAULT 1.0,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_chapter ON state_deltas(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_subject ON state_deltas(subject_id);
+
+-- ---- Persisted continuity critique, one report per chapter ----
+CREATE TABLE IF NOT EXISTS critique_reports (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chapter_id UUID NOT NULL UNIQUE REFERENCES chapters(id) ON DELETE CASCADE,
+    passed BOOLEAN NOT NULL,
+    ran_at TIMESTAMPTZ DEFAULT now(),
+    stats JSONB
+);
+CREATE TABLE IF NOT EXISTS critique_findings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    report_id UUID NOT NULL REFERENCES critique_reports(id) ON DELETE CASCADE,
+    check_name TEXT NOT NULL,
+    severity TEXT NOT NULL CHECK (severity IN ('fail','warn','info')),
+    message TEXT NOT NULL,
+    quote TEXT,
+    evidence JSONB
+);
+CREATE INDEX IF NOT EXISTS idx_critique_findings_report ON critique_findings(report_id);
+
+-- ---- Schema version (single row, stamped by init-db) ----
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INTEGER NOT NULL,
+    applied_at TIMESTAMPTZ DEFAULT now()
+);
 
 -- ---- Full-text search (BM25 component of hybrid retrieval) ----
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS search_tsv tsvector;

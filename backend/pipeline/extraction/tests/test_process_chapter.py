@@ -7,7 +7,7 @@ from pipeline import pipeline as pipeline_mod
 
 def test_process_chapter_accepts_db_replace_and_source():
     sig = inspect.signature(pipeline_mod.process_chapter)
-    for param in ("db", "replace", "source", "generation_meta"):
+    for param in ("db", "replace", "source"):
         assert param in sig.parameters, f"process_chapter missing {param!r} param"
 
 

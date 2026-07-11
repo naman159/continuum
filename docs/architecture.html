@@ -877,7 +877,7 @@ flowchart TD
         <tr>
           <td><code>chapters</code></td>
           <td>One row per chapter. Stores raw text, multi-granularity summaries, and embeddings.</td>
-          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (JSONB), embedding, search_tsv, source TEXT DEFAULT 'human', generation_meta JSONB</code></td>
+          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (JSONB), embedding, search_tsv, source TEXT DEFAULT 'human'</code></td>
         </tr>
         <tr>
           <td><code>entities</code></td>
@@ -916,8 +916,8 @@ flowchart TD
         </tr>
         <tr>
           <td><code>events</code></td>
-          <td>Narrative events — the story's verbs. Enriched with SVO triples and story-time ordering.</td>
-          <td><code>chapter_id, description, event_type, impact_level, involved_characters[], involved_locations[], involved_factions[], involved_objects[], subject_entity_id, verb, object_entity_id, story_time_ordinal, narrative_order, scene_id, embedding, search_tsv</code></td>
+          <td>Narrative events — the story's verbs.</td>
+          <td><code>chapter_id, description, event_type, impact_level, involved_characters[], involved_locations[], involved_factions[], involved_objects[], embedding, search_tsv</code></td>
         </tr>
         <tr>
           <td><code>relationships</code></td>
@@ -975,7 +975,7 @@ flowchart TD
         <tr>
           <td><code>knows_edges</code></td>
           <td>"Theory of mind" — who knows what fact, when they learned it, how certain they are. Supports supersession chain.</td>
-          <td><code>character_id, fact_id, fact_description, learned_chapter, source_event_id, source_type, certainty, shared_with[], superseded_by_id</code></td>
+          <td><code>character_id, fact_description, learned_chapter, source_event_id, source_type, certainty, shared_with[], superseded_by_id</code></td>
         </tr>
         <tr>
           <td><code>possesses_edges</code></td>
@@ -993,11 +993,6 @@ flowchart TD
           <td><code>foreshadow_text, foreshadow_chapter, trigger_predicate (JSONB), payoff_text, payoff_chapter, status, weight, related_entity_ids[], embedding</code></td>
         </tr>
         <tr>
-          <td><code>temporal_constraints</code></td>
-          <td>Ordering constraints between events (A before B, A causes B)</td>
-          <td><code>event_a_id, event_b_id, relation, certainty</code></td>
-        </tr>
-        <tr>
           <td><code>materialized_state_runs</code></td>
           <td>Audit log of <code>StateMaterializer</code> runs — which novel was materialized through which chapter</td>
           <td><code>novel_id, through_chapter, materialized_at, notes</code></td>
@@ -1007,6 +1002,56 @@ flowchart TD
 
     <div class="callout info">
       <strong>Bitemporal edges</strong> (<code>since_chapter</code>, <code>until_chapter</code>) allow tracking "Asha had the sword from chapter 2 to chapter 7, then Kira had it from chapter 7 onward" — without storing multiple snapshots. A <code>NULL until_chapter</code> means "still true." <code>until_chapter</code> is <em>inclusive</em> (the materializer stitches it as the next fact's <code>since_chapter − 1</code>), so every "active at chapter N" filter uses <code>until_chapter &gt;= N</code> — the list endpoints, the entity graph, and the critic's location/possession check all share this convention.
+    </div>
+  </section>
+
+
+  <!-- WRITE-SPINE TABLES -->
+  <section id="write-spine-tables">
+    <h2>Write-Spine Tables</h2>
+    <p>
+      Added by the consolidated, versioned <code>schema.sql</code> (see
+      <code>docs/superpowers/specs/2026-07-11-continuum-analyzer-architecture-design.md</code>).
+      This pass also dropped never-populated surface: <code>temporal_constraints</code>, the
+      <code>events</code> SVO/story-time/scene columns (<code>subject_entity_id</code>,
+      <code>verb</code>, <code>object_entity_id</code>, <code>story_time_ordinal</code>,
+      <code>narrative_order</code>, <code>scene_id</code>), <code>knows_edges.fact_id</code>, and
+      <code>chapters.generation_meta</code>. <code>init-db</code> applies the drops idempotently, so
+      existing dev databases converge on next run.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Table</th><th>What It Tracks</th><th>Key Columns</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>state_deltas</code></td>
+          <td>Extraction-time typed state-change log — the tier-2 rows the state materializer replays into <code>character_states</code> and the bitemporal edges. Immutable, cascade-deleted with their chapter.</td>
+          <td><code>chapter_id, event_id, ordinal, kind ('possession'|'location'|'knowledge'|'status'), subject_id, object_id, location_id, change ('gain'|'loss'|'move'|'learn'|'update'), attribute, detail, certainty</code></td>
+        </tr>
+        <tr>
+          <td><code>critique_reports</code></td>
+          <td>One persisted continuity-critique result per chapter</td>
+          <td><code>chapter_id (UNIQUE), passed, ran_at, stats (JSONB)</code></td>
+        </tr>
+        <tr>
+          <td><code>critique_findings</code></td>
+          <td>Individual findings belonging to a <code>critique_reports</code> row</td>
+          <td><code>report_id, check_name, severity ('fail'|'warn'|'info'), message, quote, evidence (JSONB)</code></td>
+        </tr>
+        <tr>
+          <td><code>schema_version</code></td>
+          <td>Single-row version stamp, rewritten every <code>init-db</code> run</td>
+          <td><code>version, applied_at</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <code>state_deltas.ordinal</code> exists because <code>created_at</code> can't order rows written
+      inside one transaction — <code>now()</code> is transaction-stable, so every row a chapter's
+      extraction pass writes gets the same timestamp.
     </div>
   </section>
 
@@ -1519,7 +1564,7 @@ flowchart LR
       <li><strong>Draft</strong> — <code>SceneDrafter</code> writes prose per scene with the retrieved context, the plan's key facts, the prior text tail, and the novel's voice (averaged <code>style_fingerprint</code> of the last 3 chapters).</li>
       <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its six typed checks.</li>
       <li><strong>Revise</strong> — blocking findings become revision notes injected into a redraft, up to <code>GENERATION_MAX_REVISIONS</code> times.</li>
-      <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>process_chapter</code> path with <code>source='generated'</code> and a <code>generation_meta</code> audit blob (model, goal, critic summary, iterations). A failing draft is returned for human review, never ingested.</li>
+      <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>process_chapter</code> path with <code>source='generated'</code>. A failing draft is returned for human review, never ingested.</li>
     </ol>
     <table>
       <thead><tr><th>Module</th><th>Responsibility</th></tr></thead>

@@ -33,6 +33,8 @@ from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
 
+SCHEMA_VERSION = 1
+
 
 def _normalize_custom_entities(
     custom_entities: list[Any],
@@ -89,6 +91,11 @@ def init_db(schema_path: str | None = None) -> None:
     with DBClient() as db:
         with db.cursor(commit=True) as cur:
             cur.execute(sql)
+            cur.execute("DELETE FROM schema_version")
+            cur.execute(
+                "INSERT INTO schema_version (version) VALUES (%s)",
+                (SCHEMA_VERSION,),
+            )
 
 
 def create_novel(title: str, author: str | None, language: str) -> str:
@@ -233,7 +240,6 @@ def process_chapter(
     db: DBClient | None = None,
     replace: bool = False,
     source: str = "human",
-    generation_meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     owned = db is None
     client = db if db is not None else DBClient()
@@ -314,7 +320,6 @@ def process_chapter(
                 title=chapter_title,
                 raw_text=raw_text,
                 source=source,
-                generation_meta=generation_meta,
             )
             resolver = EntityResolver(s, novel_id=novel_id, chapter_number=chapter_number)
             event_rows = _persist_extraction(

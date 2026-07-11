@@ -109,7 +109,7 @@ def seeded(db: DBClient):
         dagger_id = str(cur.fetchone()[0])
 
         # Events. The replay reads chapters in ORDER BY number, then events
-        # within a chapter in (narrative_order NULLS LAST, created_at).
+        # within a chapter in (created_at, id).
         def make_event(
             chap_idx: int,
             description: str,

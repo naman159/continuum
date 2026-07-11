@@ -186,8 +186,6 @@ def merge_entities(
             extra_where="AND novel_id = %s", extra_params=(str(novel_id),),
         )
         cur.execute("UPDATE located_in_edges SET entity_id = %s WHERE entity_id = %s", (tgt, src))
-        cur.execute("UPDATE events SET subject_entity_id = %s WHERE subject_entity_id = %s", (tgt, src))
-        cur.execute("UPDATE events SET object_entity_id = %s WHERE object_entity_id = %s", (tgt, src))
 
         # ---- typed-table references ----
         table = TYPED_TABLES.get(entity_type)
