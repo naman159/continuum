@@ -4,7 +4,7 @@ import json
 import uuid
 from types import SimpleNamespace
 
-from pipeline.generation.draft_claims import build_draft_chapter, extract_draft_claims
+from pipeline.critic.adapter import build_draft_chapter, extract_draft_claims
 
 CHAR_ID = str(uuid.uuid4())
 CHAR_ENTITY_ID = str(uuid.uuid4())

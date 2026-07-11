@@ -11,10 +11,10 @@ import difflib
 from typing import Any
 
 from pipeline.config import settings
+from pipeline.critic.adapter import build_draft_chapter, extract_draft_claims
 from pipeline.critic.runner import ContinuityCritic
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService
-from pipeline.generation.draft_claims import build_draft_chapter, extract_draft_claims
 from pipeline.pipeline import process_chapter
 from pipeline.retrieval.hybrid import HybridRetriever
 from pipeline.retrieval.types import RetrievalQuery

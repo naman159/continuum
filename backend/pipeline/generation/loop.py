@@ -12,11 +12,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pipeline.config import settings
+from pipeline.critic.adapter import build_draft_chapter, extract_draft_claims
 from pipeline.critic.runner import ContinuityCritic
 from pipeline.critic.types import CritiqueReport
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService
-from pipeline.generation.draft_claims import build_draft_chapter, extract_draft_claims
 from pipeline.generation.drafter import SceneDrafter
 from pipeline.generation.style import average_fingerprints
 from pipeline.pipeline import process_chapter

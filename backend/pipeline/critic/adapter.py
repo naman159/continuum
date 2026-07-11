@@ -171,4 +171,75 @@ def build_draft_chapter(
     )
 
 
-__all__ = ["extract_draft_claims", "build_draft_chapter"]
+def build_draft_from_extraction(
+    db: Any,
+    *,
+    novel_id: str,
+    chapter_number: int,
+    text: str,
+    extracted: dict[str, Any],
+) -> DraftChapter:
+    """Adapter for the spine's critique phase: reuse the chapter's already-
+    extracted claims instead of paying a second claims-extraction LLM call.
+    Read-only name resolution; unknown names drop the claim."""
+    raw_claims = {
+        "mentions": [
+            {
+                "entity_name": f.get("subject_name"),
+                "entity_type": f.get("subject_type"),
+                "predicate": f.get("predicate"),
+                "claimed_value": f.get("value"),
+                "quote": f.get("quote"),
+            }
+            for f in extracted.get("canon_facts", [])
+            if isinstance(f, dict)
+        ],
+        "knowledge_claims": [
+            {
+                "character_name": l.get("character_name"),
+                "fact_description": l.get("fact_description"),
+                "source_type": l.get("source_type"),
+                "learned_this_chapter": True,
+                "quote": None,
+            }
+            for l in extracted.get("learnings", [])
+            if isinstance(l, dict)
+        ],
+        "location_claims": [
+            {
+                "character_name": d.get("character_name"),
+                "location_name": d.get("location_name"),
+                "quote": d.get("quote"),
+            }
+            for d in extracted.get("state_deltas", [])
+            if isinstance(d, dict) and d.get("kind") == "location"
+        ],
+        "possession_claims": [
+            {
+                "character_name": d.get("character_name"),
+                "object_name": d.get("object_name"),
+                "quote": d.get("quote"),
+            }
+            for d in extracted.get("state_deltas", [])
+            if isinstance(d, dict)
+            and d.get("kind") == "possession"
+            and d.get("change") == "gain"
+        ],
+        "events": [
+            {"description": e.get("description"), "event_type": e.get("event_type")}
+            for e in extracted.get("events", [])
+            if isinstance(e, dict)
+        ],
+    }
+    return build_draft_chapter(
+        db,
+        novel_id=novel_id,
+        chapter_number=chapter_number,
+        text=text,
+        raw_claims=raw_claims,
+        planned_thread_ids=[],
+        planned_commitment_ids=[],
+    )
+
+
+__all__ = ["extract_draft_claims", "build_draft_chapter", "build_draft_from_extraction"]

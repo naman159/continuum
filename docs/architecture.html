@@ -522,10 +522,11 @@ graph LR
 │   │   │   ├── persist_deltas.py <span class="cmt"># Persist typed state_deltas (reference-only resolution)</span>
 │   │   │   ├── persist_canon.py  <span class="cmt"># Persist canon_facts (lock/contradiction semantics)</span>
 │   │   │   └── persist_extras.py <span class="cmt"># Persist SOTA tables (scenes, knows, etc.)</span>
-│   │   ├── <span class="dir">critic/</span>           <span class="cmt"># ContinuityCritic: 6 typed checks</span>
+│   │   ├── <span class="dir">critic/</span>           <span class="cmt"># ContinuityCritic: 5 typed checks</span>
 │   │   │   ├── runner.py         <span class="cmt"># Orchestrates all checks → CritiqueReport</span>
+│   │   │   ├── adapter.py        <span class="cmt"># Draft/extraction → critic bridge (extract_draft_claims, build_draft_chapter, build_draft_from_extraction)</span>
 │   │   │   ├── types.py          <span class="cmt"># DraftChapter, CritiqueReport, Finding</span>
-│   │   │   └── checks/           <span class="cmt"># commitment, entity, knowledge, location, temporal, thread</span>
+│   │   │   └── checks/           <span class="cmt"># commitment, entity, knowledge, location, thread</span>
 │   │   ├── <span class="dir">planner/</span>          <span class="cmt"># ScenePlanner: next-chapter narrative plan</span>
 │   │   │   ├── planner.py        <span class="cmt"># LLM-based chapter plan generator</span>
 │   │   │   ├── context.py        <span class="cmt"># gather_plan_context() — DB snapshot for planner</span>
@@ -1503,7 +1504,10 @@ flowchart LR
     <p>
       <code>backend/pipeline/critic/</code> provides <code>ContinuityCritic</code>, which validates
       a <code>DraftChapter</code> (extracted facts before persistence) against existing DB state.
-      It runs <strong>6 typed checks</strong> in sequence and returns a <code>CritiqueReport</code>.
+      It runs <strong>5 typed checks</strong> in sequence and returns a <code>CritiqueReport</code>.
+      (A sixth check, temporal consistency, was retired — it queried the never-populated
+      <code>temporal_constraints</code> table, which was dropped from the schema; see
+      <a href="#write-spine-tables">Write-Spine Tables</a>.)
     </p>
 
     <table>
@@ -1514,7 +1518,6 @@ flowchart LR
         <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN</td></tr>
         <tr><td>Location &amp; possession</td><td><code>location_possession_check.py</code></td><td>Character location/possession claims don't contradict active bitemporal edges</td></tr>
         <tr><td>Knowledge state</td><td><code>knowledge_state_check.py</code></td><td>Knows-edges don't contradict existing theory-of-mind state. Claims the draft marks as learned this chapter (<code>learned_this_chapter</code>, an explicit boolean from the claims extractor) are exempt; the rest are matched against <code>knows_edges</code> by word overlap, since the stored and claimed phrasings come from independent LLM calls</td></tr>
-        <tr><td>Temporal consistency</td><td><code>temporal_check.py</code></td><td>Event ordering respects <code>temporal_constraints</code></td></tr>
         <tr><td>Commitments</td><td><code>commitment_check.py</code></td><td>Pending commitments are either advanced or acknowledged</td></tr>
         <tr><td>Thread coverage</td><td><code>thread_coverage_check.py</code></td><td>Open plot threads from prior chapters receive some mention</td></tr>
       </tbody>
@@ -1567,7 +1570,7 @@ flowchart LR
       <li><strong>Plan</strong> — <code>ScenePlanner</code> produces the <code>ChapterPlan</code> (forced to the deterministic mock plan when mocking, so <code>--mock-llm</code> never hits the network; in real mode planner failures <em>raise</em> rather than silently substituting the mock plan). The loop rejects a plan with no scenes, and resolves the plan's thread titles and commitment foreshadow texts to row uuids (read-only; unresolvable ones are dropped with a warning) before they reach the critic's SQL.</li>
       <li><strong>Retrieve</strong> — per scene, the <code>HybridRetriever</code> pulls the top chapters/scenes/events matching the scene goal + cast (capped at chapter N−1, no spoilers). Computed once per scene and reused across revision iterations, since the plan is immutable; a scene whose retrieval <em>failed</em> is retried on the next revision.</li>
       <li><strong>Draft</strong> — <code>SceneDrafter</code> writes prose per scene with the retrieved context, the plan's key facts, the prior text tail, and the novel's voice (averaged <code>style_fingerprint</code> of the last 3 chapters).</li>
-      <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its six typed checks.</li>
+      <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its five typed checks. Both functions now live in <code>pipeline/critic/adapter.py</code>, alongside <code>build_draft_from_extraction</code>, which builds the same <code>DraftChapter</code> shape straight from a chapter's already-extracted <code>state_deltas</code>/<code>learnings</code>/<code>canon_facts</code>/<code>events</code> — no second LLM pass.</li>
       <li><strong>Revise</strong> — blocking findings become revision notes injected into a redraft, up to <code>GENERATION_MAX_REVISIONS</code> times.</li>
       <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>process_chapter</code> path with <code>source='generated'</code>. A failing draft is returned for human review, never ingested.</li>
     </ol>
@@ -1576,7 +1579,6 @@ flowchart LR
       <tbody>
         <tr><td><code>generation/style.py</code></td><td>LLM-free per-chapter style fingerprint (sentence length, dialogue ratio, POV person), written to <code>chapters.style_fingerprint</code> at ingest</td></tr>
         <tr><td><code>generation/drafter.py</code></td><td><code>SceneDrafter</code> — prose output (no JSON response_format), <code>DRAFT_MODEL</code>/<code>DRAFT_TEMPERATURE</code>, deterministic mock mode</td></tr>
-        <tr><td><code>generation/draft_claims.py</code></td><td>Draft → critic bridge: one focused claims-extraction pass + read-only name→id resolution into a <code>DraftChapter</code></td></tr>
         <tr><td><code>generation/loop.py</code></td><td><code>generate_chapter</code> orchestrator with revision loop and critic-gated ingest-back</td></tr>
       </tbody>
     </table>
@@ -1735,7 +1737,7 @@ flowchart LR
         <tr><th>Module</th><th>What It Does</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 6 typed pre-persistence checks against DB state</td></tr>
+        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 5 typed pre-persistence checks against DB state</td></tr>
         <tr><td><code>pipeline/planner/</code></td><td><code>ScenePlanner</code> — LLM-based next-chapter narrative plan from story context</td></tr>
         <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → LLM rerank → MMR</td></tr>
         <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from <code>state_deltas</code></td></tr>
