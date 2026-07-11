@@ -256,7 +256,16 @@ def _apply_rename_map(
     for delta in data.get("state_deltas", []) or []:
         if not isinstance(delta, dict):
             continue
-        delta["character_name"] = _r(delta.get("character_name", ""), char_map)
+        name = str(delta.get("character_name", ""))
+        if delta.get("kind") == "location" and name and name.lower() not in char_map:
+            # A location delta's subject can be any entity type (e.g. an
+            # object carried between locations), not just a character — try
+            # the character rename first (the common case), and only fall
+            # back to the object rename map when the name isn't a known
+            # character alias.
+            delta["character_name"] = _r(name, obj_map)
+        else:
+            delta["character_name"] = _r(name, char_map)
         if delta.get("object_name"):
             delta["object_name"] = _r(str(delta["object_name"]), obj_map)
         if delta.get("location_name"):

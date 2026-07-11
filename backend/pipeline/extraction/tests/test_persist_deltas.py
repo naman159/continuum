@@ -72,3 +72,27 @@ def test_persists_each_kind_and_drops_unknown_names(db: DBClient, seeded):
     assert db.fetchval(
         "SELECT count(*) FROM characters WHERE novel_id = %s", (seeded["novel_id"],)
     ) == 1
+
+
+def test_location_delta_accepts_object_mover(db: DBClient, seeded):
+    """A location delta's character_name can name a significant object (e.g.
+    a weapon carried between locations), not just a character — the mover is
+    resolved via resolve_any_entity, not resolve_character."""
+    dagger = seeded["resolver"].resolve_object("silver dagger", create=False)
+    deltas = [
+        {"kind": "location", "character_name": "silver dagger", "location_name": "Pellis Harbor",
+         "change": "move", "quote": "the dagger arrived at the harbor"},
+        # Unknown mover — neither a character nor any other resolvable entity: dropped.
+        {"kind": "location", "character_name": "Ghost Blade", "location_name": "Pellis Harbor",
+         "change": "move", "quote": "q"},
+    ]
+    written = persist_state_deltas(
+        db, chapter_id=seeded["chapter_id"], deltas=deltas, resolver=seeded["resolver"]
+    )
+    assert written == 1
+    row = db.fetchone(
+        "SELECT subject_id, kind FROM state_deltas WHERE chapter_id = %s",
+        (seeded["chapter_id"],), dict_rows=True,
+    )
+    assert row["kind"] == "location"
+    assert str(row["subject_id"]) == dagger.universal_id

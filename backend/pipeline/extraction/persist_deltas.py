@@ -24,24 +24,23 @@ def persist_state_deltas(
         character_name = str(delta.get("character_name", "")).strip()
         if not kind or not character_name:
             continue
-        subject = resolver.resolve_character(character_name, create=False)
-        if subject is None:
-            logger.warning("state_delta: unknown character %r — dropped", character_name)
-            continue
 
         object_id = location_id = None
         attribute = detail = None
         change = str(delta.get("change", "")).strip().lower() or None
 
-        if kind == "possession":
-            resolved_obj = resolver.resolve_object(
-                str(delta.get("object_name", "")).strip(), create=False
-            ) if str(delta.get("object_name", "")).strip() else None
-            if resolved_obj is None or change not in {"gain", "loss"}:
-                logger.warning("state_delta: unresolvable possession %r — dropped", delta)
+        if kind == "location":
+            # A location delta's mover can be a character or a significant
+            # object (prompts.py: "a character (or significant object)") — a
+            # dagger moving between locations, say. resolve_character would
+            # silently drop every object mover, so resolve_any_entity (which
+            # checks the entities table and every typed table by name/alias)
+            # is used instead. It returns a universal id STRING, not a
+            # ResolvedEntity, unlike the other resolve_* calls below.
+            subject_universal_id = resolver.resolve_any_entity(character_name, create=False)
+            if subject_universal_id is None:
+                logger.warning("state_delta: unknown mover %r — dropped", character_name)
                 continue
-            object_id = resolved_obj.universal_id
-        elif kind == "location":
             resolved_loc = resolver.resolve_location(
                 str(delta.get("location_name", "")).strip(), create=False
             ) if str(delta.get("location_name", "")).strip() else None
@@ -50,19 +49,34 @@ def persist_state_deltas(
                 continue
             location_id = resolved_loc.entity_id
             change = "move"
-        elif kind == "knowledge":
-            detail = str(delta.get("fact", "")).strip()
-            if not detail:
-                continue
-            change = "learn"
-        elif kind == "status":
-            attribute = str(delta.get("attribute", "")).strip()
-            detail = str(delta.get("value", "")).strip()
-            if attribute not in {"emotional_state", "goals", "physical_state", "appearance", "notes"} or not detail:
-                continue
-            change = "update"
         else:
-            continue
+            subject = resolver.resolve_character(character_name, create=False)
+            if subject is None:
+                logger.warning("state_delta: unknown character %r — dropped", character_name)
+                continue
+            subject_universal_id = subject.universal_id
+
+            if kind == "possession":
+                resolved_obj = resolver.resolve_object(
+                    str(delta.get("object_name", "")).strip(), create=False
+                ) if str(delta.get("object_name", "")).strip() else None
+                if resolved_obj is None or change not in {"gain", "loss"}:
+                    logger.warning("state_delta: unresolvable possession %r — dropped", delta)
+                    continue
+                object_id = resolved_obj.universal_id
+            elif kind == "knowledge":
+                detail = str(delta.get("fact", "")).strip()
+                if not detail:
+                    continue
+                change = "learn"
+            elif kind == "status":
+                attribute = str(delta.get("attribute", "")).strip()
+                detail = str(delta.get("value", "")).strip()
+                if attribute not in {"emotional_state", "goals", "physical_state", "appearance", "notes"} or not detail:
+                    continue
+                change = "update"
+            else:
+                continue
 
         db.execute(
             """
@@ -72,7 +86,7 @@ def persist_state_deltas(
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
-                chapter_id, written, kind, subject.universal_id, object_id,
+                chapter_id, written, kind, subject_universal_id, object_id,
                 location_id, change, attribute, detail,
                 float(delta.get("certainty") or 1.0),
             ),

@@ -385,6 +385,41 @@ def test_intra_dedup_renames_state_delta_name_fields():
     assert result["state_deltas"][2]["object_name"] == "the One Ring"
 
 
+def test_intra_dedup_renames_state_delta_object_mover():
+    """A location-kind delta's character_name field can name an object mover
+    (e.g. a dagger carried between locations), not just a character. The
+    rename pass must try the character map first, then fall back to the
+    object map — an object mover name must not pass through unrenamed just
+    because it isn't a character."""
+    extracted = {
+        "new_entities": {
+            "objects": [{"name": "the silver dagger"}, {"name": "silver dagger"}],
+            "locations": [{"name": "Pellis Harbor"}],
+        },
+        "state_deltas": [
+            {"kind": "location", "character_name": "silver dagger",
+             "location_name": "Pellis Harbor", "quote": "the dagger moved to the harbor"},
+        ],
+        "events": [],
+        "relationship_updates": [],
+        "dynamics_updates": [],
+    }
+
+    def completion(**kwargs):
+        user = kwargs["messages"][1]["content"]
+        if "OBJECT" in user:
+            return _make_completion(
+                {"groups": [{"names": ["the silver dagger", "silver dagger"], "reasoning": "same object"}]}
+            )()
+        return _make_completion({"groups": []})()
+
+    dedup = IntraExtractionDeduplicator(use_mock=False, completion_fn=completion)
+    result = dedup.deduplicate(
+        extracted, "The silver dagger arrived at Pellis Harbor."
+    )
+    assert result["state_deltas"][0]["character_name"] == "the silver dagger"
+
+
 def test_intra_dedup_renames_location_variant():
     extracted = {
         "new_entities": {"locations": [{"name": "Netherfield Park"}, {"name": "Netherfield"}]},
