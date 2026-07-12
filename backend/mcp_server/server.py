@@ -15,7 +15,9 @@ from api import queries as api_queries
 from mcp_server import queries
 from reads import chapters as chapters_reads
 from reads import characters as characters_reads
+from reads import graphs as graphs_reads
 from reads import novels as novels_reads
+from reads import timeline as timeline_reads
 from reads import db as reads_db
 
 mcp = FastMCP("continuum")
@@ -87,8 +89,8 @@ def relationships(novel_id: str, writing_chapter: int) -> Any:
     """Character relationship graph (nodes + typed edges) established before
     writing_chapter."""
     return _call(
-        lambda: queries.build_relationship_graph(
-            novel_id, up_to_chapter=writing_chapter - 1
+        lambda: graphs_reads.relationship_graph(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1
         )
     )
 
@@ -118,11 +120,14 @@ def unresolved_commitments(novel_id: str, writing_chapter: int) -> Any:
 
 
 @mcp.tool()
-def timeline_events(novel_id: str) -> Any:
-    """Chronological story timeline. NOTE: timeline entries are not
-    chapter-anchored, so no writing_chapter cutoff applies — treat late
-    entries as potential spoilers."""
-    return _call(lambda: queries.list_timeline(novel_id))
+def timeline_events(novel_id: str, writing_chapter: int) -> Any:
+    """Story events grouped by chapter, from chapters before writing_chapter.
+    Cutoff-aware: safe against spoilers."""
+    return _call(
+        lambda: timeline_reads.list_timeline(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1
+        )
+    )
 
 
 @mcp.tool()

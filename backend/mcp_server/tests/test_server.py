@@ -48,3 +48,37 @@ def test_writing_chapter_converts_to_inclusive_cap(monkeypatch):
 def test_bad_uuid_is_an_error_dict_not_an_exception():
     out = server.canon_facts("not-a-uuid")
     assert "error" in out
+
+
+def test_timeline_events_requires_writing_chapter_and_converts_to_cap(monkeypatch):
+    """Regression guard: timeline_events used to query a nonexistent `timeline`
+    table (always an error dict) and took no writing_chapter at all. It must now
+    call reads.timeline.list_timeline with an inclusive up_to_chapter cap."""
+    seen = {}
+
+    def fake_list_timeline(db, novel_id, up_to_chapter):
+        seen["novel_id"] = novel_id
+        seen["up_to_chapter"] = up_to_chapter
+        return [{"chapter_number": 1, "description": "ok"}]
+
+    monkeypatch.setattr(server.timeline_reads, "list_timeline", fake_list_timeline)
+    out = server.timeline_events("00000000-0000-0000-0000-000000000000", 5)
+    assert "error" not in out
+    assert seen["up_to_chapter"] == 4
+    assert out == [{"chapter_number": 1, "description": "ok"}]
+
+
+def test_relationships_tool_converts_writing_chapter_to_cap(monkeypatch):
+    """Regression guard: relationships must be wired to the merged
+    reads.graphs.relationship_graph, not left calling a removed queries function."""
+    seen = {}
+
+    def fake_relationship_graph(db, novel_id, up_to_chapter):
+        seen["up_to_chapter"] = up_to_chapter
+        return {"nodes": [], "edges": [], "up_to_chapter": up_to_chapter}
+
+    monkeypatch.setattr(server.graphs_reads, "relationship_graph", fake_relationship_graph)
+    out = server.relationships("00000000-0000-0000-0000-000000000000", 5)
+    assert "error" not in out
+    assert seen["up_to_chapter"] == 4
+    assert out["nodes"] == []

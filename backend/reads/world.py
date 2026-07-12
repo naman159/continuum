@@ -21,7 +21,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from reads.common import resolve_cutoff, resolve_symmetric
+from reads.common import resolve_cutoff
+from reads.relationship_types import resolve_symmetric
 
 
 def _typed_name_maps(

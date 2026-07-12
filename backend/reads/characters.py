@@ -12,7 +12,8 @@ import difflib
 from typing import Any
 from uuid import UUID
 
-from reads.common import resolve_cutoff, resolve_symmetric
+from reads.common import resolve_cutoff
+from reads.relationship_types import resolve_symmetric
 
 
 def list_characters(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> list[dict[str, Any]]:

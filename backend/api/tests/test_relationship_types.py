@@ -1,4 +1,4 @@
-from api.relationship_types import is_symmetric, resolve_symmetric
+from reads.relationship_types import is_symmetric, resolve_symmetric
 
 
 def test_is_symmetric_matches_known_mutual_labels():

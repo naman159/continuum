@@ -431,9 +431,17 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <div class="callout tip">
       <strong>Cutoff-aware by default.</strong> Every lookup below takes a <code>writing_chapter</code>
       and returns only facts from chapters strictly before it — an agent drafting chapter N sees the
-      world as of N−1. The exceptions are <code>timeline_events</code> (timeline rows aren't
-      chapter-anchored; its docstring warns callers about spoilers) and <code>canon_facts</code>,
-      <code>list_novels</code>, <code>list_chapters</code> (no cutoff parameter at all).
+      world as of N−1. The exceptions are <code>canon_facts</code>, <code>list_novels</code>, and
+      <code>list_chapters</code> (no cutoff parameter at all).
+    </div>
+
+    <div class="callout warn">
+      <strong><code>timeline_events</code> was non-functional prior to 2026-07-12</strong> — it
+      queried a <code>timeline</code> table that doesn't exist in the schema and always returned an
+      <code>UndefinedTable</code> error dict. It's now backed by
+      <code>reads.timeline.list_timeline()</code> (story events grouped by chapter, the same data
+      the <code>/api/novels/{id}/timeline</code> route serves) and requires <code>writing_chapter</code>
+      like every other cutoff-aware tool.
     </div>
 
     <table>
@@ -449,7 +457,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>relationships</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Character relationship graph (nodes + typed edges)</td></tr>
         <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads opened and not yet closed, each with capped event history</td></tr>
         <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing planted that still awaits payoff <span class="badge orange">SOTA</span></td></tr>
-        <tr><td><code>timeline_events</code></td><td><code>novel_id</code></td><td>no <span class="badge yellow">spoiler risk</span></td><td>Chronological story timeline — not chapter-anchored, treat late entries as spoilers</td></tr>
+        <tr><td><code>timeline_events</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Story events grouped by chapter, from chapters before <code>writing_chapter</code> (fixed 2026-07-12 — previously non-functional, see callout above)</td></tr>
         <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False</code></td><td>no</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. Always run before <code>save_chapter</code> <span class="badge purple">GEN</span></td></tr>
@@ -1089,7 +1097,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>
       <code>symmetric</code> is nullable because older rows predate this field and the extractor
       sometimes has no signal either way. The API resolves the displayed value via
-      <code>backend/api/relationship_types.py::resolve_symmetric(rel_type, stored_symmetric)</code>:
+      <code>backend/reads/relationship_types.py::resolve_symmetric(rel_type, stored_symmetric)</code>:
       it trusts a non-null stored value, and otherwise falls back to a static label allowlist
       (<code>is_symmetric()</code>) for a reasonable default. This computed boolean is returned
       alongside every relationship row and graph edge; the frontend uses it to show a neutral "↔"

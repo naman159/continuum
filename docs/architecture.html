@@ -1381,7 +1381,7 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
       in a given story, so a label-only lookup can't fully capture it. The extractor is asked to
       judge each instance from the chapter text and set <code>relationships.symmetric</code>
       directly; the API resolves the displayed value via
-      <code>resolve_symmetric()</code> in <code>backend/api/relationship_types.py</code>, which trusts
+      <code>resolve_symmetric()</code> in <code>backend/reads/relationship_types.py</code>, which trusts
       that judgment when present and otherwise falls back to a static label allowlist
       (<code>is_symmetric()</code>). Graph views drop the arrowhead when the resolved value is true,
       rather than implying a direction the data doesn't have. See
@@ -1671,13 +1671,13 @@ flowchart LR
         </tr>
         <tr>
           <td><code>backend/api/queries.py</code></td>
-          <td>1,077</td>
-          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, continuity, characters, and locations/objects/factions/entity-types/custom-entities already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
+          <td>508</td>
+          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, continuity, characters, locations/objects/factions/entity-types/custom-entities, timeline, and both relationship/entity graphs already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
         </tr>
         <tr>
-          <td><code>backend/reads/{novels,chapters,continuity,characters,world}.py</code></td>
-          <td>987</td>
-          <td><strong>Read layer for novels, chapters, continuity, characters, and world entities.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. <code>world.py</code> covers locations, objects, factions, entity types, and custom entities; <code>list_entity_types</code> is the one cutoff-exempt function in the whole read layer (type registry, not chapter-anchored story data). Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
+          <td><code>backend/reads/{novels,chapters,continuity,characters,world,timeline,graphs,relationship_types}.py</code></td>
+          <td>1,366</td>
+          <td><strong>Read layer for novels, chapters, continuity, characters, world entities, the story timeline, and both graph views.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. <code>world.py</code> covers locations, objects, factions, entity types, and custom entities; <code>list_entity_types</code> is the one cutoff-exempt function in the whole read layer (type registry, not chapter-anchored story data). <code>timeline.py::list_timeline</code> backs both the <code>/api/novels/{id}/timeline</code> route and the MCP <code>timeline_events</code> tool (previously broken — see the MCP Server section). <code>graphs.py::relationship_graph</code> is the single implementation that replaced the two independently-drifted copies that used to live in <code>api/queries.py</code> and <code>mcp_server/queries.py</code>; it also backs the MCP <code>relationships</code> tool, and <code>graphs.py::entity_graph</code>/<code>list_shared_dynamics</code> back the entity-graph and dynamics routes. <code>relationship_types.py</code> (moved from <code>api/</code>) is now the sole source of <code>resolve_symmetric()</code> — no more duplicated symmetry tables. Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
