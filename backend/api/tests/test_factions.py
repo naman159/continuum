@@ -1,55 +1,46 @@
 from __future__ import annotations
 
-from uuid import uuid4
 
-from api.tests.conftest import make_chapter, make_novel
-
-
-def _make_faction(novel_id, name="The Order", **overrides):
-    base = {
-        "id": uuid4(),
-        "novel_id": novel_id,
-        "name": name,
-        "aliases": [],
-        "description": "A secret society.",
-    }
-    base.update(overrides)
-    return base
-
-
-def test_list_factions(fake_db_factory, client):
-    novel = make_novel()
-    faction = _make_faction(novel["id"])
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], 1)],
-        factions=[faction],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/factions")
+def test_list_factions(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/factions")
     assert response.status_code == 200
     body = response.json()
     assert len(body) == 1
-    assert body[0]["name"] == "The Order"
+    assert body[0]["name"] == seeded["faction_name"]
 
 
-def test_get_faction_detail(fake_db_factory, client):
-    novel = make_novel()
-    faction = _make_faction(novel["id"])
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], 1)],
-        factions=[faction],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/factions/{faction['id']}")
+def test_list_factions_ignores_cap(seed_novel_real, real_db, client):
+    """Faction rows have no chapter anchor; the cap is accepted but unused."""
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/factions?cap=1")
+    assert response.status_code == 200
+    assert [row["name"] for row in response.json()] == [seeded["faction_name"]]
+
+
+def test_get_faction_detail(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/factions/{seeded['faction_id']}?cap=2")
     assert response.status_code == 200
     body = response.json()
-    assert body["identity"]["name"] == "The Order"
+    assert body["identity"]["name"] == seeded["faction_name"]
     assert body["events"] == []
     assert body["characters"] == []
 
 
-def test_get_faction_detail_404(fake_db_factory, client):
-    novel = make_novel()
-    fake_db_factory(novels=[novel], chapters=[make_chapter(novel["id"], 1)])
-    response = client.get(f"/api/novels/{novel['id']}/factions/00000000-0000-0000-0000-000000000000")
+def test_get_faction_detail_events_beyond_cap(seed_novel_real, real_db, client):
+    """The faction-involving event lands in ch3."""
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/factions/{seeded['faction_id']}")
+    assert response.status_code == 200
+    body = response.json()
+    assert [e["chapter_number"] for e in body["events"]] == [3]
+    assert body["events"][0]["involved_characters"] == [seeded["char_a_name"]]
+
+
+def test_get_faction_detail_404(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(
+        f"/api/novels/{seeded['novel_id']}/factions/00000000-0000-0000-0000-000000000000"
+    )
     assert response.status_code == 404

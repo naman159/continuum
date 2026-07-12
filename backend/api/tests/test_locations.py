@@ -1,73 +1,50 @@
 from __future__ import annotations
 
-from uuid import uuid4
 
-from api.tests.conftest import make_chapter, make_novel
-
-
-def _make_location(novel_id, name="Pemberley", **overrides):
-    base = {
-        "id": uuid4(),
-        "novel_id": novel_id,
-        "name": name,
-        "aliases": [],
-        "description": "A grand estate.",
-        "first_appearance_chapter": 1,
-    }
-    base.update(overrides)
-    return base
-
-
-def test_list_locations(fake_db_factory, client):
-    novel = make_novel()
-    loc = _make_location(novel["id"])
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], 1)],
-        locations=[loc],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/locations")
+def test_list_locations(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/locations")
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["name"] == "Pemberley"
-    assert body[0]["first_appearance_chapter"] == 1
+    names = {row["name"] for row in body}
+    assert names == {seeded["loc_a_name"], seeded["loc_b_name"]}
+    fogmere = next(row for row in body if row["name"] == seeded["loc_a_name"])
+    assert fogmere["aliases"] == []
+    assert fogmere["first_appearance_chapter"] == 1
 
 
-def test_list_locations_respects_cap(fake_db_factory, client):
-    novel = make_novel()
-    early = _make_location(novel["id"], name="Longbourn", first_appearance_chapter=1)
-    late = _make_location(novel["id"], name="Pemberley", first_appearance_chapter=5)
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], 1), make_chapter(novel["id"], 5)],
-        locations=[early, late],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/locations?cap=3")
+def test_list_locations_respects_cap(seed_novel_real, real_db, client):
+    """loc_b (Sable Archive) first-appears ch3 and is excluded by cap=1."""
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/locations?cap=1")
+    assert response.status_code == 200
+    names = [row["name"] for row in response.json()]
+    assert names == [seeded["loc_a_name"]]
+
+
+def test_get_location_detail(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/locations/{seeded['loc_a_id']}?cap=1")
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["name"] == "Longbourn"
-
-
-def test_get_location_detail(fake_db_factory, client):
-    novel = make_novel()
-    loc = _make_location(novel["id"])
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], 1)],
-        locations=[loc],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/locations/{loc['id']}")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["identity"]["name"] == "Pemberley"
+    assert body["identity"]["name"] == seeded["loc_a_name"]
     assert body["events"] == []
-    assert body["characters"] == []
+    assert body["characters"] == [seeded["char_a_name"]]
 
 
-def test_get_location_detail_404(fake_db_factory, client):
-    novel = make_novel()
-    fake_db_factory(novels=[novel], chapters=[make_chapter(novel["id"], 1)])
-    response = client.get(f"/api/novels/{novel['id']}/locations/00000000-0000-0000-0000-000000000000")
+def test_get_location_detail_events_beyond_cap(seed_novel_real, real_db, client):
+    """The ch3 faction event touches loc_b (Sable Archive)."""
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/locations/{seeded['loc_b_id']}")
+    assert response.status_code == 200
+    body = response.json()
+    assert [e["chapter_number"] for e in body["events"]] == [3]
+    assert body["events"][0]["involved_factions"] == [seeded["faction_name"]]
+
+
+def test_get_location_detail_404(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(
+        f"/api/novels/{seeded['novel_id']}/locations/00000000-0000-0000-0000-000000000000"
+    )
     assert response.status_code == 404

@@ -130,11 +130,14 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
         # events.involved_* store TYPED ids (characters.id / factions.id / ...):
         # pipeline.py inserts resolver.resolve_*(name).entity_id, which is the
         # type-specific id per ResolvedEntity (resolver.py), not entities.id.
+        # Also touches loc_b and obj (Iron Compass) so location/object detail
+        # cutoff tests have a real ch3 event to exclude below the cap.
         cur.execute(
             """
             INSERT INTO events (chapter_id, description, event_type, impact_level,
-                                 involved_characters, involved_factions)
-            VALUES (%s, %s, %s, %s, %s::uuid[], %s::uuid[])
+                                 involved_characters, involved_locations,
+                                 involved_objects, involved_factions)
+            VALUES (%s, %s, %s, %s, %s::uuid[], %s::uuid[], %s::uuid[], %s::uuid[])
             RETURNING id
             """,
             (
@@ -143,6 +146,8 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
                 "conflict",
                 "high",
                 [char_a_id],
+                [loc_b_id],
+                [obj_id],
                 [faction_id],
             ),
         )

@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
-from api import queries
 from api.schemas import (
     CustomEntityDetail,
     CustomEntitySummary,
@@ -14,6 +13,8 @@ from api.schemas import (
 from pipeline.db.client import DBClient
 from pipeline.db.entity_merge import EntityMergeError, merge_entities
 from pipeline.extraction.presets import list_genres
+from reads import world as world_reads
+from reads.db import get_db
 
 router = APIRouter(tags=["entity_types"])
 
@@ -25,7 +26,7 @@ def get_genres() -> list[dict]:
 
 @router.get("/api/novels/{novel_id}/entity-types", response_model=list[NovelEntityType])
 def get_entity_types(novel_id: UUID) -> list[NovelEntityType]:
-    rows = queries.list_entity_types(novel_id)
+    rows = world_reads.list_entity_types(get_db(), novel_id)
     return [NovelEntityType(**r) for r in rows]
 
 
@@ -33,8 +34,10 @@ def get_entity_types(novel_id: UUID) -> list[NovelEntityType]:
     "/api/novels/{novel_id}/entity-types/{type_name}/entities",
     response_model=list[CustomEntitySummary],
 )
-def list_custom_entities(novel_id: UUID, type_name: str) -> list[CustomEntitySummary]:
-    rows = queries.list_custom_entities(novel_id, type_name)
+def list_custom_entities(
+    novel_id: UUID, type_name: str, cap: int | None = Query(default=None)
+) -> list[CustomEntitySummary]:
+    rows = world_reads.list_custom_entities(get_db(), novel_id, type_name, cap)
     return [CustomEntitySummary(**r) for r in rows]
 
 
@@ -42,8 +45,10 @@ def list_custom_entities(novel_id: UUID, type_name: str) -> list[CustomEntitySum
     "/api/novels/{novel_id}/custom-entities/{entity_id}",
     response_model=CustomEntityDetail,
 )
-def get_custom_entity(novel_id: UUID, entity_id: UUID) -> CustomEntityDetail:
-    row = queries.get_custom_entity_detail(novel_id, entity_id)
+def get_custom_entity(
+    novel_id: UUID, entity_id: UUID, cap: int | None = Query(default=None)
+) -> CustomEntityDetail:
+    row = world_reads.get_custom_entity_detail(get_db(), novel_id, entity_id, cap)
     if row is None:
         raise HTTPException(status_code=404, detail="Entity not found")
     return CustomEntityDetail(**row)

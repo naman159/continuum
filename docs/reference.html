@@ -1427,31 +1427,36 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <h2>API: Entity Types</h2>
 
     <table>
-      <thead><tr><th>Method</th><th>Path</th><th>Description</th></tr></thead>
+      <thead><tr><th>Method</th><th>Path</th><th>Query</th><th>Description</th></tr></thead>
       <tbody>
         <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/genres</code></td>
+          <td>—</td>
           <td>List genre presets. Returns <code>[{id, label, types: [{name, description}]}]</code>. Used to seed the novel-creation form.</td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{novel_id}/entity-types</code></td>
-          <td>List all user-defined entity types for the novel. Returns <code>NovelEntityType[]</code> — id, novel_id, name, description.</td>
+          <td>—</td>
+          <td>List all user-defined entity types for the novel. Returns <code>NovelEntityType[]</code> — id, novel_id, name, description. Cutoff-exempt: the type registry is config, not chapter-anchored story data, so there is no <code>cap</code> parameter.</td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{novel_id}/entity-types/{type_name}/entities</code></td>
-          <td>List custom entities of a given type. Returns <code>CustomEntitySummary[]</code> — id, name, entity_type, description.</td>
+          <td><code>?cap=N</code></td>
+          <td>List custom entities of a given type. Returns <code>CustomEntitySummary[]</code> — id, name, entity_type, description. Entity rows have no chapter anchor of their own, so <code>cap</code> is accepted but currently unused here.</td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{novel_id}/custom-entities/{entity_id}</code></td>
-          <td>Get detail for a single custom entity. Returns <code>CustomEntityDetail</code> — id, name, entity_type, description, relationships[].</td>
+          <td><code>?cap=N</code></td>
+          <td>Get detail for a single custom entity. Returns <code>CustomEntityDetail</code> — id, name, entity_type, description, relationships[]. <code>cap</code> filters the relationships sub-list (hides relationships whose <code>from_chapter</code> is beyond the cap).</td>
         </tr>
         <tr>
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels/{novel_id}/entities/merge</code></td>
+          <td>—</td>
           <td>Merge a duplicate entity into its canonical twin. Body: <code>{"source_entity_id": uuid, "target_entity_id": uuid}</code> (universal entity ids, same entity_type). Repoints every reference in one transaction, absorbs the source's name+aliases as target aliases, deletes the source. 400 on same-id/type-mismatch/missing entity.</td>
         </tr>
       </tbody>
@@ -1501,8 +1506,12 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   <section id="api-entities">
     <h2>API: Locations, Objects &amp; Factions</h2>
     <p>
-      Each entity type follows the same list + detail pattern as Characters. Locations and Objects accept
-      the chapter cap; Factions do not.
+      Each entity type follows the same list + detail pattern as Characters, backed by
+      <code>backend/reads/world.py</code>. All six endpoints now accept <code>?cap=N</code>. Faction rows
+      themselves have no chapter anchor (so <code>cap</code> is a no-op on the faction identity/list), but
+      the faction detail's <code>events</code> sub-list is chapter-anchored and does respect the cutoff. See
+      <a href="architecture.html#chapter-cap">Chapter Cap</a> for the shared <code>up_to_chapter</code>
+      contract.
     </p>
     <table>
       <thead><tr><th>Method</th><th>Path</th><th>Query</th><th>Returns</th></tr></thead>
@@ -1511,8 +1520,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/locations/{location_id}</code></td><td><code>?cap=N</code></td><td><code>LocationDetail</code> — description, parent, present characters, events</td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/objects</code></td><td><code>?cap=N</code></td><td><code>ObjectSummary[]</code></td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/objects/{object_id}</code></td><td><code>?cap=N</code></td><td><code>ObjectDetail</code> — significance, owners, events</td></tr>
-        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions</code></td><td>—</td><td><code>FactionSummary[]</code> (no cap)</td></tr>
-        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions/{faction_id}</code></td><td>—</td><td><code>FactionDetail</code> — members, relationships</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions</code></td><td><code>?cap=N</code></td><td><code>FactionSummary[]</code> (cap accepted, unused — factions have no chapter anchor)</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions/{faction_id}</code></td><td><code>?cap=N</code></td><td><code>FactionDetail</code> — members, relationships, events (cap filters the events sub-list)</td></tr>
       </tbody>
     </table>
   </section>

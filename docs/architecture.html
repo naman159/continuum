@@ -1671,13 +1671,13 @@ flowchart LR
         </tr>
         <tr>
           <td><code>backend/api/queries.py</code></td>
-          <td>1,950</td>
-          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, continuity, and characters already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
+          <td>1,077</td>
+          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, continuity, characters, and locations/objects/factions/entity-types/custom-entities already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
         </tr>
         <tr>
-          <td><code>backend/reads/{novels,chapters,continuity,characters}.py</code></td>
-          <td>533</td>
-          <td><strong>Read layer for novels, chapters, continuity, and characters.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
+          <td><code>backend/reads/{novels,chapters,continuity,characters,world}.py</code></td>
+          <td>987</td>
+          <td><strong>Read layer for novels, chapters, continuity, characters, and world entities.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. <code>world.py</code> covers locations, objects, factions, entity types, and custom entities; <code>list_entity_types</code> is the one cutoff-exempt function in the whole read layer (type registry, not chapter-anchored story data). Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
