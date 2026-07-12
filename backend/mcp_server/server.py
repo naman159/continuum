@@ -11,12 +11,14 @@ from uuid import UUID
 
 from mcp.server.fastmcp import FastMCP
 
-from api import queries as api_queries
 from mcp_server import queries
 from reads import chapters as chapters_reads
 from reads import characters as characters_reads
+from reads import commitments as commitments_reads
 from reads import graphs as graphs_reads
+from reads import knowledge as knowledge_reads
 from reads import novels as novels_reads
+from reads import threads as threads_reads
 from reads import timeline as timeline_reads
 from reads import db as reads_db
 
@@ -75,10 +77,11 @@ def character_knowledge(
         cap = writing_chapter - 1
         nid = UUID(novel_id)
         cid = UUID(character_id) if character_id else None
+        db = reads_db.get_db()
         return {
-            "knows": api_queries.list_knows_edges(nid, cap, cid),
-            "locations_history": api_queries.list_location_edges(nid, cap, False),
-            "possessions": api_queries.list_possession_edges(nid, cap, False),
+            "knows": knowledge_reads.list_knows_edges(db, nid, cap, cid),
+            "locations_history": knowledge_reads.list_location_edges(db, nid, cap, False),
+            "possessions": knowledge_reads.list_possession_edges(db, nid, cap, False),
         }
 
     return _call(run)
@@ -97,24 +100,28 @@ def relationships(novel_id: str, writing_chapter: int) -> Any:
 
 @mcp.tool()
 def open_threads(novel_id: str, writing_chapter: int) -> Any:
-    """Plot threads opened before writing_chapter and not yet closed at that
-    point, each with its capped event history. Thread status/closed_chapter fields
-    reflect the full novel; point-in-time filtering is accurate when writing the
-    next unwritten chapter."""
-    return _call(
-        lambda: queries.list_open_threads(novel_id, up_to_chapter=writing_chapter - 1)
-    )
+    """Plot threads opened before writing_chapter and not yet closed as of that
+    point, each with its capped event history. status_at_cutoff reflects the
+    world as of writing_chapter - 1, so this is point-in-time accurate for any
+    chapter, not just the next unwritten one."""
+
+    def run() -> Any:
+        rows = threads_reads.list_threads(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1, status="all"
+        )
+        return [r for r in rows if r["status_at_cutoff"] != "closed"]
+
+    return _call(run)
 
 
 @mcp.tool()
 def unresolved_commitments(novel_id: str, writing_chapter: int) -> Any:
-    """Foreshadowing planted before writing_chapter that still awaits payoff. Uses
-    the novel-wide 'pending' status, so results are point-in-time accurate only when
-    writing the next unwritten chapter (a commitment paid off in a later existing
-    chapter won't appear)."""
+    """Foreshadowing planted before writing_chapter that still awaits payoff as of
+    that point. status_at_cutoff reflects the world as of writing_chapter - 1, so
+    this is point-in-time accurate for any chapter, not just the next unwritten one."""
     return _call(
-        lambda: api_queries.list_commitments(
-            UUID(novel_id), writing_chapter - 1, "pending"
+        lambda: commitments_reads.list_commitments(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1, status="pending"
         )
     )
 
@@ -131,10 +138,21 @@ def timeline_events(novel_id: str, writing_chapter: int) -> Any:
 
 
 @mcp.tool()
-def canon_facts(novel_id: str, locked_only: bool = False) -> Any:
+def canon_facts(
+    novel_id: str, locked_only: bool = False, writing_chapter: int | None = None
+) -> Any:
     """Established world facts. locked_only=True limits to facts whose
-    contradiction is a hard continuity failure."""
-    return _call(lambda: api_queries.list_canon_facts(UUID(novel_id), locked_only))
+    contradiction is a hard continuity failure. writing_chapter is optional; when
+    given, facts sourced from writing_chapter or later are excluded (cutoff =
+    writing_chapter - 1), matching the other cutoff-aware tools."""
+
+    def run() -> Any:
+        cap = writing_chapter - 1 if writing_chapter is not None else None
+        return knowledge_reads.list_canon_facts(
+            reads_db.get_db(), UUID(novel_id), cap, locked_only
+        )
+
+    return _call(run)
 
 
 @mcp.tool()

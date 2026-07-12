@@ -19,48 +19,6 @@ from pipeline.retrieval.hybrid import HybridRetriever
 from pipeline.retrieval.types import RetrievalQuery
 
 
-def list_open_threads(
-    novel_id: str, up_to_chapter: int, *, db: DBClient | None = None
-) -> list[dict[str, Any]]:
-    """Plot threads opened by `up_to_chapter` and not yet closed at that point."""
-    owned = db is None
-    client = db if db is not None else DBClient()
-    try:
-        threads = client.fetchall(
-            """
-            SELECT pt.id, pt.title, pt.description, pt.status, pt.thread_type,
-                   pt.opened_chapter, pt.closed_chapter
-            FROM plot_threads pt
-            WHERE pt.novel_id = %s
-              AND (pt.opened_chapter IS NULL OR pt.opened_chapter <= %s)
-              AND (pt.closed_chapter IS NULL OR pt.closed_chapter > %s)
-            ORDER BY pt.opened_chapter NULLS LAST, pt.title
-            """,
-            (novel_id, up_to_chapter, up_to_chapter),
-            dict_rows=True,
-        )
-        payload: list[dict[str, Any]] = []
-        for thread in threads:
-            events = client.fetchall(
-                """
-                SELECT te.impact, e.description, e.event_type, e.impact_level,
-                       ch.number AS chapter_number
-                FROM thread_events te
-                JOIN events e ON e.id = te.event_id
-                JOIN chapters ch ON ch.id = e.chapter_id
-                WHERE te.thread_id = %s AND ch.number <= %s
-                ORDER BY ch.number ASC, e.created_at ASC
-                """,
-                (thread["id"], up_to_chapter),
-                dict_rows=True,
-            )
-            payload.append({**dict(thread), "events": [dict(e) for e in events]})
-        return payload
-    finally:
-        if owned:
-            client.close()
-
-
 def search_story(
     novel_id: str,
     query_text: str,

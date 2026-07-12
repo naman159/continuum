@@ -38,30 +38,6 @@ class FakeDB:
         return False
 
 
-def test_list_open_threads_applies_cutoff_to_threads_and_events():
-    thread_row = {
-        "id": "t-1", "title": "The letter", "description": None, "status": "open",
-        "thread_type": "mystery", "opened_chapter": 2, "closed_chapter": None,
-    }
-    fake = FakeDB(fetchall_results=[[thread_row], []])
-    result = queries.list_open_threads("novel-1", 5, db=fake)
-
-    assert result[0]["title"] == "The letter"
-    thread_call = fake.calls[0]
-    assert thread_call[2] == ("novel-1", 5, 5)          # opened<=5 AND (closed IS NULL OR closed>5)
-    events_call = fake.calls[1]
-    assert events_call[2] == ("t-1", 5)                  # events capped at chapter 5
-
-
-def test_list_open_threads_owned_db_is_closed(monkeypatch):
-    closed = []
-    fake = FakeDB(fetchall_results=[[]])
-    fake.close = lambda: closed.append(True)
-    monkeypatch.setattr(queries, "DBClient", lambda: fake)
-    queries.list_open_threads("novel-1", 3)
-    assert closed == [True]
-
-
 class FakeRetriever:
     def __init__(self, results=None):
         self.seen_query = None

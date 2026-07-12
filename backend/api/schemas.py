@@ -170,6 +170,7 @@ class PlotThread(BaseModel):
     title: str
     description: str | None
     status: str
+    status_at_cutoff: str
     thread_type: str | None
     opened_chapter: int | None
     closed_chapter: int | None
@@ -342,6 +343,7 @@ class CommitmentRow(BaseModel):
     # JSONB column: the extractor may store a plain string, an object, or null.
     trigger_predicate: Any | None = None
     status: str
+    status_at_cutoff: str
     weight: float | None
     related_entity_names: list[str]
     age_chapters: int | None

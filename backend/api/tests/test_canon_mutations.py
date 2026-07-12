@@ -1,58 +1,72 @@
 from __future__ import annotations
 
-from uuid import uuid4
 
-from api import queries
-
-
-class _Recorder:
-    def __init__(self, fetchone_result=None):
-        self.calls: list[tuple[str, tuple]] = []
-        self._fetchone_result = fetchone_result
-
-    def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
-        self.calls.append((query, tuple(params or ())))
-        return self._fetchone_result
-
-    def execute(self, query, params=None):
-        self.calls.append((query, tuple(params or ())))
-
-    def fetchval(self, query, params=None, *, commit=False):
-        self.calls.append((query, tuple(params or ())))
-        return 1
-
-
-def test_patch_canon_fact_sets_lock(monkeypatch):
-    db = _Recorder(fetchone_result={"id": uuid4()})
-    monkeypatch.setattr(queries, "_get_db", lambda: db)
-    ok = queries.update_canon_fact(uuid4(), uuid4(), locked=True, value=None)
-    assert ok is True
-    assert any("UPDATE canon_facts" in q and "locked" in q for q, _ in db.calls)
-
-
-def test_patch_canon_fact_missing_returns_false(monkeypatch):
-    db = _Recorder(fetchone_result=None)
-    monkeypatch.setattr(queries, "_get_db", lambda: db)
-    assert queries.update_canon_fact(uuid4(), uuid4(), locked=True, value=None) is False
-
-
-def test_create_canon_fact_inserts(monkeypatch):
-    db = _Recorder(fetchone_result={"id": uuid4()})
-    monkeypatch.setattr(queries, "_get_db", lambda: db)
-    row = queries.create_canon_fact(
-        uuid4(),
-        subject_entity_id=uuid4(),
-        predicate="eye_color",
-        value="green",
-        kind="physical",
-        locked=True,
+def test_patch_canon_fact_sets_lock(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.patch(
+        f"/api/novels/{seeded['novel_id']}/canon/{seeded['canon_fact_id']}",
+        json={"locked": True},
     )
-    assert row is not None
-    assert any("INSERT INTO canon_facts" in q for q, _ in db.calls)
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+    facts = client.get(f"/api/novels/{seeded['novel_id']}/canon").json()
+    mine = next(f for f in facts if f["id"] == seeded["canon_fact_id"])
+    assert mine["locked"] is True
 
 
-def test_delete_canon_fact(monkeypatch):
-    db = _Recorder(fetchone_result={"id": uuid4()})
-    monkeypatch.setattr(queries, "_get_db", lambda: db)
-    assert queries.delete_canon_fact(uuid4(), uuid4()) is True
-    assert any("DELETE FROM canon_facts" in q for q, _ in db.calls)
+def test_patch_canon_fact_missing_returns_404(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.patch(
+        f"/api/novels/{seeded['novel_id']}/canon/00000000-0000-0000-0000-000000000000",
+        json={"locked": True},
+    )
+    assert response.status_code == 404
+
+
+def test_patch_canon_fact_nothing_to_update_returns_422(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.patch(
+        f"/api/novels/{seeded['novel_id']}/canon/{seeded['canon_fact_id']}",
+        json={},
+    )
+    assert response.status_code == 422
+
+
+def test_create_canon_fact_inserts(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.post(
+        f"/api/novels/{seeded['novel_id']}/canon",
+        json={
+            "subject_entity_id": seeded["char_a_eid"],
+            "predicate": "hair_color",
+            "value": "black",
+            "kind": "physical",
+            "locked": True,
+        },
+    )
+    assert response.status_code == 201
+    fact_id = response.json()["id"]
+
+    facts = client.get(f"/api/novels/{seeded['novel_id']}/canon").json()
+    mine = next(f for f in facts if f["id"] == fact_id)
+    assert mine["value"] == "black"
+    assert mine["locked"] is True
+    assert mine["kind"] == "physical"
+
+
+def test_delete_canon_fact(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.delete(f"/api/novels/{seeded['novel_id']}/canon/{seeded['canon_fact_id']}")
+    assert response.status_code == 204
+
+    facts = client.get(f"/api/novels/{seeded['novel_id']}/canon").json()
+    assert not any(f["id"] == seeded["canon_fact_id"] for f in facts)
+
+
+def test_delete_canon_fact_missing_returns_404(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.delete(
+        f"/api/novels/{seeded['novel_id']}/canon/00000000-0000-0000-0000-000000000000"
+    )
+    assert response.status_code == 404

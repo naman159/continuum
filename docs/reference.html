@@ -431,8 +431,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <div class="callout tip">
       <strong>Cutoff-aware by default.</strong> Every lookup below takes a <code>writing_chapter</code>
       and returns only facts from chapters strictly before it — an agent drafting chapter N sees the
-      world as of N−1. The exceptions are <code>canon_facts</code>, <code>list_novels</code>, and
-      <code>list_chapters</code> (no cutoff parameter at all).
+      world as of N−1. The exceptions are <code>list_novels</code> and <code>list_chapters</code>
+      (no cutoff parameter at all) and <code>canon_facts</code>, whose <code>writing_chapter</code> is
+      optional — omit it to see every canon fact regardless of when it was established.
     </div>
 
     <div class="callout warn">
@@ -455,10 +456,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character</td></tr>
         <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>relationships</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Character relationship graph (nodes + typed edges)</td></tr>
-        <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads opened and not yet closed, each with capped event history</td></tr>
-        <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing planted that still awaits payoff <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads whose <code>status_at_cutoff</code> is not <code>closed</code> as of <code>writing_chapter − 1</code>, each with capped event history. Point-in-time accurate for any chapter, not just the next unwritten one.</td></tr>
+        <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing whose <code>status_at_cutoff</code> is <code>pending</code> as of <code>writing_chapter − 1</code>. Point-in-time accurate for any chapter, not just the next unwritten one <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>timeline_events</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Story events grouped by chapter, from chapters before <code>writing_chapter</code> (fixed 2026-07-12 — previously non-functional, see callout above)</td></tr>
-        <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False</code></td><td>no</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False, writing_chapter=None</code></td><td>optional</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts. <code>writing_chapter</code> is optional — when given, facts sourced at or after it are excluded <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. Always run before <code>save_chapter</code> <span class="badge purple">GEN</span></td></tr>
         <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>) <span class="badge purple">GEN</span></td></tr>
@@ -1199,8 +1200,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{id}/canon</code></td>
-          <td><code>?locked_only=true</code></td>
-          <td><code>CanonFactRow[]</code> — id, kind, subject_name, predicate, value, source_chapter, confidence, locked</td>
+          <td><code>?cap=N&amp;locked_only=true</code></td>
+          <td><code>CanonFactRow[]</code> — id, kind, subject_name, predicate, value, source_chapter, confidence, locked. <code>cap</code> is optional; omit for every fact regardless of <code>source_chapter</code>.</td>
         </tr>
         <tr>
           <td><span class="badge blue">POST</span></td>
@@ -1565,7 +1566,12 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       </tbody>
     </table>
 
-    <p>Returns <code>PlotThread[]</code> each with a <code>thread_events: ThreadEventLink[]</code> array.</p>
+    <p>Returns <code>PlotThread[]</code> each with a <code>thread_events: ThreadEventLink[]</code> array.
+      Each row carries both the raw <code>status</code>/<code>closed_chapter</code> columns (the
+      novel-wide truth) and a derived <code>status_at_cutoff</code>: a thread closed in a chapter
+      later than <code>cap</code> reads as <code>progressing</code>, not <code>closed</code>, at that
+      cutoff — <code>closed_chapter</code> itself is <em>not</em> nulled out. The <code>status</code>
+      query param filters on <code>status_at_cutoff</code>.</p>
   </section>
 
   <section id="api-relationships">
@@ -1641,12 +1647,12 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><code>/api/novels/{id}/commitments</code></td>
           <td><code>?cap=N&amp;status=pending|satisfied|broken|abandoned</code></td>
-          <td><code>CommitmentRow[]</code> — foreshadow_text, foreshadow_chapter, payoff_text, payoff_chapter, status, weight</td>
+          <td><code>CommitmentRow[]</code> — foreshadow_text, foreshadow_chapter, payoff_text, payoff_chapter, status, <code>status_at_cutoff</code>, weight. <code>status</code> is the novel-wide truth; <code>status_at_cutoff</code> is point-in-time (a commitment paid off after <code>cap</code> still reads <code>pending</code>) and is what the <code>status</code> query param filters on. <code>age_chapters</code> is computed against <code>status_at_cutoff</code>.</td>
         </tr>
         <tr>
           <td><code>/api/novels/{id}/canon</code></td>
-          <td><code>?locked_only=true</code></td>
-          <td><code>CanonFactRow[]</code> — grouped by subject entity in frontend. See <a href="#schema-canon">canon_facts schema</a> for POST/PATCH/DELETE.</td>
+          <td><code>?cap=N&amp;locked_only=true</code></td>
+          <td><code>CanonFactRow[]</code> — grouped by subject entity in frontend. <code>cap</code> is optional (defaults to the novel's highest chapter, i.e. no effective cutoff) and excludes facts whose <code>source_chapter</code> is later than it. See <a href="#schema-canon">canon_facts schema</a> for POST/PATCH/DELETE.</td>
         </tr>
         <tr>
           <td><code>/api/novels/{id}/knows</code></td>

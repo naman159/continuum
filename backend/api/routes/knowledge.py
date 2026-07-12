@@ -4,8 +4,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 
-from api import queries
 from api.schemas import KnowsEdgeRow, LocationEdgeRow, PossessionEdgeRow
+from reads import knowledge as knowledge_reads
+from reads.db import get_db
 
 router = APIRouter(prefix="/api/novels/{novel_id}", tags=["knowledge"])
 
@@ -18,7 +19,7 @@ def list_knows(
 ) -> list[KnowsEdgeRow]:
     return [
         KnowsEdgeRow(**r)
-        for r in queries.list_knows_edges(novel_id, cap, character_id)
+        for r in knowledge_reads.list_knows_edges(get_db(), novel_id, cap, character_id)
     ]
 
 
@@ -30,7 +31,7 @@ def list_locations_history(
 ) -> list[LocationEdgeRow]:
     return [
         LocationEdgeRow(**r)
-        for r in queries.list_location_edges(novel_id, cap, only_active)
+        for r in knowledge_reads.list_location_edges(get_db(), novel_id, cap, only_active)
     ]
 
 
@@ -42,5 +43,5 @@ def list_possessions(
 ) -> list[PossessionEdgeRow]:
     return [
         PossessionEdgeRow(**r)
-        for r in queries.list_possession_edges(novel_id, cap, only_active)
+        for r in knowledge_reads.list_possession_edges(get_db(), novel_id, cap, only_active)
     ]

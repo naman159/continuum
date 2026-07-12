@@ -1,60 +1,41 @@
 from __future__ import annotations
 
-from uuid import uuid4
 
-from api.tests.conftest import make_chapter, make_novel
+def test_threads_status_at_cutoff_reflects_point_in_time(seed_novel_real, real_db, client):
+    """Factory thread: opened ch1, closed_chapter=3, status='closed'."""
+    seeded = seed_novel_real(real_db)
 
-
-def test_threads_status_filter(fake_db_factory, client):
-    novel = make_novel()
-    open_thread = {
-        "id": uuid4(),
-        "novel_id": novel["id"],
-        "title": "Open",
-        "description": None,
-        "status": "open",
-        "thread_type": "goal",
-        "opened_chapter": 1,
-        "closed_chapter": None,
-    }
-    closed_thread = {
-        "id": uuid4(),
-        "novel_id": novel["id"],
-        "title": "Closed",
-        "description": None,
-        "status": "closed",
-        "thread_type": "mystery",
-        "opened_chapter": 1,
-        "closed_chapter": 2,
-    }
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], 1), make_chapter(novel["id"], 2)],
-        plot_threads=[open_thread, closed_thread],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/threads?status=open")
-    titles = [r["title"] for r in response.json()]
-    assert titles == ["Open"]
-
-
-def test_threads_closed_in_future_chapter_appears_open(fake_db_factory, client):
-    novel = make_novel()
-    thread = {
-        "id": uuid4(),
-        "novel_id": novel["id"],
-        "title": "T",
-        "description": None,
-        "status": "closed",
-        "thread_type": None,
-        "opened_chapter": 1,
-        "closed_chapter": 5,
-    }
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], n) for n in (1, 5)],
-        plot_threads=[thread],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/threads?cap=3")
+    response = client.get(f"/api/novels/{seeded['novel_id']}/threads?cap=2")
+    assert response.status_code == 200
     rows = response.json()
-    assert rows[0]["status"] == "progressing"
-    assert rows[0]["closed_chapter"] is None
+    mine = next(r for r in rows if r["id"] == seeded["thread_id"])
+    # Raw columns reflect the novel-wide truth; status_at_cutoff reflects
+    # what a reader at chapter 2 would see.
+    assert mine["status"] == "closed"
+    assert mine["closed_chapter"] == 3
+    assert mine["status_at_cutoff"] == "progressing"
+    assert all(e["chapter_number"] <= 2 for e in mine["events"])
+
+    response3 = client.get(f"/api/novels/{seeded['novel_id']}/threads?cap=3")
+    rows3 = response3.json()
+    mine3 = next(r for r in rows3 if r["id"] == seeded["thread_id"])
+    assert mine3["status_at_cutoff"] == "closed"
+
+
+def test_threads_status_filter_uses_status_at_cutoff(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+
+    # At cap=2 the thread hasn't closed yet at cutoff: filtering for
+    # status=closed excludes it, status=progressing includes it.
+    closed_at_cap2 = client.get(f"/api/novels/{seeded['novel_id']}/threads?cap=2&status=closed")
+    assert closed_at_cap2.status_code == 200
+    assert not any(r["id"] == seeded["thread_id"] for r in closed_at_cap2.json())
+
+    progressing_at_cap2 = client.get(
+        f"/api/novels/{seeded['novel_id']}/threads?cap=2&status=progressing"
+    )
+    assert any(r["id"] == seeded["thread_id"] for r in progressing_at_cap2.json())
+
+    # At cap=3 it has closed: filtering for status=closed now includes it.
+    closed_at_cap3 = client.get(f"/api/novels/{seeded['novel_id']}/threads?cap=3&status=closed")
+    assert any(r["id"] == seeded["thread_id"] for r in closed_at_cap3.json())
