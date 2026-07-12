@@ -70,7 +70,7 @@ def get_chapter_critique(db: Any, novel_id: UUID | str, chapter_number: int) -> 
         SELECT check_name, severity, message, quote, evidence
           FROM critique_findings
          WHERE report_id = %s
-         ORDER BY id
+         ORDER BY CASE severity WHEN 'fail' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END, check_name
         """,
         (report["id"],),
         dict_rows=True,
