@@ -108,13 +108,21 @@ def open_threads(novel_id: str, writing_chapter: int) -> Any:
     """Plot threads opened before writing_chapter and not yet closed as of that
     point, each with its capped event history. status_at_cutoff reflects the
     world as of writing_chapter - 1, so this is point-in-time accurate for any
-    chapter, not just the next unwritten one."""
+    chapter, not just the next unwritten one. closed_chapter and status are
+    future-anchored (the novel-wide truth): for any thread not yet closed at
+    the cutoff, both are masked (closed_chapter=None, status=status_at_cutoff)
+    so a thread closed in a later existing chapter doesn't leak its closure."""
 
     def run() -> Any:
         rows = threads_reads.list_threads(
             reads_db.get_db(), UUID(novel_id), writing_chapter - 1, status="all"
         )
-        return [r for r in rows if r["status_at_cutoff"] != "closed"]
+        open_rows = [r for r in rows if r["status_at_cutoff"] != "closed"]
+        for r in open_rows:
+            if r["status_at_cutoff"] != "closed":
+                r["closed_chapter"] = None
+                r["status"] = r["status_at_cutoff"]
+        return open_rows
 
     return _call(run)
 
@@ -123,12 +131,24 @@ def open_threads(novel_id: str, writing_chapter: int) -> Any:
 def unresolved_commitments(novel_id: str, writing_chapter: int) -> Any:
     """Foreshadowing planted before writing_chapter that still awaits payoff as of
     that point. status_at_cutoff reflects the world as of writing_chapter - 1, so
-    this is point-in-time accurate for any chapter, not just the next unwritten one."""
-    return _call(
-        lambda: commitments_reads.list_commitments(
+    this is point-in-time accurate for any chapter, not just the next unwritten one.
+    payoff_text, payoff_chapter, and status are future-anchored (the novel-wide
+    truth): for any commitment still pending at the cutoff, all three are masked
+    (payoff_text=None, payoff_chapter=None, status="pending") so a commitment paid
+    off in a later existing chapter doesn't leak its payoff."""
+
+    def run() -> Any:
+        rows = commitments_reads.list_commitments(
             reads_db.get_db(), UUID(novel_id), writing_chapter - 1, status="pending"
         )
-    )
+        for r in rows:
+            if r["status_at_cutoff"] == "pending":
+                r["payoff_text"] = None
+                r["payoff_chapter"] = None
+                r["status"] = "pending"
+        return rows
+
+    return _call(run)
 
 
 @mcp.tool()

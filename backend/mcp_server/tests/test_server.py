@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 
+from pipeline.db.client import DBClient
+from reads.tests import seeding
+
 from mcp_server import server
 
 
@@ -101,3 +104,66 @@ def test_relationships_tool_converts_writing_chapter_to_cap(monkeypatch):
     assert "error" not in out
     assert seen["up_to_chapter"] == 4
     assert out["nodes"] == []
+
+
+# ---------------------------------------------------------------------------
+# Spoiler masking: unresolved_commitments / open_threads (real DB, seed factory)
+# ---------------------------------------------------------------------------
+
+
+def test_unresolved_commitments_masks_future_payoff_before_satisfied():
+    """Commitment foreshadowed ch1, paid off ch3 (seed factory). At
+    writing_chapter=3 (cutoff=2) it's still pending -> payoff_text/
+    payoff_chapter must be masked to None and status forced to 'pending' so
+    the future payoff doesn't leak. At writing_chapter=4 (cutoff=3) it's
+    satisfied and drops out of the pending-only tool entirely."""
+    db = DBClient()
+    seeded = None
+    try:
+        seeded = seeding.seed_novel(db)
+        novel_id = seeded["novel_id"]
+
+        rows = server.unresolved_commitments(novel_id, 3)
+        assert isinstance(rows, list)
+        matches = [r for r in rows if str(r["id"]) == seeded["commitment_id"]]
+        assert len(matches) == 1
+        row = matches[0]
+        assert row["status_at_cutoff"] == "pending"
+        assert row["payoff_text"] is None
+        assert row["payoff_chapter"] is None
+        assert row["status"] == "pending"
+
+        rows_after = server.unresolved_commitments(novel_id, 4)
+        assert all(str(r["id"]) != seeded["commitment_id"] for r in rows_after)
+    finally:
+        if seeded is not None:
+            seeding.cleanup(db, seeded["novel_id"])
+        db.close()
+
+
+def test_open_threads_masks_future_closure_before_closed():
+    """Plot thread opened ch1, closed ch3 (seed factory). At
+    writing_chapter=3 (cutoff=2) it still reads as open -> closed_chapter/
+    status must be masked so the future closure doesn't leak. At
+    writing_chapter=4 (cutoff=3) it's closed and drops out of open_threads."""
+    db = DBClient()
+    seeded = None
+    try:
+        seeded = seeding.seed_novel(db)
+        novel_id = seeded["novel_id"]
+
+        rows = server.open_threads(novel_id, 3)
+        assert isinstance(rows, list)
+        matches = [r for r in rows if str(r["id"]) == seeded["thread_id"]]
+        assert len(matches) == 1
+        row = matches[0]
+        assert row["status_at_cutoff"] == "progressing"
+        assert row["closed_chapter"] is None
+        assert row["status"] == "progressing"
+
+        rows_after = server.open_threads(novel_id, 4)
+        assert all(str(r["id"]) != seeded["thread_id"] for r in rows_after)
+    finally:
+        if seeded is not None:
+            seeding.cleanup(db, seeded["novel_id"])
+        db.close()
