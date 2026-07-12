@@ -1,8 +1,8 @@
-"""Composite, cutoff-aware lookups for the MCP writer tools.
+"""Write-spine glue for the MCP writer tools: check_continuity + save_chapter.
 
-Query functions moved from the deleted cli/ package plus MCP-specific glue.
-`up_to_chapter` is always an INCLUSIVE cap; server.py converts the agent-facing
-`writing_chapter` to `writing_chapter - 1` before calling in here.
+All read lookups moved to the shared `reads/` layer (see reads/*); what remains
+here is the pre-save continuity gate and the chapter-ingest wrapper around
+`analyze_chapter`.
 """
 
 from __future__ import annotations

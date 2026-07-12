@@ -371,7 +371,7 @@ flowchart TB
       <tr>
         <td><strong>Read-only wiki (API + React)</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>19 routers registered in <code>api/app.py</code>; full route set in <code>frontend/src/routes</code>. <strong>Resolved 2026-07-12:</strong> critic findings now render per-chapter (Continuity view) and a Search page exists, backed by <code>reads/search.py</code>; the whole read side was also consolidated into a single <code>reads/</code> layer — <code>api/queries.py</code> is deleted and <code>mcp_server/queries.py</code> no longer duplicates read logic, closing the two-copies drift documented below.</td>
+        <td>19 routers registered in <code>api/app.py</code>; full route set in <code>frontend/src/routes</code>. <strong>Resolved 2026-07-12:</strong> critic findings now render per-chapter (Continuity view) and a Search page exists, backed by <code>reads/search.py</code>; the whole read side was also consolidated into a single <code>reads/</code> layer — <code>api/queries.py</code> is deleted and <code>mcp_server/queries.py</code> no longer duplicates read logic, so the API and MCP surfaces can no longer drift apart.</td>
         <td>Everything on this row's original punch list now exists</td>
       </tr>
       <tr>
