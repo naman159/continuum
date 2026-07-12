@@ -1026,21 +1026,17 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   description         <span class="sql-type">TEXT</span>     <span class="sql-constraint">NOT NULL</span>,
   event_type          <span class="sql-type">TEXT</span>,    <span class="sql-comment">-- 'action', 'revelation', 'conflict', 'dialogue', etc.</span>
   impact_level        <span class="sql-type">TEXT</span>,    <span class="sql-comment">-- 'low', 'medium', 'high', 'critical'</span>
-  involved_characters <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references entities(id), not characters(id) — see note below</span>
-  involved_locations  <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references entities(id), not locations(id)</span>
-  involved_objects    <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references entities(id), not objects(id)</span>
-  involved_factions   <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references entities(id), not factions(id)</span>
+  involved_characters <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references characters(id)</span>
+  involved_locations  <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references locations(id)</span>
+  involved_objects    <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references objects(id)</span>
+  involved_factions   <span class="sql-type">UUID[]</span>,  <span class="sql-comment">-- references factions(id)</span>
   embedding           <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,
   created_at          <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
 );</code></pre>
     <p>
       Events are the backbone of the timeline view. The <code>involved_*</code> UUID arrays allow
       querying "all events involving character X" via <code>= ANY(involved_characters)</code>.
-      These are GIN-indexed for fast containment queries. The extractor resolves each name to its
-      universal <code>entities.id</code> (see <code>pipeline/pipeline.py</code>'s event insert), not
-      the typed table's own id, so a query against <code>involved_characters</code> must use a
-      character's <code>entity_id</code>, never its <code>characters.id</code> — <code>reads.characters
-      .get_character_detail</code> is the reference implementation for this.
+      These are GIN-indexed for fast containment queries.
     </p>
     <div class="callout info">
       <strong>Removed in the write-spine consolidation:</strong> the SVO triple

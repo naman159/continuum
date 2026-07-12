@@ -127,6 +127,9 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
         )
         faction_id = str(cur.fetchone()[0])
 
+        # events.involved_* store TYPED ids (characters.id / factions.id / ...):
+        # pipeline.py inserts resolver.resolve_*(name).entity_id, which is the
+        # type-specific id per ResolvedEntity (resolver.py), not entities.id.
         cur.execute(
             """
             INSERT INTO events (chapter_id, description, event_type, impact_level,
@@ -139,8 +142,8 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
                 "The Hollow Ledger ambushes the caravan at Sable Archive.",
                 "conflict",
                 "high",
-                [char_a_eid],
-                [faction_eid],
+                [char_a_id],
+                [faction_id],
             ),
         )
         faction_event_id = str(cur.fetchone()[0])
@@ -154,7 +157,7 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
             RETURNING id
             """,
             (chapter_ids[0], "Aria discovers the ledger's trail.", "discovery", "medium",
-             [char_a_eid]),
+             [char_a_id]),
         )
         thread_open_event_id = str(cur.fetchone()[0])
 

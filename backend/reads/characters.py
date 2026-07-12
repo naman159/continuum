@@ -62,10 +62,14 @@ def get_character_detail(
         "description": identity_row.get("description"),
         "first_appearance_chapter": identity_row.get("first_appearance_chapter"),
     }
-    # `character_id` (this function's param) is the typed characters.id PK.
-    # events.involved_* and shared_dynamics/relationships entity_a/b_id are all
-    # in the universal entities.id space, so name/membership resolution against
-    # those columns must key off entity_id, not character_id.
+    # Two id spaces are in play. events.involved_* store TYPED ids
+    # (characters.id / locations.id / objects.id / factions.id): pipeline.py's
+    # event insert uses resolver ResolvedEntity.entity_id, the type-specific
+    # id. So the events query filters on `character_id` (the typed PK) and
+    # involved_* names resolve via the typed tables. By contrast,
+    # relationships/shared_dynamics entity_a/b_id are UNIVERSAL entities.id
+    # (the pipeline uses ResolvedEntity.universal_id there), so those resolve
+    # via characters.entity_id.
     char_entity_id = str(identity_row["entity_id"]) if identity_row.get("entity_id") else None
 
     states_rows = db.fetchall(
@@ -89,7 +93,7 @@ def get_character_detail(
         WHERE %s = ANY(e.involved_characters) AND ch.number <= %s
         ORDER BY ch.number, e.created_at
         """,
-        (char_entity_id, cutoff),
+        (character_id, cutoff),
         dict_rows=True,
     )
     rels_rows = db.fetchall(
@@ -107,19 +111,24 @@ def get_character_detail(
         dict_rows=True,
     )
 
-    # Typed locations.id -> name, for character_states.location_id (which FKs
-    # to locations(id), not entities(id)).
+    # Typed-id -> name maps, one per typed table: events.involved_* store the
+    # typed ids, and character_states.location_id FKs to locations(id) too.
+    char_name_rows = db.fetchall(
+        "SELECT id, name FROM characters WHERE novel_id = %s", (novel_id,), dict_rows=True
+    )
+    char_name = {r["id"]: r["name"] for r in char_name_rows}
     loc_rows = db.fetchall(
         "SELECT id, name FROM locations WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
-    location_by_id = {r["id"]: r["name"] for r in loc_rows}
-
-    # entities.id -> name, for events.involved_* (all four columns store
-    # universal entity ids, regardless of entity_type).
-    entity_rows = db.fetchall(
-        "SELECT id, name FROM entities WHERE novel_id = %s", (novel_id,), dict_rows=True
+    location_name = {r["id"]: r["name"] for r in loc_rows}
+    obj_rows = db.fetchall(
+        "SELECT id, name FROM objects WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
-    entity_name = {r["id"]: r["name"] for r in entity_rows}
+    object_name = {r["id"]: r["name"] for r in obj_rows}
+    faction_rows = db.fetchall(
+        "SELECT id, name FROM factions WHERE novel_id = %s", (novel_id,), dict_rows=True
+    )
+    faction_name = {r["id"]: r["name"] for r in faction_rows}
 
     states = [dict(r) for r in states_rows]
     events = [dict(r) for r in events_rows]
@@ -129,7 +138,7 @@ def get_character_detail(
         loc_id = state.get("location_id")
         return {
             "chapter_number": state.get("chapter_number"),
-            "location": location_by_id.get(loc_id) if loc_id else None,
+            "location": location_name.get(loc_id) if loc_id else None,
             "emotional_state": state.get("emotional_state"),
             "goals": state.get("goals"),
             "knowledge": list(state.get("knowledge") or []),
@@ -148,10 +157,10 @@ def get_character_detail(
             "description": event.get("description"),
             "event_type": event.get("event_type"),
             "impact_level": event.get("impact_level"),
-            "involved_characters": [entity_name.get(cid, str(cid)) for cid in event.get("involved_characters") or []],
-            "involved_locations": [entity_name.get(lid, str(lid)) for lid in event.get("involved_locations") or []],
-            "involved_objects": [entity_name.get(oid, str(oid)) for oid in event.get("involved_objects") or []],
-            "involved_factions": [entity_name.get(fid, str(fid)) for fid in (event.get("involved_factions") or [])],
+            "involved_characters": [char_name.get(cid, str(cid)) for cid in event.get("involved_characters") or []],
+            "involved_locations": [location_name.get(lid, str(lid)) for lid in event.get("involved_locations") or []],
+            "involved_objects": [object_name.get(oid, str(oid)) for oid in event.get("involved_objects") or []],
+            "involved_factions": [faction_name.get(fid, str(fid)) for fid in (event.get("involved_factions") or [])],
         }
 
     def rel_to_row(rel: dict[str, Any]) -> dict[str, Any]:
