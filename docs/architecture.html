@@ -499,20 +499,27 @@ graph LR
 ├── <span class="dir">backend/</span>
 │   ├── <span class="dir">api/</span>
 │   │   ├── <span class="key">app.py</span>            <span class="cmt"># FastAPI app, mounts 19 routers</span>
-│   │   ├── <span class="key">queries.py</span>        <span class="cmt"># SQL for views not yet migrated to reads/; being drained domain by domain</span>
-│   │   ├── <span class="key">admin.py</span>          <span class="cmt"># Novel create/delete (SQL-only, real Postgres)</span>
+│   │   ├── <span class="key">admin.py</span>          <span class="cmt"># Novel create/delete + canon fact mutations (SQL-only, real Postgres)</span>
 │   │   ├── <span class="key">schemas.py</span>        <span class="cmt"># Pydantic response models (35+ types)</span>
 │   │   ├── <span class="key">jobs.py</span>           <span class="cmt"># In-memory job status store</span>
-│   │   └── routes/           <span class="cmt"># One file per entity/feature domain</span>
+│   │   └── routes/           <span class="cmt"># One file per entity/feature domain — no SQL, calls reads/ (enforced by reads/tests/test_contract.py)</span>
 │   │       ├── entity_graph.py   <span class="cmt"># Unified entity + rich edge graph</span>
 │   │       └── entity_types.py   <span class="cmt"># Custom entity type CRUD + genre presets</span>
-│   ├── <span class="dir">reads/</span>            <span class="cmt"># Read layer: SQL-only, cutoff-aware, no FakeDB branches</span>
+│   ├── <span class="dir">reads/</span>            <span class="cmt"># Read layer: SQL-only, cutoff-aware, no FakeDB branches. The sole presentation reader — api/queries.py is gone.</span>
 │   │   ├── <span class="key">db.py</span>             <span class="cmt"># get_db() — the read layer's DB provider</span>
 │   │   ├── <span class="key">common.py</span>         <span class="cmt"># resolve_cutoff(), max_chapter_for(), merge_story_edges()</span>
 │   │   ├── <span class="key">novels.py</span>         <span class="cmt"># list_novels, get_novel</span>
 │   │   ├── <span class="key">chapters.py</span>       <span class="cmt"># list_chapters (+ critique summary), list_scenes</span>
 │   │   ├── <span class="key">characters.py</span>     <span class="cmt"># list_characters, get_character_detail, get_character_page (MCP + wiki share this)</span>
-│   │   └── continuity.py     <span class="cmt"># list_flags, get_chapter_critique, list_critiques</span>
+│   │   ├── <span class="key">continuity.py</span>     <span class="cmt"># list_flags, get_chapter_critique, list_critiques</span>
+│   │   ├── <span class="key">world.py</span>          <span class="cmt"># locations, objects, factions, entity types, custom entities</span>
+│   │   ├── <span class="key">timeline.py</span>       <span class="cmt"># list_timeline — backs the wiki timeline route and the MCP timeline_events tool</span>
+│   │   ├── <span class="key">graphs.py</span>         <span class="cmt"># relationship_graph, entity_graph, list_shared_dynamics</span>
+│   │   ├── <span class="key">relationship_types.py</span> <span class="cmt"># resolve_symmetric() — sole source of relationship symmetry</span>
+│   │   ├── <span class="key">threads.py</span>        <span class="cmt"># list_threads (+ status_at_cutoff)</span>
+│   │   ├── <span class="key">commitments.py</span>    <span class="cmt"># list_commitments (+ status_at_cutoff)</span>
+│   │   ├── <span class="key">knowledge.py</span>      <span class="cmt"># knows_edges, located_in_edges, possesses_edges, canon_facts</span>
+│   │   └── search.py         <span class="cmt"># hybrid search — backs /api/search and the MCP search_story tool</span>
 │   ├── <span class="dir">pipeline/</span>
 │   │   ├── <span class="key">pipeline.py</span>       <span class="cmt"># Master orchestration — start here</span>
 │   │   ├── <span class="key">config.py</span>         <span class="cmt"># All tuneable settings (frozen dataclass)</span>
@@ -556,8 +563,8 @@ graph LR
 │   │   ├── entity_tables.py      <span class="cmt"># Single source of the entity type → table map</span>
 │   │   └── ingestion/ingest.py   <span class="cmt"># Raw chapter INSERT</span>
 │   ├── <span class="dir">mcp_server/</span>          <span class="cmt"># FastMCP stdio server (novel-mcp): 13 tools for writing agents</span>
-│   │   ├── server.py             <span class="cmt"># @mcp.tool definitions + entry point (main)</span>
-│   │   └── queries.py            <span class="cmt"># Cutoff-aware SQL backing the tools</span>
+│   │   ├── server.py             <span class="cmt"># @mcp.tool definitions + entry point (main); read tools call reads/ directly, no SQL</span>
+│   │   └── queries.py            <span class="cmt"># Writer-only glue: check_continuity, save_chapter (all read tools moved to reads/ in the read-layer migration)</span>
 │   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
 └── <span class="dir">frontend/src/</span>
     ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 23 routes</span>
@@ -815,20 +822,28 @@ flowchart TD
   <section id="chapter-cap">
     <h2>Chapter Cap (Spoiler Mode)</h2>
     <p>
-      Every query in <code>queries.py</code> accepts an optional <code>cap: int | None</code> parameter.
-      When set, it filters results to "as of chapter N" — you only see characters, events, and
-      facts that existed up to that chapter number. Domains migrated to the <code>reads/</code>
-      layer (novels, chapters, continuity, characters) carry the same contract as <code>up_to_chapter: int | None</code>,
-      resolved to a concrete cutoff via <code>reads.common.resolve_cutoff</code> — <code>None</code>
-      resolves to the novel's current max chapter, so no row from beyond the cutoff is ever returned.
+      Every public function in <code>reads/</code> takes <code>up_to_chapter: int | None</code> as its
+      third positional parameter (after <code>db, novel_id</code>). When set, it filters results to "as of
+      chapter N" — you only see characters, events, and facts that existed up to that chapter number.
+      <code>None</code> resolves to the novel's current max chapter via <code>reads.common.resolve_cutoff</code>,
+      so no row from beyond the cutoff is ever returned. This isn't just convention: <code>reads/tests/test_contract.py</code>
+      enforces it structurally — it walks every module in <code>reads/</code> via <code>pkgutil</code> and
+      fails the build if a public function is missing the parameter, except the handful of documented
+      exemptions in its <code>CUTOFF_EXEMPT</code> set (registry reads like <code>list_novels</code>/<code>get_novel</code>,
+      <code>list_entity_types</code>, and pure label-classification helpers with no <code>db</code>/<code>novel_id</code>
+      at all). Routes and MCP tools translate their own <code>cap</code>/<code>writing_chapter</code>
+      parameters into this contract at the boundary; the same test also asserts <code>api/routes/*.py</code>
+      and <code>mcp_server/server.py</code> contain no SQL, so cutoff logic can't silently duplicate outside <code>reads/</code>.
     </p>
 
-    <pre><code><span class="comment"># Example from queries.py</span>
-<span class="kw">def</span> <span class="fn">list_characters</span>(conn, novel_id, cap=<span class="kw">None</span>):
-    where = <span class="str">"WHERE c.novel_id = %s"</span>
-    <span class="kw">if</span> cap <span class="kw">is not None</span>:
-        where += <span class="str">" AND c.first_appearance_chapter <= %s"</span>
-    ...</code></pre>
+    <pre><code><span class="comment"># Example from reads/characters.py</span>
+<span class="kw">def</span> <span class="fn">list_characters</span>(db, novel_id, up_to_chapter=<span class="kw">None</span>):
+    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
+    <span class="kw">return</span> db.fetchall(
+        <span class="str">"SELECT ... FROM characters c WHERE c.novel_id = %s "</span>
+        <span class="str">"AND c.first_appearance_chapter <= %s"</span>,
+        (novel_id, cutoff),
+    )</code></pre>
 
     <p>
       The <strong>frontend chapter cap slider</strong> lives in <code>Sidebar.tsx</code>. It writes the
@@ -1403,7 +1418,7 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
       <strong>Story edges</strong> (event, possession, location) are rendered as dashed lines with
       tooltips showing the underlying details. When multiple story edges exist between the same pair
       of entities, they are merged into a single edge — the <code>_STORY_KIND_PRECEDENCE</code>
-      list in <code>queries.py</code> determines which <code>edge_kind</code> wins (possession &gt; location &gt; event).
+      list in <code>reads/common.py::merge_story_edges</code> determines which <code>edge_kind</code> wins (possession &gt; location &gt; event).
     </p>
 
     <p>
@@ -1692,14 +1707,9 @@ flowchart LR
           <td><strong>Source of truth for DB structure.</strong> Any new feature starts here. Watch for missing indexes, wrong types, missing chapter-cap columns.</td>
         </tr>
         <tr>
-          <td><code>backend/api/queries.py</code></td>
-          <td>110</td>
-          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Down to <code>get_novel</code> and <code>list_chapters</code>, both still called from <code>api/routes/process.py</code>. Everything else has moved out: novels, chapters, continuity, characters, locations/objects/factions/entity-types/custom-entities, timeline, both relationship/entity graphs, plot threads, commitments, and knowledge/canon reads now live in <code>reads/</code>; canon fact mutations (create/update/delete) moved to <code>api/admin.py</code>. Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
-        </tr>
-        <tr>
-          <td><code>backend/reads/{novels,chapters,continuity,characters,world,timeline,graphs,relationship_types,threads,commitments,knowledge}.py</code></td>
-          <td>1,701</td>
-          <td><strong>Read layer for novels, chapters, continuity, characters, world entities, the story timeline, both graph views, plot threads, commitments, and knowledge/canon facts.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. <code>world.py</code> covers locations, objects, factions, entity types, and custom entities; <code>list_entity_types</code> is the one cutoff-exempt function in the whole read layer (type registry, not chapter-anchored story data). <code>timeline.py::list_timeline</code> backs both the <code>/api/novels/{id}/timeline</code> route and the MCP <code>timeline_events</code> tool (previously broken — it queried a <code>timeline</code> table that never existed; the MCP tool catalog in <code>reference.html</code> has details). <code>graphs.py::relationship_graph</code> is the single implementation that replaced the two independently-drifted copies that used to live in <code>api/queries.py</code> and <code>mcp_server/queries.py</code>; it also backs the MCP <code>relationships</code> tool, and <code>graphs.py::entity_graph</code>/<code>list_shared_dynamics</code> back the entity-graph and dynamics routes. <code>relationship_types.py</code> (moved from <code>api/</code>) is now the sole source of <code>resolve_symmetric()</code> — no more duplicated symmetry tables. <code>threads.py::list_threads</code> and <code>commitments.py::list_commitments</code> add a derived <code>status_at_cutoff</code> alongside the raw <code>status</code> column (a thread/commitment that resolves later than the cutoff still reads as open/pending at that point) and back both the wiki routes and the MCP <code>open_threads</code>/<code>unresolved_commitments</code> tools — replacing <code>mcp_server/queries.py::list_open_threads</code>, now deleted. <code>knowledge.py</code> covers <code>knows_edges</code>, <code>located_in_edges</code>, <code>possesses_edges</code>, and <code>canon_facts</code> (the latter's cutoff is optional — <code>up_to_chapter=None</code> shows every fact). Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
+          <td><code>backend/reads/{novels,chapters,continuity,characters,world,timeline,graphs,relationship_types,threads,commitments,knowledge,search}.py</code></td>
+          <td>1,755</td>
+          <td><strong>The read layer — the only presentation reader in the codebase.</strong> <code>api/queries.py</code> is deleted (dissolved into <code>reads/</code> across the read-layer migration); <code>mcp_server/queries.py</code> is down to <code>check_continuity</code> and <code>save_chapter</code> (writer-side glue, not reads). <code>api/routes/*.py</code> and <code>mcp_server/server.py</code> contain no SQL at all — enforced structurally by <code>reads/tests/test_contract.py</code>, which also asserts every public <code>reads/</code> function accepts <code>up_to_chapter</code> except a documented exemption set. SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. <code>world.py</code> covers locations, objects, factions, entity types, and custom entities; <code>list_entity_types</code> is one of the documented cutoff-exempt functions (type registry, not chapter-anchored story data). <code>timeline.py::list_timeline</code> backs both the <code>/api/novels/{id}/timeline</code> route and the MCP <code>timeline_events</code> tool (previously broken — it queried a <code>timeline</code> table that never existed; the MCP tool catalog in <code>reference.html</code> has details). <code>graphs.py::relationship_graph</code> is the single implementation that replaced the two independently-drifted copies that used to live in <code>api/queries.py</code> and <code>mcp_server/queries.py</code>; it also backs the MCP <code>relationships</code> tool, and <code>graphs.py::entity_graph</code>/<code>list_shared_dynamics</code> back the entity-graph and dynamics routes. <code>relationship_types.py</code> (moved from <code>api/</code>) is now the sole source of <code>resolve_symmetric()</code> — no more duplicated symmetry tables; its label-classification helpers (<code>is_symmetric</code>, <code>resolve_symmetric</code>) are the contract test's other exemption, since they take no <code>db</code>/<code>novel_id</code> at all. <code>threads.py::list_threads</code> and <code>commitments.py::list_commitments</code> add a derived <code>status_at_cutoff</code> alongside the raw <code>status</code> column (a thread/commitment that resolves later than the cutoff still reads as open/pending at that point) and back both the wiki routes and the MCP <code>open_threads</code>/<code>unresolved_commitments</code> tools — replacing <code>mcp_server/queries.py::list_open_threads</code>, now deleted. <code>knowledge.py</code> covers <code>knows_edges</code>, <code>located_in_edges</code>, <code>possesses_edges</code>, and <code>canon_facts</code> (the latter's cutoff is optional — <code>up_to_chapter=None</code> shows every fact). <code>search.py::search</code> wraps <code>pipeline.retrieval.HybridRetriever</code> and backs both <code>/api/search</code> and the MCP <code>search_story</code> tool. Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>

@@ -28,7 +28,7 @@ def _fake_novel(novel_id: str) -> dict:
 
 def test_submit_job_returns_202_with_job_id():
     novel_id = _novel_id()
-    with patch("api.routes.process.queries.get_novel", return_value=_fake_novel(novel_id)), \
+    with patch("api.routes.process.novels_reads.get_novel", return_value=_fake_novel(novel_id)), \
          patch("api.routes.process.submit_job", return_value="job-abc") as mock_submit:
         response = client.post(
             f"/api/novels/{novel_id}/chapters/process",
@@ -45,7 +45,7 @@ def test_submit_job_returns_202_with_job_id():
 
 
 def test_submit_job_404_when_novel_missing():
-    with patch("api.routes.process.queries.get_novel", return_value=None):
+    with patch("api.routes.process.novels_reads.get_novel", return_value=None):
         response = client.post(
             f"/api/novels/{_novel_id()}/chapters/process",
             json={"number": 1, "text": "Some text."},
@@ -55,7 +55,7 @@ def test_submit_job_404_when_novel_missing():
 
 def test_submit_job_422_when_text_blank():
     novel_id = _novel_id()
-    with patch("api.routes.process.queries.get_novel", return_value=_fake_novel(novel_id)):
+    with patch("api.routes.process.novels_reads.get_novel", return_value=_fake_novel(novel_id)):
         response = client.post(
             f"/api/novels/{novel_id}/chapters/process",
             json={"number": 1, "text": "   "},
@@ -98,7 +98,7 @@ def test_process_accepts_replace_flag(monkeypatch):
         return "job-123"
 
     monkeypatch.setattr("api.routes.process.submit_job", fake_submit)
-    with patch("api.routes.process.queries.get_novel", return_value=novel):
+    with patch("api.routes.process.novels_reads.get_novel", return_value=novel):
         response = client.post(
             f"/api/novels/{novel['id']}/chapters/process",
             json={"number": 2, "text": "chapter text", "replace": True},

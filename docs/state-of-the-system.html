@@ -371,14 +371,14 @@ flowchart TB
       <tr>
         <td><strong>Read-only wiki (API + React)</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>18 routers registered in <code>api/app.py</code>; full route set in <code>frontend/src/routes</code></td>
-        <td>Surface critic findings &amp; a search box (neither exists yet)</td>
+        <td>19 routers registered in <code>api/app.py</code>; full route set in <code>frontend/src/routes</code>. <strong>Resolved 2026-07-12:</strong> critic findings now render per-chapter (Continuity view) and a Search page exists, backed by <code>reads/search.py</code>; the whole read side was also consolidated into a single <code>reads/</code> layer — <code>api/queries.py</code> is deleted and <code>mcp_server/queries.py</code> no longer duplicates read logic, closing the two-copies drift documented below.</td>
+        <td>Everything on this row's original punch list now exists</td>
       </tr>
       <tr>
         <td><strong>Hybrid Retriever</strong></td>
-        <td><span class="badge orange">Orphaned</span></td>
-        <td>Complete BM25+dense+RRF+rerank+MMR pipeline; <code>grep</code> finds no importer</td>
-        <td>Back a <code>/api/search</code> endpoint and feed the planner + drafter</td>
+        <td><span class="badge green">Wired</span></td>
+        <td><strong>Resolved 2026-07-12.</strong> Complete BM25+dense+RRF+rerank+MMR pipeline, now with two callers: <code>generation/loop.py</code> feeds the drafter's per-scene context, and <code>reads/search.py</code> backs <code>/api/search</code> and the MCP <code>search_story</code> tool</td>
+        <td>Wired to both consumers described in "Where we need to be" below</td>
       </tr>
       <tr>
         <td><strong>Continuity Critic</strong></td>
@@ -586,9 +586,10 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
 
   <!-- ════════════════ RETRIEVAL ════════════════ -->
   <section id="retrieval">
-  <h2>Deep Dive — Hybrid Retrieval <span class="badge orange">Orphaned</span></h2>
-  <p>The best-engineered module in the repo, and the one serving the fewest queries (zero).
-     <code>HybridRetriever.retrieve</code> runs exactly the pipeline the research prescribes:</p>
+  <h2>Deep Dive — Hybrid Retrieval <span class="badge green">Wired</span></h2>
+  <p><strong>Resolved 2026-07-12.</strong> Previously the best-engineered module in the repo and the one
+     serving the fewest queries (zero); it now has two real callers. <code>HybridRetriever.retrieve</code>
+     runs exactly the pipeline the research prescribes:</p>
 
   <ol>
     <li>Embed the query once (reused for dense search and MMR).</li>
@@ -605,23 +606,23 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      chapters/scenes/events.</p>
 
   <div class="callout warn">
-    <strong>The irony:</strong> meanwhile <code>gather_plan_context</code> (the planner's context builder)
-    pulls "recent" material by pure <code>ORDER BY chapter DESC LIMIT n</code> recency — exactly the
-    naive retrieval the research warns against — while this far better retriever sits unused two directories
-    away. A built retriever serving no queries is pure liability: it rots and misleads readers of the docs.
+    <strong>Still partial:</strong> <code>gather_plan_context</code> (the planner's context builder) still
+    pulls "recent" material by pure <code>ORDER BY chapter DESC LIMIT n</code> recency — exactly the naive
+    retrieval the research warns against — even though the retriever it should be calling is now proven out
+    by two other callers.
   </div>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
-      <p>A complete, instrumented hybrid stack with no caller. Planner context uses naive recency instead.</p>
+      <h4>Where we stood</h4>
+      <p>A complete, instrumented hybrid stack with no caller. Planner context used naive recency instead.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
+      <h4>Where we are now / still need to be</h4>
       <ul>
-        <li>A <code>/api/search</code> endpoint exposing it to the UI</li>
-        <li><code>gather_plan_context</code> routes through it</li>
-        <li>(generator phase) it builds the Drafter's typed context bundle</li>
+        <li><span class="badge green">done</span> <code>reads/search.py</code> wraps it for <code>/api/search</code> and the MCP <code>search_story</code> tool</li>
+        <li><span class="badge green">done</span> (generator phase) <code>generation/loop.py::_context_block_for_scene</code> uses it to build the Drafter's per-scene context</li>
+        <li><span class="badge orange">still open</span> <code>gather_plan_context</code> does not yet route through it</li>
       </ul>
     </div>
   </div>

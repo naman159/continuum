@@ -4,9 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from api import queries
 from api.jobs import get_job, submit_generation_job, submit_job
 from api.schemas import GenerateRequest, JobStatusResponse, ProcessRequest
+from reads import chapters as chapters_reads
+from reads import novels as novels_reads
+from reads.db import get_db
 
 router = APIRouter(tags=["process"])
 
@@ -20,7 +22,7 @@ def process_chapter(novel_id: UUID, body: ProcessRequest) -> dict:
     if not body.text or not body.text.strip():
         raise HTTPException(status_code=422, detail="text must not be empty")
 
-    novel = queries.get_novel(novel_id)
+    novel = novels_reads.get_novel(get_db(), novel_id)
     if novel is None:
         raise HTTPException(status_code=404, detail="Novel not found")
 
@@ -39,13 +41,15 @@ def process_chapter(novel_id: UUID, body: ProcessRequest) -> dict:
     response_model=dict,
 )
 def generate_chapter_endpoint(novel_id: UUID, body: GenerateRequest) -> dict:
-    novel = queries.get_novel(novel_id)
+    novel = novels_reads.get_novel(get_db(), novel_id)
     if novel is None:
         raise HTTPException(status_code=404, detail="Novel not found")
     # Fail before paying for the plan/draft/critique LLM calls: generation
     # ingests with replace=False, so a duplicate chapter number would only
     # error minutes later at ingest time and discard the finished draft.
-    existing = {c.get("number") for c in queries.list_chapters(novel_id, None)}
+    existing = {
+        c.get("number") for c in chapters_reads.list_chapters(get_db(), novel_id, None)
+    }
     if body.number in existing:
         raise HTTPException(
             status_code=409,

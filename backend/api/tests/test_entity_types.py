@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 
-def test_list_genres(fake_db_factory, client):
-    fake_db_factory()
+def test_list_genres(client):
     response = client.get("/api/genres")
     assert response.status_code == 200
     body = response.json()
@@ -11,8 +10,7 @@ def test_list_genres(fake_db_factory, client):
     assert "high_fantasy" in ids
 
 
-def test_create_novel_with_entity_types(fake_db_factory, client):
-    fake_db_factory()
+def test_create_novel_with_entity_types(client):
     response = client.post("/api/novels", json={
         "title": "My LitRPG",
         "custom_entity_types": [
@@ -25,8 +23,7 @@ def test_create_novel_with_entity_types(fake_db_factory, client):
     assert body["title"] == "My LitRPG"
 
 
-def test_create_novel_no_custom_types(fake_db_factory, client):
-    fake_db_factory()
+def test_create_novel_no_custom_types(client):
     response = client.post("/api/novels", json={"title": "Plain Novel"})
     assert response.status_code == 201
 
