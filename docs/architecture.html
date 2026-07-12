@@ -511,6 +511,7 @@ graph LR
 │   │   ├── <span class="key">common.py</span>         <span class="cmt"># resolve_cutoff(), max_chapter_for(), merge_story_edges()</span>
 │   │   ├── <span class="key">novels.py</span>         <span class="cmt"># list_novels, get_novel</span>
 │   │   ├── <span class="key">chapters.py</span>       <span class="cmt"># list_chapters (+ critique summary), list_scenes</span>
+│   │   ├── <span class="key">characters.py</span>     <span class="cmt"># list_characters, get_character_detail, get_character_page (MCP + wiki share this)</span>
 │   │   └── continuity.py     <span class="cmt"># list_flags, get_chapter_critique, list_critiques</span>
 │   ├── <span class="dir">pipeline/</span>
 │   │   ├── <span class="key">pipeline.py</span>       <span class="cmt"># Master orchestration — start here</span>
@@ -817,7 +818,7 @@ flowchart TD
       Every query in <code>queries.py</code> accepts an optional <code>cap: int | None</code> parameter.
       When set, it filters results to "as of chapter N" — you only see characters, events, and
       facts that existed up to that chapter number. Domains migrated to the <code>reads/</code>
-      layer (novels, chapters, continuity) carry the same contract as <code>up_to_chapter: int | None</code>,
+      layer (novels, chapters, continuity, characters) carry the same contract as <code>up_to_chapter: int | None</code>,
       resolved to a concrete cutoff via <code>reads.common.resolve_cutoff</code> — <code>None</code>
       resolves to the novel's current max chapter, so no row from beyond the cutoff is ever returned.
     </p>
@@ -1671,12 +1672,12 @@ flowchart LR
         <tr>
           <td><code>backend/api/queries.py</code></td>
           <td>1,950</td>
-          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, and continuity already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
+          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, continuity, and characters already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
         </tr>
         <tr>
-          <td><code>backend/reads/{novels,chapters,continuity}.py</code></td>
-          <td>281</td>
-          <td><strong>Read layer for novels, chapters, and continuity.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1).</td>
+          <td><code>backend/reads/{novels,chapters,continuity,characters}.py</code></td>
+          <td>533</td>
+          <td><strong>Read layer for novels, chapters, continuity, and characters.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart — fixed a latent bug in the process: <code>events.involved_*</code> columns hold <code>entities.id</code>, not the typed table's id, so the old per-domain queries were filtering/resolving names in the wrong id space.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>

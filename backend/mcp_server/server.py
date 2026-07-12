@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from api import queries as api_queries
 from mcp_server import queries
 from reads import chapters as chapters_reads
+from reads import characters as characters_reads
 from reads import novels as novels_reads
 from reads import db as reads_db
 
@@ -55,8 +56,8 @@ def get_character(novel_id: str, name: str, writing_chapter: int) -> Any:
     """A character's identity, latest state, state history, relationships, and
     events as of the chapter before writing_chapter."""
     return _call(
-        lambda: queries.build_character_page(
-            novel_id, name, up_to_chapter=writing_chapter - 1
+        lambda: characters_reads.get_character_page(
+            reads_db.get_db(), UUID(novel_id), name, up_to_chapter=writing_chapter - 1
         )
     )
 

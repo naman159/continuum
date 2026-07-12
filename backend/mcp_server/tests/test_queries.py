@@ -38,18 +38,6 @@ class FakeDB:
         return False
 
 
-def test_build_character_page_not_found_suggests_close_names(monkeypatch):
-    fake = FakeDB(
-        fetchone_results=[None],
-        fetchall_results=[[{"name": "Marla"}, {"name": "Jake"}]],
-    )
-    monkeypatch.setattr(queries, "DBClient", lambda: fake)
-    with pytest.raises(ValueError) as exc:
-        queries.build_character_page("novel-1", "Mara")
-    assert "Marla" in str(exc.value)
-    assert "closest names" in str(exc.value)
-
-
 def test_list_open_threads_applies_cutoff_to_threads_and_events():
     thread_row = {
         "id": "t-1", "title": "The letter", "description": None, "status": "open",

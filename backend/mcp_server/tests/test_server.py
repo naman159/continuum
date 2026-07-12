@@ -25,23 +25,23 @@ def test_every_tool_has_a_docstring_description():
 
 
 def test_tool_errors_come_back_as_error_dicts(monkeypatch):
-    def boom(novel_id, name, up_to_chapter=None):
+    def boom(db, novel_id, name, up_to_chapter=None):
         raise ValueError("Character not found: Mara; closest names: Marla")
 
-    monkeypatch.setattr(server.queries, "build_character_page", boom)
-    out = server.get_character("novel-1", "Mara", 5)
+    monkeypatch.setattr(server.characters_reads, "get_character_page", boom)
+    out = server.get_character("00000000-0000-0000-0000-000000000000", "Mara", 5)
     assert out["error"].endswith("closest names: Marla")
 
 
 def test_writing_chapter_converts_to_inclusive_cap(monkeypatch):
     seen = {}
 
-    def fake_page(novel_id, name, up_to_chapter=None):
+    def fake_page(db, novel_id, name, up_to_chapter=None):
         seen["cap"] = up_to_chapter
         return {"identity": {"name": name}}
 
-    monkeypatch.setattr(server.queries, "build_character_page", fake_page)
-    server.get_character("novel-1", "Jake", 12)
+    monkeypatch.setattr(server.characters_reads, "get_character_page", fake_page)
+    server.get_character("00000000-0000-0000-0000-000000000000", "Jake", 12)
     assert seen["cap"] == 11
 
 
