@@ -41,7 +41,10 @@ def test_get_object_detail_404(seed_novel_real, real_db, client):
 
 
 def test_object_detail_relationship_with_object_as_entity_a(seed_novel_real, real_db, client):
-    """Relationships are found regardless of which side the object is stored on."""
+    """Relationships are found regardless of which side the object is stored
+    on. (The seed factory also plants an unrelated object relationship at
+    from_chapter=3, so this asserts on the "carried_by" row specifically
+    rather than assuming it's the only one.)"""
     seeded = seed_novel_real(real_db)
     real_db.execute(
         "INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter) VALUES (%s,%s,%s,%s)",
@@ -50,6 +53,5 @@ def test_object_detail_relationship_with_object_as_entity_a(seed_novel_real, rea
     response = client.get(f"/api/novels/{seeded['novel_id']}/objects/{seeded['obj_id']}")
     assert response.status_code == 200
     rels = response.json()["relationships"]
-    assert len(rels) == 1
-    assert rels[0]["character_name"] == seeded["char_b_name"]
-    assert rels[0]["rel_type"] == "carried_by"
+    carried = next(r for r in rels if r["rel_type"] == "carried_by")
+    assert carried["character_name"] == seeded["char_b_name"]

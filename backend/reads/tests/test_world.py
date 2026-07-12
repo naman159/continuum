@@ -116,16 +116,35 @@ def test_get_object_detail_404(db, seed_novel):
 def test_get_object_detail_relationship_matches_either_direction(db, seed_novel):
     """Regression: relationships must be found whether the object is stored
     as entity_a or entity_b — a previous version only checked entity_b and
-    silently hid half of an object's relationships."""
+    silently hid half of an object's relationships. (The seed factory already
+    plants one object relationship at from_chapter=3, so up_to_chapter=None
+    — the latest chapter — sees both it and this test's own row.)"""
     seeded = seed_novel(db)
     db.execute(
         "INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter) VALUES (%s,%s,%s,%s)",
         (seeded["obj_eid"], seeded["char_b_eid"], "carried_by", 1),
     )
     detail = world_reads.get_object_detail(db, seeded["novel_id"], seeded["obj_id"], up_to_chapter=None)
-    assert len(detail["relationships"]) == 1
-    assert detail["relationships"][0]["character_name"] == seeded["char_b_name"]
-    assert detail["relationships"][0]["rel_type"] == "carried_by"
+    carried = [r for r in detail["relationships"] if r["rel_type"] == "carried_by"]
+    assert len(carried) == 1
+    assert carried[0]["character_name"] == seeded["char_b_name"]
+
+
+def test_get_object_detail_relationships_respect_cutoff(db, seed_novel):
+    """The seed factory's object relationship (Iron Compass <-> Aria) carries
+    from_chapter=3, so it must be hidden below that cutoff and visible at it."""
+    seeded = seed_novel(db)
+
+    before = world_reads.get_object_detail(db, seeded["novel_id"], seeded["obj_id"], up_to_chapter=2)
+    assert before is not None
+    assert before["relationships"] == []
+
+    after = world_reads.get_object_detail(db, seeded["novel_id"], seeded["obj_id"], up_to_chapter=3)
+    assert len(after["relationships"]) == 1
+    rel = after["relationships"][0]
+    assert rel["character_name"] == seeded["char_a_name"]
+    assert rel["rel_type"] == "entrusted_to"
+    assert rel["from_chapter"] == 3
 
 
 # ---------------------------------------------------------------------------

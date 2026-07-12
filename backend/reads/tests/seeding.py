@@ -4,7 +4,9 @@ Seeds one small, internally-consistent 3-chapter novel touching every table
 the read layer (and later the api/mcp callers) query: characters, locations,
 an object, a faction, a plot thread with thread events, a commitment, typed
 state_deltas replayed through the materializer, a canon fact, a critique
-report with a finding, scenes, a relationship, and a shared dynamic.
+report with a finding, scenes, a character-character relationship, an
+object-character relationship (from_chapter=3, for cutoff regression
+coverage), and a shared dynamic.
 
 Usage (see reads/tests/conftest.py for the fixture wrapper):
 
@@ -288,6 +290,18 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
         )
         shared_dynamic_id = str(cur.fetchone()[0])
 
+        # ---- object-involving relationship, from_chapter=3 (cutoff regression
+        # coverage for get_object_detail's relationships sub-list) ----
+        cur.execute(
+            """
+            INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter,
+                                        chapter_id)
+            VALUES (%s, %s, %s, %s, %s) RETURNING id
+            """,
+            (obj_eid, char_a_eid, "entrusted_to", 3, chapter_ids[2]),
+        )
+        obj_relationship_id = str(cur.fetchone()[0])
+
     # Materialize outside the seeding transaction (StateMaterializer opens its
     # own transaction on the same DBClient).
     StateMaterializer(db).materialize(novel_id, 3)
@@ -323,6 +337,7 @@ def seed_novel(db: DBClient) -> dict[str, Any]:
         "scene_ids": [scene_1_id, scene_2_id],
         "relationship_id": relationship_id,
         "shared_dynamic_id": shared_dynamic_id,
+        "obj_relationship_id": obj_relationship_id,
     }
 
 

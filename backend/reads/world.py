@@ -10,10 +10,11 @@ every registered type.
 `list_factions` / `list_custom_entities` accept `up_to_chapter` for
 interface symmetry with the other list functions, but the underlying rows
 (factions, custom entities) carry no chapter anchor of their own — the
-parameter goes unused there. `get_faction_detail` / `get_custom_entity_detail`
-do use it: entity identity has no chapter anchor, but the chapter-anchored
-sub-lists inside each detail (events for factions; relationships for custom
-entities) apply the cutoff so spoilers past `up_to_chapter` stay hidden.
+parameter goes unused there. `get_faction_detail` / `get_object_detail` /
+`get_custom_entity_detail` do use it: entity identity has no chapter anchor,
+but the chapter-anchored sub-lists inside each detail (events for factions;
+relationships for objects and custom entities) apply the cutoff so spoilers
+past `up_to_chapter` stay hidden.
 """
 
 from __future__ import annotations
@@ -251,10 +252,11 @@ def get_object_detail(
                WHEN r.entity_a_id = ob.entity_id THEN r.entity_b_id
                ELSE r.entity_a_id
              END
-        WHERE r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id
+        WHERE (r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id)
+          AND (r.from_chapter IS NULL OR r.from_chapter <= %s)
         ORDER BY r.from_chapter NULLS LAST
         """,
-        (object_id, novel_id, novel_id),
+        (object_id, novel_id, novel_id, cutoff),
         dict_rows=True,
     )
     relationships = [dict(r) for r in rel_rows]

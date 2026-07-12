@@ -23,17 +23,18 @@ def test_entity_graph_includes_all_entity_types_and_native_ids(seed_novel_real, 
 def test_entity_graph_relationship_and_dynamic_edges_coexist(seed_novel_real, real_db, client):
     """A relationship edge and a shared-dynamic story edge between the same
     pair stay separate — merge_story_edges only collapses same-kind story
-    records, and relationship edges never enter that merge."""
+    records, and relationship edges never enter that merge. (The seed
+    factory also plants an unrelated object/character relationship edge, so
+    this asserts on the char-A/char-B "rival" edge specifically rather than
+    assuming it's the only relationship edge in the graph.)"""
     seeded = seed_novel_real(real_db)
     response = client.get(f"/api/novels/{seeded['novel_id']}/entity-graph")
     assert response.status_code == 200
     edges = response.json()["edges"]
     kinds = [e["edge_kind"] for e in edges]
-    assert kinds.count("relationship") == 1
     assert kinds.count("dynamic") == 1
 
-    rel_edge = next(e for e in edges if e["edge_kind"] == "relationship")
-    assert rel_edge["label"] == "rival"
+    rel_edge = next(e for e in edges if e["edge_kind"] == "relationship" and e["label"] == "rival")
     assert rel_edge["symmetric"] is True
 
     dyn_edge = next(e for e in edges if e["edge_kind"] == "dynamic")
