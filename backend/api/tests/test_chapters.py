@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-from api.tests.conftest import make_chapter, make_novel
 
-
-def test_list_chapters_filters_by_cap(fake_db_factory, client):
-    novel = make_novel()
-    fake_db_factory(
-        novels=[novel],
-        chapters=[make_chapter(novel["id"], n) for n in (1, 2, 3, 4, 5)],
-    )
-    response = client.get(f"/api/novels/{novel['id']}/chapters?cap=3")
+def test_list_chapters_filters_by_cap(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/chapters?cap=2")
     assert response.status_code == 200
-    numbers = [r["number"] for r in response.json()]
-    assert numbers == [1, 2, 3]
+    body = response.json()
+    numbers = [r["number"] for r in body]
+    assert numbers == [1, 2]
+
+
+def test_list_chapters_carries_critique_summary(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}/chapters?cap=2")
+    assert response.status_code == 200
+    body = response.json()
+    ch1 = next(r for r in body if r["number"] == 1)
+    ch2 = next(r for r in body if r["number"] == 2)
+    assert ch1["critique"] is None
+    assert ch2["critique"] == {"passed": False, "fails": 1, "warns": 0}

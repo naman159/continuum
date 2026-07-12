@@ -9,6 +9,8 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from api import queries as queries_module
+from pipeline.db.client import DBClient
+from reads.tests import seeding
 
 
 class FakeDB:
@@ -81,6 +83,34 @@ def fake_db_factory(monkeypatch):
 @pytest.fixture
 def client() -> TestClient:
     return TestClient(app)
+
+
+@pytest.fixture
+def real_db():
+    """A real DBClient for endpoint tests migrated off FakeDB."""
+    client = DBClient()
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+@pytest.fixture
+def seed_novel_real(real_db: DBClient):
+    """Function-returning fixture: call seed_novel_real(real_db) to seed a novel
+    against real Postgres. Tracks every novel_id seeded during the test and
+    deletes them (cascade) in the finalizer."""
+    seeded_novel_ids: list[str] = []
+
+    def _seed_novel(db_client: DBClient) -> dict[str, Any]:
+        seeded = seeding.seed_novel(db_client)
+        seeded_novel_ids.append(seeded["novel_id"])
+        return seeded
+
+    yield _seed_novel
+
+    for novel_id in seeded_novel_ids:
+        seeding.cleanup(real_db, novel_id)
 
 
 def make_novel(**overrides: Any) -> dict[str, Any]:

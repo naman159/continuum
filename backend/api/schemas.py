@@ -128,6 +128,12 @@ class CharacterDetail(BaseModel):
     events: list[CharacterEventRow]
 
 
+class ChapterCritiqueSummary(BaseModel):
+    passed: bool
+    fails: int
+    warns: int
+
+
 class ChapterSummary(BaseModel):
     id: UUID
     number: int
@@ -136,6 +142,7 @@ class ChapterSummary(BaseModel):
     summary_short: str | None = None
     summary_long: str | None = None
     processed_at: datetime | None
+    critique: ChapterCritiqueSummary | None = None
 
 
 class ChapterEvent(BaseModel):
@@ -176,6 +183,29 @@ class ContinuityFlag(BaseModel):
     flag_type: str | None
     resolved: bool
     resolved_chapter_number: int | None
+
+
+class CritiqueChapterRow(BaseModel):
+    chapter_number: int
+    passed: bool
+    fails: int
+    warns: int
+
+
+class CritiqueFinding(BaseModel):
+    check_name: str
+    severity: str
+    message: str
+    quote: str | None = None
+    evidence: dict | None = None
+
+
+class CritiqueReportDetail(BaseModel):
+    chapter_number: int
+    passed: bool
+    ran_at: datetime
+    stats: dict | None = None
+    findings: list[CritiqueFinding]
 
 
 class GraphNode(BaseModel):

@@ -442,7 +442,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       </thead>
       <tbody>
         <tr><td><code>list_novels</code></td><td>—</td><td>—</td><td>List all novels: id, title, author, highest chapter number <span class="badge blue">orientation</span></td></tr>
-        <tr><td><code>list_chapters</code></td><td><code>novel_id</code></td><td>—</td><td>Every chapter (number, title, summary) for orientation <span class="badge blue">orientation</span></td></tr>
+        <tr><td><code>list_chapters</code></td><td><code>novel_id</code></td><td>—</td><td>Every chapter (number, title, summary, <code>critique: {passed, fails, warns} | null</code>) for orientation <span class="badge blue">orientation</span></td></tr>
         <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Hybrid (semantic + keyword) search over prose and extracted facts — "has X happened yet?"</td></tr>
         <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character</td></tr>
         <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history <span class="badge orange">SOTA</span></td></tr>
@@ -1592,8 +1592,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <table>
       <thead><tr><th>Method</th><th>Path</th><th>Query</th><th>Returns</th></tr></thead>
       <tbody>
-        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/chapters</code></td><td><code>?cap=N</code></td><td><code>ChapterSummary[]</code> — number, title, summary, processed_at</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/chapters</code></td><td><code>?cap=N</code></td><td><code>ChapterSummary[]</code> — number, title, summary, processed_at, <code>critique: {passed, fails, warns} | null</code> (null if the chapter hasn't been critiqued)</td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/continuity</code></td><td><code>?cap=N&amp;resolved=open|all</code></td><td><code>ContinuityFlag[]</code> — description, flag_type, resolved</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/continuity/critique</code></td><td><code>?cap=N</code></td><td><code>CritiqueChapterRow[]</code> — one row per critiqued chapter: <code>chapter_number, passed, fails, warns</code></td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/continuity/critique/{chapter_number}</code></td><td>—</td><td><code>CritiqueReportDetail</code> — <code>chapter_number, passed, ran_at, stats, findings: [{check_name, severity, message, quote, evidence}]</code>. 404 if that chapter has no critique report</td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/dynamics</code></td><td><code>?cap=N</code></td><td><code>SharedDynamicRow[]</code> — entity_a_name, entity_b_name, chapter_number, description</td></tr>
       </tbody>
     </table>

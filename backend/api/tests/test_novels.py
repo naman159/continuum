@@ -1,53 +1,32 @@
 from __future__ import annotations
 
-from api import queries
-from api.tests.conftest import make_chapter, make_novel
+from api import admin
 
 
-def test_list_novels_returns_max_chapter(fake_db_factory, client):
-    novel = make_novel(title="My Novel")
-    fake_db_factory(
-        novels=[novel],
-        chapters=[
-            make_chapter(novel["id"], 1),
-            make_chapter(novel["id"], 2),
-            make_chapter(novel["id"], 3),
-        ],
-    )
+def test_list_novels_returns_max_chapter(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
     response = client.get("/api/novels")
     assert response.status_code == 200
     body = response.json()
-    assert len(body) == 1
-    assert body[0]["title"] == "My Novel"
-    assert body[0]["max_chapter"] == 3
+    mine = next(r for r in body if r["id"] == seeded["novel_id"])
+    assert mine["max_chapter"] == 3
 
 
-def test_list_novels_empty(fake_db_factory, client):
-    fake_db_factory()
-    response = client.get("/api/novels")
-    assert response.status_code == 200
-    assert response.json() == []
-
-
-def test_get_novel(fake_db_factory, client):
-    novel = make_novel(title="My Novel", author="Me")
-    fake_db_factory(novels=[novel], chapters=[make_chapter(novel["id"], 1)])
-    response = client.get(f"/api/novels/{novel['id']}")
+def test_get_novel(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.get(f"/api/novels/{seeded['novel_id']}")
     assert response.status_code == 200
     body = response.json()
-    assert body["title"] == "My Novel"
-    assert body["author"] == "Me"
-    assert body["max_chapter"] == 1
+    assert body["max_chapter"] == 3
+    assert body["id"] == seeded["novel_id"]
 
 
-def test_get_novel_404(fake_db_factory, client):
-    fake_db_factory()
+def test_get_novel_404(client):
     response = client.get("/api/novels/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 
-def test_create_novel(fake_db_factory, client):
-    fake_db_factory()
+def test_create_novel(client):
     response = client.post("/api/novels", json={"title": "New Novel", "author": "Me", "language": "en"})
     assert response.status_code == 201
     body = response.json()
@@ -57,46 +36,43 @@ def test_create_novel(fake_db_factory, client):
     assert body["max_chapter"] == 0
     assert "id" in body
     assert "created_at" in body
+    admin.delete_novel(body["id"])
 
 
-def test_create_novel_optional_fields_omitted(fake_db_factory, client):
-    fake_db_factory()
+def test_create_novel_optional_fields_omitted(client):
     response = client.post("/api/novels", json={"title": "Minimal"})
     assert response.status_code == 201
     body = response.json()
     assert body["title"] == "Minimal"
     assert body["author"] is None
     assert body["language"] is None
+    admin.delete_novel(body["id"])
 
 
-def test_create_novel_blank_title(fake_db_factory, client):
-    fake_db_factory()
+def test_create_novel_blank_title(client):
     response = client.post("/api/novels", json={"title": "   "})
     assert response.status_code == 422
 
 
-def test_create_novel_missing_title(fake_db_factory, client):
-    fake_db_factory()
+def test_create_novel_missing_title(client):
     response = client.post("/api/novels", json={})
     assert response.status_code == 422
 
 
-def test_delete_novel(fake_db_factory, client):
-    novel = make_novel(title="My Novel")
-    fake_db_factory(novels=[novel])
-    response = client.delete(f"/api/novels/{novel['id']}")
+def test_delete_novel(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    response = client.delete(f"/api/novels/{seeded['novel_id']}")
     assert response.status_code == 204
-    assert client.get(f"/api/novels/{novel['id']}").status_code == 404
+    assert client.get(f"/api/novels/{seeded['novel_id']}").status_code == 404
 
 
-def test_delete_novel_404(fake_db_factory, client):
-    fake_db_factory()
+def test_delete_novel_404(client):
     response = client.delete("/api/novels/00000000-0000-0000-0000-000000000000")
     assert response.status_code == 404
 
 
 def test_delete_novel_real():
-    """Regression test for the real (Postgres) code path, per test_create_novel_real_persists_custom_entity_types above."""
+    """Regression test for the real (Postgres) code path."""
 
     class RealDBStub:
         def __init__(self, found: bool) -> None:
@@ -108,18 +84,18 @@ def test_delete_novel_real():
             return {"id": params[0]} if self.found else None
 
     found_db = RealDBStub(found=True)
-    assert queries._delete_novel_real(found_db, "some-id") is True
+    assert admin._delete_novel_real(found_db, "some-id") is True
     assert found_db.calls[0][2] is True  # commit=True
 
     missing_db = RealDBStub(found=False)
-    assert queries._delete_novel_real(missing_db, "some-id") is False
+    assert admin._delete_novel_real(missing_db, "some-id") is False
 
 
 def test_create_novel_real_persists_custom_entity_types():
-    """Regression test for the real (Postgres) code path, which fake_db_factory's
-    in-memory FakeDB bypasses entirely. A stub matching DBClient's actual method
-    signatures ensures a call like `db.execute(..., commit=True)` fails loudly,
-    the way it did in production, instead of being silently skipped by mocks."""
+    """Regression test for the real (Postgres) code path: a stub matching
+    DBClient's actual method signatures ensures a call like
+    `db.execute(..., commit=True)` fails loudly instead of being silently
+    skipped by mocks."""
 
     class RealDBStub:
         def __init__(self) -> None:
@@ -138,7 +114,7 @@ def test_create_novel_real_persists_custom_entity_types():
             self.executed.append(params)
 
     db = RealDBStub()
-    result = queries._create_novel_real(
+    result = admin._create_novel_real(
         db, "Real Novel", None, None, [{"name": "deity", "description": "test"}]
     )
 

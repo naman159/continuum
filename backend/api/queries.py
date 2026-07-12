@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -71,34 +70,6 @@ def _get_db() -> DBClient:
     return _db
 
 
-def list_novels() -> list[dict[str, Any]]:
-    db = _get_db()
-    novels = db.novels if hasattr(db, "novels") else _list_novels_real(db)
-    chapters = db.chapters if hasattr(db, "chapters") else None
-
-    rows: list[dict[str, Any]] = []
-    for novel in novels:
-        novel_id = novel["id"]
-        if chapters is not None:
-            max_chapter = max(
-                (c["number"] for c in chapters if c["novel_id"] == novel_id),
-                default=0,
-            )
-        else:
-            max_chapter = _max_chapter_real(db, novel_id)
-        rows.append(
-            {
-                "id": novel_id,
-                "title": novel["title"],
-                "author": novel.get("author"),
-                "language": novel.get("language"),
-                "created_at": novel["created_at"],
-                "max_chapter": max_chapter,
-            }
-        )
-    return rows
-
-
 def get_novel(novel_id: UUID) -> dict[str, Any] | None:
     db = _get_db()
 
@@ -127,81 +98,6 @@ def get_novel(novel_id: UUID) -> dict[str, Any] | None:
     }
 
 
-def create_novel(
-    title: str,
-    author: str | None,
-    language: str | None,
-    custom_entity_types: list[dict[str, Any]] | None = None,
-) -> dict[str, Any]:
-    db = _get_db()
-    if hasattr(db, "novels"):
-        novel: dict[str, Any] = {
-            "id": uuid4(),
-            "title": title,
-            "author": author,
-            "language": language,
-            "created_at": datetime.now(timezone.utc),
-        }
-        db.novels.append(novel)
-        for et in (custom_entity_types or []):
-            db.novel_entity_types.append({
-                "id": uuid4(),
-                "novel_id": novel["id"],
-                "name": et["name"],
-                "description": et.get("description"),
-            })
-        return {**novel, "max_chapter": 0}
-    return _create_novel_real(db, title, author, language, custom_entity_types or [])
-
-
-def _create_novel_real(
-    db: DBClient,
-    title: str,
-    author: str | None,
-    language: str | None,
-    custom_entity_types: list[dict[str, Any]],
-) -> dict[str, Any]:
-    row = db.fetchone(
-        """
-        INSERT INTO novels (id, title, author, language, created_at)
-        VALUES (%s, %s, %s, %s, NOW())
-        RETURNING id, title, author, language, created_at
-        """,
-        (str(uuid4()), title, author, language),
-        dict_rows=True,
-        commit=True,
-    )
-    novel_id = str(row["id"])
-    for et in custom_entity_types:
-        db.execute(
-            """
-            INSERT INTO novel_entity_types (novel_id, name, description)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (novel_id, name) DO NOTHING
-            """,
-            (novel_id, et["name"], et.get("description")),
-        )
-    return {**dict(row), "max_chapter": 0}
-
-
-def delete_novel(novel_id: UUID) -> bool:
-    db = _get_db()
-    if hasattr(db, "novels"):
-        before = len(db.novels)
-        db.novels[:] = [n for n in db.novels if n["id"] != novel_id]
-        return len(db.novels) != before
-    return _delete_novel_real(db, novel_id)
-
-
-def _delete_novel_real(db: DBClient, novel_id: UUID) -> bool:
-    row = db.fetchone(
-        "DELETE FROM novels WHERE id = %s RETURNING id",
-        (str(novel_id),),
-        commit=True,
-    )
-    return row is not None
-
-
 def _get_novel_real(db: DBClient, novel_id: UUID) -> dict[str, Any] | None:
     row = db.fetchone(
         """
@@ -213,18 +109,6 @@ def _get_novel_real(db: DBClient, novel_id: UUID) -> dict[str, Any] | None:
         dict_rows=True,
     )
     return dict(row) if row else None
-
-
-def _list_novels_real(db: DBClient) -> list[dict[str, Any]]:
-    rows = db.fetchall(
-        """
-        SELECT id, title, author, language, created_at
-        FROM novels
-        ORDER BY created_at DESC
-        """,
-        dict_rows=True,
-    )
-    return [dict(r) for r in rows]
 
 
 def _max_chapter_real(db: DBClient, novel_id: UUID) -> int:
@@ -829,78 +713,6 @@ def get_relationship_graph(novel_id: UUID, cap: int | None) -> dict[str, Any]:
     return {"nodes": nodes, "edges": edges}
 
 
-def list_continuity(novel_id: UUID, cap: int | None, resolved_filter: str) -> list[dict[str, Any]]:
-    db = _get_db()
-    effective_cap = _resolve_cap(db, novel_id, cap)
-    if hasattr(db, "continuity_flags"):
-        chapter_by_id = {c["id"]: c for c in db.chapters if c["novel_id"] == novel_id}
-        flags: list[dict[str, Any]] = []
-        for f in db.continuity_flags:
-            ch = chapter_by_id.get(f["chapter_id"])
-            if ch is None or ch["number"] > effective_cap:
-                continue
-            resolved_at_id = f.get("resolved_chapter_id")
-            resolved_chapter_number = (
-                chapter_by_id[resolved_at_id]["number"]
-                if resolved_at_id and resolved_at_id in chapter_by_id
-                else None
-            )
-            effectively_resolved = bool(f.get("resolved")) and (
-                resolved_chapter_number is None or resolved_chapter_number <= effective_cap
-            )
-            if resolved_filter == "open" and effectively_resolved:
-                continue
-            flags.append(
-                {
-                    "id": f["id"],
-                    "chapter_number": ch["number"],
-                    "description": f["description"],
-                    "flag_type": f.get("flag_type"),
-                    "resolved": effectively_resolved,
-                    "resolved_chapter_number": resolved_chapter_number if effectively_resolved else None,
-                }
-            )
-        return flags
-    raw = db.fetchall(
-        """
-        SELECT cf.id, cf.description, cf.flag_type, cf.resolved, cf.resolved_chapter_id,
-               ch.number AS chapter_number
-        FROM continuity_flags cf
-        JOIN chapters ch ON ch.id = cf.chapter_id
-        WHERE ch.novel_id = %s AND ch.number <= %s
-        ORDER BY ch.number
-        """,
-        (str(novel_id), effective_cap),
-        dict_rows=True,
-    )
-    chap_lookup = {
-        r["id"]: r["number"]
-        for r in db.fetchall(
-            "SELECT id, number FROM chapters WHERE novel_id = %s", (str(novel_id),), dict_rows=True
-        )
-    }
-    out: list[dict[str, Any]] = []
-    for r in raw:
-        resolved_at_id = r.get("resolved_chapter_id")
-        resolved_chapter_number = chap_lookup.get(resolved_at_id)
-        effectively_resolved = bool(r.get("resolved")) and (
-            resolved_chapter_number is None or resolved_chapter_number <= effective_cap
-        )
-        if resolved_filter == "open" and effectively_resolved:
-            continue
-        out.append(
-            {
-                "id": r["id"],
-                "chapter_number": r["chapter_number"],
-                "description": r["description"],
-                "flag_type": r.get("flag_type"),
-                "resolved": effectively_resolved,
-                "resolved_chapter_number": resolved_chapter_number if effectively_resolved else None,
-            }
-        )
-    return out
-
-
 def list_locations(novel_id: UUID, cap: int | None) -> list[dict[str, Any]]:
     db = _get_db()
     effective_cap = _resolve_cap(db, novel_id, cap)
@@ -1410,67 +1222,6 @@ def list_shared_dynamics(novel_id: UUID, cap: int | None) -> list[dict[str, Any]
 # These use the real DB only (the in-memory fake DB used by some tests does not
 # know about these tables).
 # ============================================================================
-
-
-def list_scenes(
-    novel_id: UUID, cap: int | None, chapter_number: int | None
-) -> list[dict[str, Any]]:
-    db = _get_db()
-    effective_cap = _resolve_cap(db, novel_id, cap)
-    where = ["ch.novel_id = %s", "ch.number <= %s"]
-    params: list[Any] = [str(novel_id), effective_cap]
-    if chapter_number is not None:
-        where.append("ch.number = %s")
-        params.append(chapter_number)
-    rows = db.fetchall(
-        f"""
-        SELECT s.id, s.chapter_id, ch.number AS chapter_number, s.scene_index,
-               s.pov_character_id, pov.name AS pov_character_name,
-               s.location_id, loc.name AS location_name,
-               s.time_anchor, s.story_time_ordinal, s.summary,
-               s.present_characters
-          FROM scenes s
-          JOIN chapters ch ON ch.id = s.chapter_id
-          LEFT JOIN characters pov ON pov.id = s.pov_character_id
-          LEFT JOIN locations loc ON loc.id = s.location_id
-         WHERE {' AND '.join(where)}
-         ORDER BY ch.number, s.scene_index
-        """,
-        tuple(params),
-        dict_rows=True,
-    )
-    if not rows:
-        return []
-    # Resolve present_characters UUID[] -> names via a single batch.
-    all_char_ids = sorted({str(cid) for r in rows for cid in (r["present_characters"] or [])})
-    name_by_id: dict[str, str] = {}
-    if all_char_ids:
-        chars = db.fetchall(
-            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
-            (all_char_ids,),
-            dict_rows=True,
-        )
-        name_by_id = {str(c["id"]): c["name"] for c in chars}
-    return [
-        {
-            "id": r["id"],
-            "chapter_id": r["chapter_id"],
-            "chapter_number": r["chapter_number"],
-            "scene_index": r["scene_index"],
-            "pov_character_id": r["pov_character_id"],
-            "pov_character_name": r["pov_character_name"],
-            "location_id": r["location_id"],
-            "location_name": r["location_name"],
-            "time_anchor": r["time_anchor"],
-            "story_time_ordinal": r["story_time_ordinal"],
-            "summary": r["summary"],
-            "present_character_names": [
-                name_by_id.get(str(cid), str(cid))
-                for cid in (r["present_characters"] or [])
-            ],
-        }
-        for r in rows
-    ]
 
 
 def list_commitments(

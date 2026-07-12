@@ -499,12 +499,19 @@ graph LR
 ├── <span class="dir">backend/</span>
 │   ├── <span class="dir">api/</span>
 │   │   ├── <span class="key">app.py</span>            <span class="cmt"># FastAPI app, mounts 19 routers</span>
-│   │   ├── <span class="key">queries.py</span>        <span class="cmt"># All SQL — 2,097 lines, every wiki view</span>
+│   │   ├── <span class="key">queries.py</span>        <span class="cmt"># SQL for views not yet migrated to reads/; being drained domain by domain</span>
+│   │   ├── <span class="key">admin.py</span>          <span class="cmt"># Novel create/delete (SQL-only, real Postgres)</span>
 │   │   ├── <span class="key">schemas.py</span>        <span class="cmt"># Pydantic response models (35+ types)</span>
 │   │   ├── <span class="key">jobs.py</span>           <span class="cmt"># In-memory job status store</span>
 │   │   └── routes/           <span class="cmt"># One file per entity/feature domain</span>
 │   │       ├── entity_graph.py   <span class="cmt"># Unified entity + rich edge graph</span>
 │   │       └── entity_types.py   <span class="cmt"># Custom entity type CRUD + genre presets</span>
+│   ├── <span class="dir">reads/</span>            <span class="cmt"># Read layer: SQL-only, cutoff-aware, no FakeDB branches</span>
+│   │   ├── <span class="key">db.py</span>             <span class="cmt"># get_db() — the read layer's DB provider</span>
+│   │   ├── <span class="key">common.py</span>         <span class="cmt"># resolve_cutoff(), max_chapter_for(), merge_story_edges()</span>
+│   │   ├── <span class="key">novels.py</span>         <span class="cmt"># list_novels, get_novel</span>
+│   │   ├── <span class="key">chapters.py</span>       <span class="cmt"># list_chapters (+ critique summary), list_scenes</span>
+│   │   └── continuity.py     <span class="cmt"># list_flags, get_chapter_critique, list_critiques</span>
 │   ├── <span class="dir">pipeline/</span>
 │   │   ├── <span class="key">pipeline.py</span>       <span class="cmt"># Master orchestration — start here</span>
 │   │   ├── <span class="key">config.py</span>         <span class="cmt"># All tuneable settings (frozen dataclass)</span>
@@ -809,7 +816,10 @@ flowchart TD
     <p>
       Every query in <code>queries.py</code> accepts an optional <code>cap: int | None</code> parameter.
       When set, it filters results to "as of chapter N" — you only see characters, events, and
-      facts that existed up to that chapter number.
+      facts that existed up to that chapter number. Domains migrated to the <code>reads/</code>
+      layer (novels, chapters, continuity) carry the same contract as <code>up_to_chapter: int | None</code>,
+      resolved to a concrete cutoff via <code>reads.common.resolve_cutoff</code> — <code>None</code>
+      resolves to the novel's current max chapter, so no row from beyond the cutoff is ever returned.
     </p>
 
     <pre><code><span class="comment"># Example from queries.py</span>
@@ -1660,8 +1670,13 @@ flowchart LR
         </tr>
         <tr>
           <td><code>backend/api/queries.py</code></td>
-          <td>2,097</td>
-          <td><strong>All SQL queries.</strong> Every wiki view is assembled here. Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
+          <td>1,950</td>
+          <td><strong>SQL for domains not yet migrated to <code>reads/</code>.</strong> Being drained migration by migration (novels, chapters, and continuity already moved out). Watch for N+1 queries, missing cap filters, wrong JOIN direction, missing edge_kind on entity graph edges.</td>
+        </tr>
+        <tr>
+          <td><code>backend/reads/{novels,chapters,continuity}.py</code></td>
+          <td>281</td>
+          <td><strong>Read layer for novels, chapters, and continuity.</strong> SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1).</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>

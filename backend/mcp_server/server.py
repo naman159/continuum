@@ -13,6 +13,9 @@ from mcp.server.fastmcp import FastMCP
 
 from api import queries as api_queries
 from mcp_server import queries
+from reads import chapters as chapters_reads
+from reads import novels as novels_reads
+from reads import db as reads_db
 
 mcp = FastMCP("continuum")
 
@@ -28,13 +31,16 @@ def _call(fn: Callable[[], Any]) -> Any:
 @mcp.tool()
 def list_novels() -> Any:
     """List all novels: id, title, author, and highest chapter number."""
-    return _call(api_queries.list_novels)
+    return _call(lambda: novels_reads.list_novels(reads_db.get_db()))
 
 
 @mcp.tool()
 def list_chapters(novel_id: str) -> Any:
-    """List every chapter of a novel (number, title, summary) for orientation."""
-    return _call(lambda: api_queries.list_chapters(UUID(novel_id), None))
+    """List every chapter of a novel (number, title, summary, critique summary)
+    for orientation."""
+    return _call(
+        lambda: chapters_reads.list_chapters(reads_db.get_db(), UUID(novel_id), None)
+    )
 
 
 @mcp.tool()
@@ -130,7 +136,9 @@ def scene_list(novel_id: str, writing_chapter: int, chapter: int | None = None) 
     """Scene segmentation (POV, location, present characters, summary) for
     chapters before writing_chapter; optionally one specific chapter."""
     return _call(
-        lambda: api_queries.list_scenes(UUID(novel_id), writing_chapter - 1, chapter)
+        lambda: chapters_reads.list_scenes(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1, chapter
+        )
     )
 
 
