@@ -51,9 +51,14 @@ export default function Threads() {
         <details key={t.id} open>
           <summary>
             <strong style={{ color: "var(--text-h)" }}>{t.title}</strong>
-            <span className={`muted ${STATUS_CLASS[t.status] ?? ""}`} style={{ marginLeft: 8 }}>
-              {t.status}
+            <span className={`muted ${STATUS_CLASS[t.status_at_cutoff] ?? ""}`} style={{ marginLeft: 8 }}>
+              {t.status_at_cutoff}
             </span>
+            {t.status_at_cutoff !== t.status && (
+              <span className="muted" style={{ marginLeft: 6 }}>
+                (closes ch {t.closed_chapter ?? "?"})
+              </span>
+            )}
             {t.thread_type && (
               <span className="tag" style={{ marginLeft: 6 }}>{t.thread_type}</span>
             )}

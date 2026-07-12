@@ -1599,7 +1599,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       novel-wide truth) and a derived <code>status_at_cutoff</code>: a thread closed in a chapter
       later than <code>cap</code> reads as <code>progressing</code>, not <code>closed</code>, at that
       cutoff — <code>closed_chapter</code> itself is <em>not</em> nulled out. The <code>status</code>
-      query param filters on <code>status_at_cutoff</code>.</p>
+      query param filters on <code>status_at_cutoff</code>. <code>Threads.tsx</code> displays
+      <code>status_at_cutoff</code> as the primary badge and shows raw <code>status</code> only as a
+      muted "(closes ch N)" hint when the two differ.</p>
   </section>
 
   <section id="api-relationships">
@@ -1767,7 +1769,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <h2>Frontend: Query Pattern</h2>
     <p>
       All server data fetching uses <code>@tanstack/react-query</code>. The pattern is consistent
-      across all 23 page components:
+      across all 24 page components:
     </p>
 
     <pre><code><span class="kw">import</span> { useQuery } <span class="kw">from</span> <span class="str">'@tanstack/react-query'</span>;

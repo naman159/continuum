@@ -20,9 +20,11 @@ import {
   ShieldCheck,
   Zap,
   Menu,
+  Search,
 } from "lucide-react";
 
 const NAV_ICONS: Record<string, ReactNode> = {
+  Search: <Search />,
   Characters: <Users />,
   Chapters: <BookOpen />,
   Scenes: <Film />,
@@ -51,6 +53,7 @@ function buildNavGroups(novelId: string, customLinks: [string, string][]): NavGr
     {
       label: "Story",
       links: [
+        ["Search", `/novels/${novelId}/search`],
         ["Characters", `/novels/${novelId}/characters`],
         ["Chapters", `/novels/${novelId}/chapters`],
         ["Scenes", `/novels/${novelId}/scenes`],

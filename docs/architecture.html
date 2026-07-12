@@ -1179,12 +1179,13 @@ flowchart TD
         <h4>Core Wiki Views</h4>
         <p>
           <code>/novels</code> → Novel picker (create, delete with inline confirm)<br/>
+          <code>/.../search</code> → Hybrid search over chapters/scenes/events<br/>
           <code>/.../characters</code> → Character list<br/>
           <code>/.../characters/:id</code> → Character detail (state history, relationships, events)<br/>
           <code>/.../chapters</code> → Chapter summaries<br/>
           <code>/.../timeline</code> → Events by chapter<br/>
-          <code>/.../threads</code> → Plot thread tracker<br/>
-          <code>/.../continuity</code> → Foreshadowing flags<br/>
+          <code>/.../threads</code> → Plot thread tracker (point-in-time <code>status_at_cutoff</code>)<br/>
+          <code>/.../continuity</code> → Foreshadowing flags + per-chapter critique tab<br/>
           <code>/.../relationships</code> → vis.js relationship graph
         </p>
       </div>
@@ -1236,11 +1237,21 @@ flowchart TD
     <p>
       The <code>Sidebar.tsx</code> component fetches <code>/.../entity-types</code> on load and
       dynamically appends nav links for each custom entity type defined for the current novel.
-      Static nav links are organised into five groups: <strong>Story</strong> (Characters, Chapters,
-      Scenes), <strong>Narrative</strong> (Timeline, Threads, Commitments), <strong>World</strong>
+      Static nav links are organised into five groups: <strong>Story</strong> (Search, Characters,
+      Chapters, Scenes), <strong>Narrative</strong> (Timeline, Threads, Commitments), <strong>World</strong>
       (Locations, Objects, Factions), <strong>Analysis</strong> (Knowledge, Canon, Dynamics,
       Entity Graph, Continuity), and <strong>Tools</strong> (Process Chapter).
       Custom entity types appear in a sixth <strong>Custom</strong> group.
+    </p>
+    <p>
+      <code>Continuity.tsx</code> is tabbed: <strong>Critique</strong> (default) lists per-chapter
+      <code>ContinuityCritic</code> results (<code>CritiqueChapterRow[]</code> — pass/fail badge,
+      fail/warn counts); clicking a row lazily fetches <code>CritiqueReportDetail</code> and expands
+      it into a findings table (check name, severity badge, message, monospace quote).
+      <strong>Flags</strong> is the original foreshadowing-flag table, unchanged. <code>Search.tsx</code>
+      is a new page (not tabbed into an existing view) that calls
+      <code>GET /api/novels/{id}/search</code> on Enter — kind badge, chapter number, 2-decimal
+      score, snippet — with no fetch for an empty query.
     </p>
 
     <h3>Key Frontend Files</h3>

@@ -173,6 +173,7 @@ export type PlotThread = {
   title: string;
   description: string | null;
   status: string;
+  status_at_cutoff: string;
   thread_type: string | null;
   opened_chapter: number | null;
   closed_chapter: number | null;
@@ -186,6 +187,38 @@ export type ContinuityFlag = {
   flag_type: string | null;
   resolved: boolean;
   resolved_chapter_number: number | null;
+};
+
+export type SearchResultRow = {
+  kind: string;
+  chapter_number: number | null;
+  score: number;
+  snippet: string | null;
+};
+
+export type SearchResults = { results: SearchResultRow[] };
+
+export type CritiqueChapterRow = {
+  chapter_number: number;
+  passed: boolean;
+  fails: number;
+  warns: number;
+};
+
+export type CritiqueFinding = {
+  check_name: string;
+  severity: "fail" | "warn" | "info";
+  message: string;
+  quote: string | null;
+  evidence: Record<string, unknown> | null;
+};
+
+export type CritiqueReportDetail = {
+  chapter_number: number;
+  passed: boolean;
+  ran_at: string;
+  stats: Record<string, unknown> | null;
+  findings: CritiqueFinding[];
 };
 
 export type GraphNode = { id: string; label: string; description: string | null };
@@ -369,6 +402,17 @@ export const api = {
     if (cap != null) params.set("cap", String(cap));
     params.set("resolved", resolved);
     return fetchJson<ContinuityFlag[]>(`/api/novels/${id}/continuity?${params}`);
+  },
+  critique: (id: string, cap: number | null) =>
+    fetchJson<CritiqueChapterRow[]>(`/api/novels/${id}/continuity/critique${capParam(cap)}`),
+  critiqueDetail: (id: string, chapterNumber: number) =>
+    fetchJson<CritiqueReportDetail>(`/api/novels/${id}/continuity/critique/${chapterNumber}`),
+  search: (id: string, q: string, cap: number | null, k?: number) => {
+    const params = new URLSearchParams();
+    params.set("q", q);
+    if (cap != null) params.set("cap", String(cap));
+    if (k != null) params.set("k", String(k));
+    return fetchJson<SearchResults>(`/api/novels/${id}/search?${params}`);
   },
   relationships: (id: string, cap: number | null) =>
     fetchJson<RelationshipGraph>(`/api/novels/${id}/relationships${capParam(cap)}`),

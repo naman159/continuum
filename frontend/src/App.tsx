@@ -21,6 +21,7 @@ import Objects from "./routes/Objects";
 import Process from "./routes/Process";
 import Relationships from "./routes/Relationships";
 import Scenes from "./routes/Scenes";
+import Search from "./routes/Search";
 import SharedDynamics from "./routes/SharedDynamics";
 import Threads from "./routes/Threads";
 import Timeline from "./routes/Timeline";
@@ -36,6 +37,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/novels" replace />} />
           <Route path="/novels" element={<Layout><Novels /></Layout>} />
+          <Route path="/novels/:novelId/search" element={<Layout><Search /></Layout>} />
           <Route path="/novels/:novelId/characters" element={<Layout><CharacterList /></Layout>} />
           <Route path="/novels/:novelId/characters/:characterId" element={<Layout><CharacterDetail /></Layout>} />
           <Route path="/novels/:novelId/chapters" element={<Layout><Chapters /></Layout>} />
