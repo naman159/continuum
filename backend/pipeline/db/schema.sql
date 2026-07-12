@@ -219,7 +219,7 @@ ALTER TABLE relationships ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFEREN
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS evidence_event_ids UUID[] DEFAULT '{}';
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
 -- NULL = extractor didn't judge it; the API falls back to a static label heuristic
--- (api/relationship_types.py). TRUE/FALSE = the extractor read the chapter text and
+-- (reads/relationship_types.py). TRUE/FALSE = the extractor read the chapter text and
 -- judged whether the relationship is genuinely mutual or reflects one side's view
 -- (e.g. A considers B a friend, but B doesn't feel the same).
 -- "symmetric" is a reserved word in PostgreSQL's DDL grammar and needs
