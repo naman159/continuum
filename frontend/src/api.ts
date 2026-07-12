@@ -108,6 +108,7 @@ export type CommitmentRow = {
   // JSONB: may be a plain string, an object, or null depending on extraction.
   trigger_predicate: unknown;
   status: "pending" | "satisfied" | "broken" | "abandoned" | string;
+  status_at_cutoff: string;
   weight: number | null;
   related_entity_names: string[];
   age_chapters: number | null;

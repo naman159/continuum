@@ -71,9 +71,14 @@ export default function Commitments() {
             {data.map((c) => (
               <tr key={c.id}>
                 <td>
-                  <span className={STATUS_CLASS[c.status] ?? ""}>
-                    {c.status}
+                  <span className={STATUS_CLASS[c.status_at_cutoff] ?? ""}>
+                    {c.status_at_cutoff}
                   </span>
+                  {c.status_at_cutoff !== c.status && (
+                    <span className="muted" style={{ marginLeft: 6 }}>
+                      (pays off ch {c.payoff_chapter ?? "?"})
+                    </span>
+                  )}
                 </td>
                 <td>{c.foreshadow_text}</td>
                 <td style={{ whiteSpace: "nowrap" }}>ch {c.foreshadow_chapter}</td>
