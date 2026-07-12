@@ -13,51 +13,7 @@ from pipeline.config import settings
 from pipeline.critic.adapter import build_draft_chapter, extract_draft_claims
 from pipeline.critic.runner import ContinuityCritic
 from pipeline.db.client import DBClient
-from pipeline.embeddings import EmbeddingService
 from pipeline.pipeline import analyze_chapter
-from pipeline.retrieval.hybrid import HybridRetriever
-from pipeline.retrieval.types import RetrievalQuery
-
-
-def search_story(
-    novel_id: str,
-    query_text: str,
-    writing_chapter: int,
-    *,
-    k: int = 8,
-    retriever: HybridRetriever | None = None,
-) -> dict[str, Any]:
-    """Hybrid semantic+keyword search over chapters <= writing_chapter - 1."""
-    owned_db: DBClient | None = None
-    if retriever is None:
-        owned_db = DBClient()
-        retriever = HybridRetriever(
-            owned_db, EmbeddingService(use_mock=settings.use_mock_llm)
-        )
-    try:
-        bundle = retriever.retrieve(
-            RetrievalQuery(
-                text=query_text,
-                novel_id=novel_id,
-                max_chapter=writing_chapter - 1,
-                k=k,
-            ),
-            use_rerank=False,
-        )
-        return {
-            "results": [
-                {
-                    "kind": str(r.kind),
-                    "chapter_number": r.chapter_number,
-                    "score": r.score,
-                    "snippet": r.snippet,
-                }
-                for r in bundle.results
-            ]
-        }
-    finally:
-        if owned_db is not None:
-            owned_db.close()
 
 
 def _finding_dict(finding: Any) -> dict[str, Any]:

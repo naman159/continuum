@@ -18,6 +18,7 @@ from reads import commitments as commitments_reads
 from reads import graphs as graphs_reads
 from reads import knowledge as knowledge_reads
 from reads import novels as novels_reads
+from reads import search as search_reads
 from reads import threads as threads_reads
 from reads import timeline as timeline_reads
 from reads import db as reads_db
@@ -52,7 +53,11 @@ def list_chapters(novel_id: str) -> Any:
 def search_story(novel_id: str, query: str, writing_chapter: int, k: int = 8) -> Any:
     """Semantic + keyword search over prose and extracted facts from chapters
     before writing_chapter. Use for 'has X happened yet?' style questions."""
-    return _call(lambda: queries.search_story(novel_id, query, writing_chapter, k=k))
+    return _call(
+        lambda: search_reads.search(
+            reads_db.get_db(), UUID(novel_id), query, writing_chapter - 1, k=k
+        )
+    )
 
 
 @mcp.tool()

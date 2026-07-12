@@ -38,36 +38,6 @@ class FakeDB:
         return False
 
 
-class FakeRetriever:
-    def __init__(self, results=None):
-        self.seen_query = None
-        self._results = results or []
-
-    def retrieve(self, query, use_rerank=False):
-        from pipeline.retrieval.types import RetrievalBundle
-
-        self.seen_query = query
-        return RetrievalBundle(query=query, results=self._results)
-
-
-def test_search_story_caps_max_chapter_and_serializes():
-    from pipeline.retrieval.types import RetrievalResult
-
-    retriever = FakeRetriever(
-        results=[
-            RetrievalResult(
-                item_id="i1", kind="chunk", score=0.9,
-                snippet="Jake read the letter.", chapter_number=3,
-            )
-        ]
-    )
-    out = queries.search_story("novel-1", "the letter", 12, retriever=retriever)
-    assert retriever.seen_query.max_chapter == 11
-    assert retriever.seen_query.novel_id == "novel-1"
-    assert out["results"][0]["snippet"] == "Jake read the letter."
-    assert out["results"][0]["chapter_number"] == 3
-
-
 def test_check_continuity_serializes_critic_report(monkeypatch):
     from pipeline.critic.types import CritiqueReport, Finding, Severity
 

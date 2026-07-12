@@ -24,6 +24,7 @@ from api.routes import (
     process,
     relationships,
     scenes,
+    search,
     threads,
     timeline,
 )
@@ -48,6 +49,7 @@ app.include_router(commitments.router)
 app.include_router(canon.router)
 app.include_router(knowledge.router)
 app.include_router(entity_types.router)
+app.include_router(search.router)
 
 
 @app.get("/api/health")

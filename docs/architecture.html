@@ -1515,6 +1515,17 @@ flowchart LR
       The retriever searches across <strong>chapters, scenes, and events</strong> by default
       (<code>_DEFAULT_KINDS</code>). It emits up to 50 candidates per kind before RRF merges them.
     </p>
+
+    <p>
+      <code>HybridRetriever</code> currently has three consumers. Two share one
+      implementation: the wiki's <code>GET /api/novels/{id}/search</code> route and the MCP
+      <code>search_story</code> tool both call <code>backend/reads/search.py</code>'s
+      <code>search()</code>, which builds the retriever behind a <code>_build_retriever(db)</code>
+      seam. The third, per-scene retrieval inside chapter generation (see
+      <a href="#generation-loop">Generation</a>), constructs its own
+      <code>HybridRetriever</code> directly in <code>pipeline/generation/loop.py</code> — a
+      separate call site until Plan 3 consolidates retrieval further.
+    </p>
   </section>
 
 

@@ -1552,6 +1552,34 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>Returns events grouped by chapter: <code>ChapterEvent[]</code> with chapter_number, chapter_title, and the event fields.</p>
   </section>
 
+  <section id="api-search">
+    <h2>API: Search</h2>
+
+    <table>
+      <thead><tr><th>Method</th><th>Path</th><th>Query Params</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{id}/search</code></td>
+          <td><code>?q=&amp;cap=N&amp;k=8</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>Hybrid (semantic + keyword) search over chapters, scenes, and events, capped at
+      <code>cap</code>. <code>q</code> is required and non-empty; <code>k</code> is clamped to
+      1–50 (default 8). Returns <code>SearchResults</code>:
+      <code>{"results": [{kind, chapter_number, score, snippet}]}</code>.</p>
+    <p>Backed by <code>backend/reads/search.py</code>'s <code>search()</code>, the same
+      function the MCP <code>search_story</code> tool calls (see
+      <a href="#mcp-server">MCP Server</a>) — the route passes <code>cap</code> straight
+      through as the inclusive cutoff, while the MCP tool converts its agent-facing
+      <code>writing_chapter</code> to <code>writing_chapter − 1</code> first. Retriever
+      construction (<code>HybridRetriever</code> + <code>EmbeddingService</code>) sits behind
+      a <code>_build_retriever(db)</code> seam so both callers — and tests — share one
+      retrieval implementation.</p>
+  </section>
+
   <section id="api-threads">
     <h2>API: Plot Threads</h2>
 

@@ -417,3 +417,14 @@ class EntityMergeRequest(BaseModel):
 class GenerateRequest(BaseModel):
     number: int
     ingest: bool = False
+
+
+class SearchResultRow(BaseModel):
+    kind: str
+    chapter_number: int | None = None
+    score: float
+    snippet: str | None = None
+
+
+class SearchResults(BaseModel):
+    results: list[SearchResultRow]

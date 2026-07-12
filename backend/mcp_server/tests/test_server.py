@@ -68,6 +68,25 @@ def test_timeline_events_requires_writing_chapter_and_converts_to_cap(monkeypatc
     assert out == [{"chapter_number": 1, "description": "ok"}]
 
 
+def test_search_story_converts_writing_chapter_to_cap(monkeypatch):
+    """Regression guard: search_story must be wired to reads.search.search
+    (shared with the /api/search route), not the deleted queries.search_story."""
+    seen = {}
+
+    def fake_search(db, novel_id, query_text, up_to_chapter, k=8):
+        seen["query_text"] = query_text
+        seen["up_to_chapter"] = up_to_chapter
+        seen["k"] = k
+        return {"results": []}
+
+    monkeypatch.setattr(server.search_reads, "search", fake_search)
+    out = server.search_story("00000000-0000-0000-0000-000000000000", "the letter", 12, k=3)
+    assert "error" not in out
+    assert seen["query_text"] == "the letter"
+    assert seen["up_to_chapter"] == 11
+    assert seen["k"] == 3
+
+
 def test_relationships_tool_converts_writing_chapter_to_cap(monkeypatch):
     """Regression guard: relationships must be wired to the merged
     reads.graphs.relationship_graph, not left calling a removed queries function."""
