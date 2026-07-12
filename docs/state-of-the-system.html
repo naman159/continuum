@@ -630,7 +630,7 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ CRITIC ════════════════ -->
   <section id="critic">
   <h2>Deep Dive — Continuity Critic <span class="badge green">Wired</span></h2>
-  <p>The critic runs six typed checks and aggregates structured <code>Finding</code>s with FAIL / WARN /
+  <p>The critic runs five typed checks and aggregates structured <code>Finding</code>s with FAIL / WARN /
      INFO severities; a report "passes" iff there are no FAILs. The design is right — typed, queryable
      checks rather than a vibes-based "read it and tell me if anything is off" prompt. It now has an
      input producer and five checks, all producer-backed — the sixth, <code>temporal_consistency</code>,
