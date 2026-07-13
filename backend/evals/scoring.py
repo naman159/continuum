@@ -81,7 +81,10 @@ def score_knowledge(expected: list[dict], actual: list[dict]) -> dict[str, Any]:
     """Recall of expected knowledge facts among actual knows-facts.
 
     A fact counts as found when some actual row has a matching character name
-    and >= 50% word overlap with the expected fact description.
+    and shares at least half the expected fact's words, with a floor of 2
+    shared words so a single common word never matches. Expected facts must
+    therefore be at least ~4 words long to be matchable at 50% overlap; the
+    golden answer key's facts all are.
     """
     missing = []
     for exp in expected:
