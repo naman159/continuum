@@ -155,6 +155,7 @@
   <a href="#setup">Getting Started</a>
   <a href="#config">Configuration</a>
   <a href="#scripts">CLI Scripts</a>
+  <a href="#evals">Eval Harness</a>
   <a href="#mcp-server">MCP Server</a>
 
   <div class="sidebar-section">Pipeline API</div>
@@ -354,6 +355,11 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><code>30</code></td>
           <td>Max locations injected into extraction prompts (same selection rules as characters).</td>
         </tr>
+        <tr>
+          <td><code>RUN_LLM_EVALS</code></td>
+          <td><code>unset</code></td>
+          <td>Set to <code>1</code> to run <code>evals/tests/test_extraction_fidelity.py::test_extraction_fidelity_real_llm</code>, which ingests the golden fixture with a real LLM and spends API credits. Unset (default), that test is collected but skipped; the rest of <code>evals/</code> runs offline against the mock LLM. See <a href="#evals">Eval Harness</a>.</td>
+        </tr>
       </tbody>
     </table>
 
@@ -396,6 +402,37 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <strong>The old per-domain query CLI is retired.</strong> Character, timeline, thread,
       relationship, scene, commitment, canon, and knowledge lookups now live in the MCP server below;
       entity merge moved to <code>POST /api/novels/{id}/entities/merge</code>.
+    </div>
+  </section>
+
+
+  <!-- ══════════ EVAL HARNESS ══════════ -->
+  <section id="evals">
+    <h2>Eval Harness <span class="badge blue">backend/evals/</span></h2>
+    <p>
+      A hand-written golden fixture novel (<code>backend/evals/golden/</code>: 10 chapters plus
+      <code>answer_key.yaml</code>) drives three offline evals plus one env-gated online eval, all
+      runnable with <code>cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</code>
+      (offline, mock LLM + a real Postgres). No API key or network access is required for the
+      default run.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Eval</th><th>Module</th><th>What It Measures</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Scoring library</td><td><code>evals/tests/test_scoring.py</code></td><td>Pure unit tests for the name/interval/word-overlap matchers in <code>evals/scoring.py</code> — no DB.</td></tr>
+        <tr><td>Critic precision/recall</td><td><code>evals/critic_eval.py</code>, <code>evals/tests/test_critic_eval.py</code></td><td>Seeds known continuity violations and checks the <code>ContinuityCritic</code> flags every one, with no false positives on a clean draft.</td></tr>
+        <tr><td>Retrieval recall@k</td><td><code>evals/harness.py::run_retrieval_eval</code>, <code>evals/tests/test_retrieval_eval.py</code></td><td>Ingests the golden novel through <code>analyze_chapter</code> (mock LLM, hash embeddings, real chunking + Postgres FTS) once per module via the <code>golden_novel</code> fixture, then runs the 10 golden queries through the production <code>reads.search.search()</code> path and scores recall@8 against each query's expected chapter. Floor: mean recall@8 ≥ 0.5.</td></tr>
+        <tr><td>Extraction fidelity</td><td><code>evals/harness.py::read_projections</code>, <code>evals/tests/test_extraction_fidelity.py</code></td><td>Mock-mode run only checks the ingest → projections → scoring plumbing (no thresholds — canned mock extraction won't match the answer key). The real-LLM variant, gated behind <code>RUN_LLM_EVALS=1</code> (see the env-var table above), asserts recall floors: characters/locations ≥ 0.75, objects ≥ 1.0, possessions ≥ 0.6, knowledge ≥ 0.5.</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <strong><code>RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/</code></strong> runs the
+      real-LLM extraction-fidelity eval in addition to the offline suite — it spends API credits
+      and is not part of the default test run.
     </div>
   </section>
 
