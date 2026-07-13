@@ -178,34 +178,34 @@
   <a href="#reality-map">Reality Map</a>
   <a href="#scorecard">Scorecard</a>
 
-  <div class="sidebar-section">The Core Gap</div>
-  <a href="#fork">Analyzer vs. Generator</a>
-  <a href="#wiring">The Wiring Gap</a>
-  <a href="#schema-ahead">Schema Ahead of Code</a>
+  <div class="sidebar-section">The Redesign</div>
+  <a href="#fork">The Decision: Analyzer, Not Generator</a>
+  <a href="#wiring">Read-Layer Consolidation</a>
+  <a href="#schema-ahead">Schema Evolution</a>
 
   <div class="sidebar-section">Subsystem Deep Dives</div>
   <a href="#extraction">Extraction</a>
   <a href="#retrieval">Hybrid Retrieval</a>
   <a href="#critic">Continuity Critic</a>
-  <a href="#planner">Scene Planner</a>
   <a href="#state">State Materializer</a>
+  <a href="#teardown">Retired: Chapter Authoring</a>
 
   <div class="sidebar-section">Data Integrity</div>
   <a href="#critic-scorecard">Critic Check Scorecard</a>
   <a href="#dual-truth">Dual Source of Truth</a>
-  <a href="#heuristics">Heuristic Inference</a>
+  <a href="#heuristics">Typed State Deltas</a>
   <a href="#atomicity">Atomicity</a>
 
   <div class="sidebar-section">Engineering Foundations</div>
-  <a href="#evals">No Eval Harness</a>
+  <a href="#evals">Eval Harness</a>
   <a href="#observability">Observability &amp; Cost</a>
   <a href="#migrations">Migration Hygiene</a>
   <a href="#docs-drift">Docs Drift</a>
 
   <div class="sidebar-section">The Path Forward</div>
-  <a href="#target">Target Architecture</a>
-  <a href="#roadmap">Roadmap (P0–P5)</a>
-  <a href="#metrics">Success Metrics</a>
+  <a href="#target">What Shipped (Plans 1–3)</a>
+  <a href="#roadmap">Known Gaps / Next Steps</a>
+  <a href="#metrics">Eval Metrics</a>
 
   <div class="sidebar-doc-link">
     Also see:<br>
@@ -220,20 +220,22 @@
 <main>
 
   <h1>State of the System</h1>
-  <div class="subtitle">Where Continuum stands today, and where it needs to be to close the gap with SOTA.</div>
-  <div class="meta">branch: closing-the-gap-with-sota · 251 backend tests green · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer)</div>
+  <div class="subtitle">The redesign is complete. This page is both the retrospective on how Continuum got here and the honest list of what's still genuinely open.</div>
+  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · <strong>updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14)</strong></div>
 
   <p class="lead">
-    Continuum has built an excellent set of organs and has not yet connected the circulatory system.
-    The relational + vector knowledge base is largely state-of-the-art, the extraction pipeline is
-    deep and disciplined, and four advanced subsystems — hybrid retrieval, a continuity critic, a
-    scene planner, and an event-sourced state materializer — are individually well-engineered and
-    unit-tested. All four now have callers — the state materializer runs automatically at the end of
-    every processed chapter, and the planner, retriever, and critic drive the generation loop — but
-    several of the marquee tables they depend on have no producer, and the one component that would
-    turn this from a
-    <em>continuity analyzer</em> into the <em>agentic writing system</em> the research describes — a
-    Drafter inside an orchestrated loop — does not exist. This page is the honest map of that gap.
+    Continuum is a <strong>continuity analyzer</strong>, not a chapter generator — and, as of this
+    page, that's a settled product decision rather than an open question. The system briefly grew a
+    parallel chapter-authoring sub-system (a scene-level planner, a prose drafter, a critique-gated
+    revision loop) while the SOTA schema and its four advanced subsystems — hybrid retrieval, a
+    continuity critic, and an event-sourced state materializer among them — were still finding their
+    callers. Once those subsystems were wired into the analyzer path (Plans 1–2 below) and it became
+    clear the analyzer was the product, the authoring sub-system was torn down (Plan 3) rather than
+    finished. What ships today is: ingest existing chapter prose (human-typed or agent-authored) →
+    13-pass extraction → one write spine that persists, materializes, and critiques every chapter →
+    one read layer that serves the wiki, the API, and an MCP server for writing agents → an eval
+    harness that makes every one of those claims falsifiable. This page tells that story and lists
+    what remains genuinely open.
   </p>
 
   <!-- ════════════════ TL;DR ════════════════ -->
@@ -241,108 +243,117 @@
   <h2>TL;DR</h2>
 
   <div class="callout info">
-    <strong>The one-sentence version:</strong> the schema and the modules are ~80% of a SOTA design;
-    the missing 20% is almost entirely <em>integration, data-flow, and measurement</em>, not new module
-    quality.
+    <strong>The one-sentence version:</strong> the analyzer-vs-generator ambiguity this page used to
+    track is resolved — Continuum is the analyzer — and the three follow-on plans (write spine, read
+    layer, teardown + evals) closed every integration and measurement gap this page previously flagged.
   </div>
 
   <ul>
-    <li><strong>What runs today is an analyzer.</strong> Ingest existing chapter prose → 12-pass LLM
-      extraction → Postgres knowledge base → read-only React wiki. This path works end-to-end and is
-      genuinely good.</li>
-    <li><strong>What the research describes is a generator.</strong> Plan → Retrieve → Draft → Critique
-      → Revise → Update, run by a deterministic orchestrator. The <strong>Drafter and the orchestrator
-      do not exist.</strong></li>
-    <li><strong>The four advanced subsystems are no longer orphaned.</strong> <code>state/</code> now
-      runs automatically inside <code>analyze_chapter</code> (renamed from <code>process_chapter</code>,
-      2026-07-12); <code>planner/</code> and <code>retrieval/</code> are consumed by the generation loop
-      (<code>generation/loop.py</code>), and <code>critic/</code> now runs and persists a critique for
-      <em>every</em> analyzed chapter, not only chapters produced by the generation loop.</li>
-    <li><strong>The schema is one or two phases ahead of the extractor.</strong>
-      <code>temporal_constraints</code> and the SVO/story-time columns on <code>events</code> had
-      <em>no producer at all</em> and were removed from the schema 2026-07-11 (write-spine). The bitemporal edges now fill automatically — the state materializer
-      runs at the end of every processed chapter. <code>canon_facts</code> has a live producer (pass 13) with lock/contradiction semantics.</li>
+    <li><strong>What runs today is the whole product, not a subset of one.</strong> Ingest chapter
+      prose (human via the Process page/CLI, or an agent via the MCP <code>save_chapter</code> tool) →
+      13-pass LLM extraction → one Postgres write spine (persist → materialize → critique, all
+      per-chapter) → a read layer serving the wiki, the API, and an MCP server. This path is
+      end-to-end, transactional, and — new as of Plan 3 — <em>measured</em>.</li>
+    <li><strong>The chapter-authoring sub-system this page used to track is gone, deliberately.</strong>
+      A scene-level planner, a prose drafter, and a critique-gated revision loop were built and briefly
+      wired into an orchestrated loop, then deleted (Task 2, Plan 3) once the product decision landed on
+      analyzer-only. Nothing in the current codebase drafts prose; the critic and retriever now serve
+      the analyzer exclusively.</li>
+    <li><strong>The four advanced subsystems built during the SOTA branch are fully wired.</strong>
+      <code>state/</code> runs automatically inside <code>analyze_chapter</code> (phase 4);
+      <code>retrieval/</code> backs the wiki's Search page and the MCP <code>search_story</code> tool;
+      <code>critic/</code> runs and persists a critique for <em>every</em> analyzed chapter (phase 5);
+      the fourth, the scene-level planner, had no analyzer-path use once the generator was cut, so it
+      was deleted rather than kept orphaned.</li>
+    <li><strong>The schema now matches the extractor exactly.</strong> <code>temporal_constraints</code>
+      and the SVO/story-time columns on <code>events</code> had no producer and were removed 2026-07-11
+      (write-spine). Everything that remains in the schema has a writer: bitemporal edges fill via the
+      state materializer, <code>canon_facts</code> via pass 13, and the write-spine's own new tables
+      (<code>state_deltas</code>, <code>critique_reports</code>, <code>critique_findings</code>,
+      <code>schema_version</code>) via the write spine itself.</li>
     <li><strong>The critic runs five checks, all with live producers.</strong> The sixth check,
       <code>temporal_consistency</code>, queried tables that were removed with the SVO/temporal columns
-      and had no producer; it was deleted 2026-07-12 rather than left hollow. The critic itself is no
-      longer an orphan: <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the chapter's
-      own extraction (<code>critic/adapter.py: build_draft_from_extraction</code>) and persists a
-      <code>critique_reports</code> / <code>critique_findings</code> row set for every chapter, whether
-      ingested or generated.</li>
-    <li><strong>There is no way to know if any of this is working.</strong> No eval harness, no continuity
-      metric, no retrieval recall measurement. "Closing the gap with SOTA" is currently unfalsifiable.</li>
+      and had no producer; it was deleted 2026-07-12 rather than left hollow. <code>analyze_chapter</code>
+      builds a <code>DraftChapter</code> from the chapter's own extraction
+      (<code>critic/adapter.py: build_draft_from_extraction</code>) and persists a
+      <code>critique_reports</code> / <code>critique_findings</code> row set for every chapter.</li>
+    <li><strong>There is now a way to know if any of this is working.</strong>
+      <code>backend/evals/</code> (Task Plan 3) runs a golden 10-chapter fixture novel through the real
+      write spine and scores it: critic precision/recall exactly 1.0 against seeded violations,
+      retrieval recall@8 ≥ 0.5 against Postgres full-text search, and (env-gated, real-LLM) extraction
+      fidelity floors per entity category. "The redesign is complete" is now a falsifiable, tested
+      claim, not an assertion.</li>
   </ul>
   </section>
 
   <!-- ════════════════ HOW TO READ ════════════════ -->
   <section id="how-to-read">
   <h2>How to Read This</h2>
-  <p>Every component is tagged with one of four states. The same vocabulary is used in the reality map,
-     the scorecard, and the deep dives.</p>
+  <p>This page used to be a live gap-diagnosis, written while the write spine, read layer, and eval
+     harness were still open questions. It's now mostly a retrospective — most components below are
+     <strong>Wired</strong> (built and on the live path) or <strong>Removed</strong>/<strong>Deleted</strong>
+     (deliberately taken out because nothing produced or consumed them). A handful of items are still
+     genuinely open, tagged <strong>Still Open</strong>; those are consolidated in
+     <a href="#roadmap">Known Gaps / Next Steps</a> at the bottom.</p>
 
   <div class="legend">
     <span><span class="dot live"></span><strong>&nbsp;Wired</strong> — built and on the live path</span>
-    <span><span class="dot orphan"></span><strong>&nbsp;Orphaned</strong> — built &amp; tested, imported nowhere</span>
-    <span><span class="dot schema"></span><strong>&nbsp;Schema-only</strong> — table/columns exist, no producer</span>
-    <span><span class="dot missing"></span><strong>&nbsp;Missing</strong> — not built at all</span>
+    <span><span class="dot schema"></span><strong>&nbsp;Removed</strong> — taken out of the schema/codebase; had no producer or consumer</span>
+    <span><span class="dot missing"></span><strong>&nbsp;Still Open</strong> — a real, bounded gap; see Known Gaps / Next Steps</span>
   </div>
 
-  <p>Each deep-dive section ends with a <strong>Where we stand → Where we need to be</strong> pair so the
-     document doubles as a roadmap, not just a diagnosis.</p>
+  <p>Most deep-dive sections below end with a <strong>Where we stood → Where we are now</strong> pair,
+     since most of what this page tracked is now resolved; the ones that are still open say so.</p>
   </section>
 
   <!-- ════════════════ REALITY MAP ════════════════ -->
   <section id="reality-map">
   <h2>Reality Map</h2>
-  <p>What is actually connected. The solid green spine is the only path data travels today. Everything in
-     the orange box is built but has no caller; everything in the red box is unbuilt; the yellow tables exist
-     in the schema but nothing writes to them.</p>
+  <p>What is actually connected, as of the redesign's completion. There is exactly one live path now — no
+     orphaned modules, no schema-only tables. The yellow box is kept for history: it's what got removed
+     because nothing ever wrote to it.</p>
 
   <div class="diagram-wrap">
     <div class="mermaid">
 flowchart TB
-    subgraph LIVE["✅ Live path — the analyzer (this is the only path data flows through)"]
+    subgraph WRITE["✅ Write spine — analyze_chapter (backend/pipeline/pipeline.py)"]
       direction TB
-      TXT["Chapter prose<br/>(file / stdin / API)"] --> ING["ingest_chapter"]
-      ING --> EXT["ChapterExtractor<br/>12 LLM passes per chunk"]
+      TXT["Chapter prose<br/>(Process page/CLI: source='human'<br/>MCP save_chapter: source='agent')"] --> ING["INGEST<br/>ingest_chapter"]
+      ING --> EXT["EXTRACT<br/>13 LLM passes per chunk incl. typed state_deltas"]
       EXT --> DED["IntraDeduplicator +<br/>EntityCanonicalizer"]
-      DED --> PER["persist: entities · events · scenes<br/>knows_edges · commitments · canon_facts<br/>multi-summaries · relationships · dynamics"]
-      PER --> MAT["StateMaterializer<br/>event replay → bitemporal edges"]
-      PER --> APIW["Wiki API (FastAPI) + React UI"]
+      DED --> PER["PERSIST (one transaction)<br/>entities · events · scenes · knows_edges<br/>commitments · canon_facts · state_deltas · relationships"]
+      PER --> MAT["MATERIALIZE<br/>StateMaterializer replays state_deltas →<br/>character_states + bitemporal edges"]
+      MAT --> CRIT["CRITIQUE<br/>ContinuityCritic, 5 checks →<br/>critique_reports/critique_findings (non-blocking)"]
     end
 
-    subgraph ORPH["🟠 Built &amp; unit-tested — imported nowhere outside tests"]
+    subgraph READ["✅ Read layer — backend/reads/ (cutoff-aware, SQL lives only here)"]
       direction LR
-      PLAN["ScenePlanner<br/>→ ChapterPlan"]
-      RETR["HybridRetriever<br/>BM25+dense+RRF+rerank+MMR"]
-      CRIT["ContinuityCritic<br/>6 typed checks"]
+      APIW["FastAPI + React wiki<br/>translates ?cap="]
+      MCPR["MCP server (13 tools)<br/>translates writing_chapter − 1"]
     end
 
-    subgraph MISS["🔴 Missing entirely"]
+    PER --> READ
+    CRIT --> READ
+
+    subgraph EVAL["✅ Eval harness — backend/evals/"]
       direction LR
-      ORCH["Orchestrator /<br/>phase-gated state machine"]
-      DRAFT["Drafter<br/>(prose generation)"]
-      REV["Reviser"]
+      GOLD["Golden fixture novel<br/>'The Lantern of Veyra'"] --> METRICS["critic P/R · retrieval recall@8<br/>· extraction fidelity"]
     end
 
-    subgraph SCH["🟡 Removed 2026-07-11 (write-spine) — had no producer"]
+    WRITE -.-> EVAL
+
+    subgraph SCH["🟡 Removed 2026-07-11 (write-spine) — had no producer, ever"]
       direction LR
       TC["temporal_constraints (removed)"]
       SVO["events.subject/verb/object<br/>+ story_time_ordinal (removed)"]
     end
 
-    CRIT -. "needs a DraftChapter<br/>nothing produces one" .-> DRAFT
-
     classDef live fill:#13351f,stroke:#3fb950,color:#e6edf3;
-    classDef orphan fill:#3a2a12,stroke:#f0883e,color:#e6edf3;
-    classDef missing fill:#3a1715,stroke:#f85149,color:#e6edf3;
     classDef schema fill:#332d12,stroke:#d29922,color:#e6edf3;
-    class TXT,ING,EXT,DED,PER,MAT,APIW live;
-    class PLAN,RETR,CRIT orphan;
-    class ORCH,DRAFT,REV missing;
-    class CF,TC,SVO schema;
+    class TXT,ING,EXT,DED,PER,MAT,CRIT,APIW,MCPR,GOLD,METRICS live;
+    class TC,SVO schema;
     </div>
-    <div class="diagram-cap">The three orange modules and three red modules never touch the green spine. That disconnection is the headline finding. (The StateMaterializer joined the green spine in July 2026 — analyze_chapter now runs it after every chapter.)</div>
+    <div class="diagram-cap">One write spine, one read layer, one eval harness measuring both. The chapter-authoring sub-system that used to occupy an "orphaned" box and a "missing" box in this diagram (planner, drafter, orchestrator, reviser) was deleted, not wired — see <a href="#fork">The Decision</a> below.</div>
   </div>
   </section>
 
@@ -353,82 +364,69 @@ flowchart TB
 
   <table>
     <thead>
-      <tr><th>Component</th><th>Status</th><th>Evidence</th><th>Where it needs to be</th></tr>
+      <tr><th>Component</th><th>Status</th><th>Evidence</th><th>Notes</th></tr>
     </thead>
     <tbody>
       <tr>
-        <td><strong>Ingestion + 12-pass extraction</strong></td>
+        <td><strong>Ingestion + 13-pass extraction</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>End-to-end in <code>analyze_chapter</code>; <code>PASS_ORDER</code> = 12 passes</td>
-        <td>Emit SVO triples, canon facts, temporal links (see Schema gap)</td>
+        <td>End-to-end in <code>analyze_chapter</code>; <code>PASS_ORDER</code> = 13 passes, including the write-spine's typed <code>state_deltas</code> pass</td>
+        <td>Measured by the extraction-fidelity eval (mock plumbing always; real-LLM floors behind <code>RUN_LLM_EVALS=1</code>)</td>
       </tr>
       <tr>
-        <td><strong>Knowledge base / SOTA schema</strong></td>
+        <td><strong>Knowledge base / SOTA + write-spine schema</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>Bitemporal edges, knows-edges, commitments, scenes, HNSW, BM25 <code>tsvector</code> all present</td>
-        <td>Be fully populated — most tables are partially or fully empty</td>
+        <td>Bitemporal edges, knows-edges, commitments, scenes, HNSW, BM25 <code>tsvector</code>, plus <code>state_deltas</code>/<code>critique_reports</code>/<code>critique_findings</code>/<code>schema_version</code> all present and populated</td>
+        <td>Every table that remains in the schema has a live producer — see <a href="#schema-ahead">Schema Evolution</a></td>
       </tr>
       <tr>
-        <td><strong>Read-only wiki (API + React)</strong></td>
+        <td><strong>Read layer (API + MCP + React wiki)</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>19 routers registered in <code>api/app.py</code>; full route set in <code>frontend/src/routes</code>. <strong>Resolved 2026-07-12:</strong> critic findings now render per-chapter (Continuity view) and a Search page exists, backed by <code>reads/search.py</code>; the whole read side was also consolidated into a single <code>reads/</code> layer — <code>api/queries.py</code> is deleted and <code>mcp_server/queries.py</code> no longer duplicates read logic, so the API and MCP surfaces can no longer drift apart.</td>
-        <td>Everything on this row's original punch list now exists</td>
+        <td>Consolidated into a single <code>backend/reads/</code> package; <code>api/queries.py</code> is deleted, <code>mcp_server/queries.py</code> is down to writer-side glue (<code>check_continuity</code>, <code>save_chapter</code>); every public <code>reads/</code> function is cutoff-aware, enforced structurally by <code>reads/tests/test_contract.py</code></td>
+        <td>The API and MCP surfaces can no longer independently drift — they call the same functions</td>
       </tr>
       <tr>
         <td><strong>Hybrid Retriever</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td><strong>Resolved 2026-07-12.</strong> Complete BM25+dense+RRF+rerank+MMR pipeline, now with two callers: <code>generation/loop.py</code> feeds the drafter's per-scene context, and <code>reads/search.py</code> backs <code>/api/search</code> and the MCP <code>search_story</code> tool</td>
-        <td>Wired to both consumers described in "Where we need to be" below</td>
+        <td>Complete BM25+dense+RRF+rerank+MMR pipeline, with one production caller — <code>reads/search.py</code>, which backs <code>/api/search</code> and the MCP <code>search_story</code> tool</td>
+        <td>Measured by the retrieval recall@8 eval (floor 0.5, mock embeddings + real Postgres FTS)</td>
       </tr>
       <tr>
         <td><strong>Continuity Critic</strong></td>
         <td><span class="badge green">Wired</span></td>
         <td>5 checks + runner; <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the
-          chapter's own extraction and persists the report for every chapter (all five checks have live
-          producers; the sixth, <code>temporal_consistency</code>, was deleted 2026-07-12)</td>
-        <td><strong>Resolved 2026-07-12.</strong> Findings render in the UI: <code>Continuity.tsx</code> fetches <code>CritiqueReportDetail</code> and lists each finding's severity, message, and quote</td>
-      </tr>
-      <tr>
-        <td><strong>Scene Planner</strong></td>
-        <td><span class="badge orange">Orphaned</span></td>
-        <td>Produces <code>ChapterPlan</code>; no consumer; context uses naive recency, not retrieval</td>
-        <td>Feed the Drafter; pull context via the retriever</td>
+          chapter's own extraction and persists the report for every chapter</td>
+        <td>Findings render in the UI (<code>Continuity.tsx</code>) and are measured by the critic precision/recall eval (both exactly 1.0, deterministic)</td>
       </tr>
       <tr>
         <td><strong>State Materializer</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>Event-replay → bitemporal edges; <code>analyze_chapter</code> now runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
-        <td>Resolve the dual-writer tension with the extractor's <code>character_states</code> rows (see <a href="#dual-truth">Dual Source of Truth</a>)</td>
+        <td>Replays typed <code>state_deltas</code> → <code>character_states</code> + bitemporal edges; <code>analyze_chapter</code> runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
+        <td>Sole writer of <code>character_states</code> — see <a href="#dual-truth">Dual Source of Truth</a> (resolved)</td>
       </tr>
       <tr>
         <td><code>canon_facts</code> + lock bit</td>
         <td><span class="badge green">Wired</span></td>
         <td>Pass 13 (<code>canon_facts</code>) populates the table; <code>persist_canon_facts()</code> upserts with lock semantics; contradiction → <code>continuity_flag</code>. Frontend lock toggle via <code>PATCH /canon/{id}</code>.</td>
-        <td>Surface <code>canon_contradiction</code> flags in the wiki Continuity view (the planned <code>knows_edges.fact_id</code> FK was removed 2026-07-11 — see write-spine note above)</td>
+        <td><code>canon_contradiction</code> flags surface in the wiki Continuity view</td>
       </tr>
       <tr>
         <td><code>temporal_constraints</code> + SVO/story-time (removed 2026-07-11)</td>
         <td><span class="badge yellow">Removed</span></td>
         <td>Had no producer; events were inserted without subject/verb/object/<code>story_time_ordinal</code>; the columns and <code>temporal_constraints</code> table were dropped from the schema</td>
-        <td>If reintroduced, extractor would need to emit ordered SVO events + temporal relations</td>
+        <td>Not reintroduced — the analyzer-only decision (see <a href="#fork">below</a>) means there's no roadmap item pulling this back</td>
       </tr>
       <tr>
-        <td><strong>Orchestrator / state machine</strong></td>
-        <td><span class="badge green">Built</span></td>
-        <td><code>generation/loop.py</code> sequences plan→retrieve→draft→critique→revise→ingest with critic-gated write-back</td>
-        <td>Exposed via CLI, API job, and the Process page</td>
-      </tr>
-      <tr>
-        <td><strong>Drafter + Reviser</strong></td>
-        <td><span class="badge green">Built</span></td>
-        <td><code>generation/drafter.py</code> drafts per scene with retrieval context + style fingerprint; critic FAILs become revision notes (up to <code>GENERATION_MAX_REVISIONS</code>)</td>
-        <td>Eval harness still pending — quality is gated by the critic only</td>
+        <td><strong>Chapter-authoring sub-system</strong> (scene-level planner, prose drafter, orchestrated revision loop)</td>
+        <td><span class="badge red">Deleted</span></td>
+        <td>Built, briefly wired into an orchestrated loop, then removed in full (Task 2 of Plan 3, 2026-07-14) once the product decision landed on analyzer-only</td>
+        <td>Not on the roadmap — see <a href="#fork">The Decision</a></td>
       </tr>
       <tr>
         <td><strong>Eval harness</strong></td>
-        <td><span class="badge red">Missing</span></td>
-        <td>No golden set, no recall/CED metric anywhere in the repo</td>
-        <td>Build early — it is what makes "closing the gap" measurable</td>
+        <td><span class="badge green">Wired</span></td>
+        <td><code>backend/evals/</code>: golden 10-chapter fixture novel + answer key, scoring library, critic precision/recall (exact 1.0), retrieval recall@8 (floor 0.5), extraction fidelity (mock plumbing + env-gated real-LLM floors)</td>
+        <td><code>cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</code> — see <a href="reference.html#evals">Reference: Eval Harness</a></td>
       </tr>
     </tbody>
   </table>
@@ -436,160 +434,179 @@ flowchart TB
 
   <!-- ════════════════ THE FORK ════════════════ -->
   <section id="fork">
-  <h2>The Core Gap I — Analyzer vs. Generator</h2>
+  <h2>The Redesign I — The Decision: Analyzer, Not Generator</h2>
   <p>The deep-research doc (<code>continuity-arch-deep-research.md</code>) describes an
-     <strong>agentic novel-writing system</strong>. The code that actually runs is a
-     <strong>continuity analyzer for prose written elsewhere</strong>. These are different products, and
-     the ambiguity between them is the single most important thing to resolve, because it decides what to
-     build next.</p>
+     <strong>agentic novel-writing system</strong>. Earlier revisions of this page tracked an
+     unresolved ambiguity: the code that actually ran was a continuity analyzer, but generator-shaped
+     modules (a scene-level planner, a prose drafter, an orchestrated plan→retrieve→draft→critique→
+     revise→update loop) existed alongside it, wired into each other but not into the analyzer's own
+     write spine.</p>
 
-  <p><code>pipeline.py:analyze_chapter</code> takes <em>existing</em> chapter text as input and ends by
-     persisting structure (plus, since 2026-07-12, materializing state and running the continuity critique).
-     There is no generation anywhere in the flow. The planner and retriever were built for the generator
-     vision and are only consumed by the generation loop; the critic now runs for both paths — yet the only
-     thing that exists end-to-end today is the analyzer. The piece that would make this a "writing system,"
-     the Drafter, is exactly the piece that is missing.</p>
+  <p>That ambiguity is resolved. The 2026-07-11 analyzer-architecture spec made the call explicitly:
+     <strong>Continuum is a continuity analyzer for prose written elsewhere</strong> — by a human via
+     the Process page/CLI, or by a writing agent via the MCP <code>save_chapter</code> tool — not an
+     end-to-end novel generator. Plans 1–2 spent the SOTA-branch subsystems (retrieval, critic, state
+     materializer) on making the analyzer itself excellent: every chapter now gets materialized state
+     and a persisted critique, not just chapters that happened to pass through a generation loop. Plan 3
+     then removed the chapter-authoring code entirely — the scene-level planner, the prose drafter, and
+     the orchestrated revision loop — rather than leave it as unreachable dead weight. The style
+     fingerprint that loop depended on survives as ingest-time chapter metadata
+     (<code>pipeline/style.py</code>, computed and stored on every chapter regardless of source).</p>
 
-  <div class="callout warn">
-    <strong>Decision required.</strong> Is Continuum (a) a continuity checker / story-bible generator over
-    human- or externally-written prose, or (b) an end-to-end novel generator? Both are valid. But the
-    near-term roadmap is completely different depending on the answer, and right now the codebase is hedging
-    — paying the complexity cost of (b) while only shipping (a).
+  <div class="callout tip">
+    <strong>Decision, made.</strong> Continuum is a continuity checker / story-bible engine over
+     human- or agent-written prose. The near-term roadmap (see <a href="#roadmap">Known Gaps / Next
+     Steps</a>) has no generator line item — if novel-length prose generation is ever wanted, it would
+     be a new, separately-scoped product decision, not a resumption of the deleted loop.
   </div>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
-      <p>An analyzer wearing a generator's skeleton. Generator-oriented modules exist but nothing generates;
-         the product that ships is the wiki.</p>
+      <h4>Where we stood</h4>
+      <p>An analyzer wearing a generator's skeleton. Generator-oriented modules existed and were briefly
+         wired to each other, but not to anything a user could reach without generating a chapter.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <p>An explicit, written product decision. Recommended: <strong>analyzer-first</strong> — make the
-         critic and retriever pay off over existing prose now, treat the Drafter as a later, eval-gated phase.</p>
+      <h4>Where we are now</h4>
+      <p>Analyzer-only, by explicit decision. The critic and retriever pay off over existing prose;
+         the generator-shaped code that used to hedge on a second product is gone.</p>
     </div>
   </div>
   </section>
 
   <!-- ════════════════ WIRING ════════════════ -->
   <section id="wiring">
-  <h2>The Core Gap II — The Wiring Gap</h2>
-  <p>Four sophisticated subsystems exist. A repository-wide import search confirms that
-     <code>pipeline.planner</code>, <code>pipeline.retrieval</code>, <code>pipeline.critic</code>, and
-     <code>pipeline.state</code> are imported <strong>nowhere outside their own packages and test suites</strong>.
-     Each module independently fell into place; no one wired the loop. The orchestrator the research calls
-     "the single most important structural element" is the missing keystone.</p>
+  <h2>The Redesign II — Read-Layer Consolidation</h2>
+  <p>Earlier revisions of this page tracked a "wiring gap": <code>pipeline.retrieval</code>,
+     <code>pipeline.critic</code>, and <code>pipeline.state</code> existed but were imported nowhere
+     outside their own packages and test suites, each falling into place independently with no one
+     module wiring them into a caller a user could reach. Plans 1–2 closed that gap for the three
+     subsystems the analyzer needs; a fourth SOTA-branch subsystem — a scene-level chapter planner —
+     had no analyzer-path use once the chapter-authoring loop it was built for was deleted, so it left
+     with that loop rather than staying orphaned (see <a href="#fork">The Decision</a>).</p>
 
   <table>
-    <thead><tr><th>Subsystem</th><th>Engineering quality</th><th>Why it is stuck</th></tr></thead>
+    <thead><tr><th>Subsystem</th><th>Engineering quality</th><th>How it's wired today</th></tr></thead>
     <tbody>
-      <tr><td><code>planner/</code></td><td>Clean types, mock mode for tests (real-mode failures raise), JSON-repair</td><td>Now consumed by <code>generation/loop.py</code></td></tr>
-      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td>Now serves the drafter's per-scene context queries</td></tr>
-      <tr><td><code>critic/</code></td><td>Six typed checks, severity model, structured findings</td><td>Fed by <code>critic/adapter.py:extract_draft_claims</code> and gates generated-chapter ingestion; also fed by <code>build_draft_from_extraction</code> and persisted for every chapter <code>analyze_chapter</code> processes</td></tr>
-      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Now runs automatically at the end of <code>analyze_chapter</code></td></tr>
+      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td><code>reads/search.py</code> wraps it for the wiki's Search page (<code>/api/search</code>) and the MCP <code>search_story</code> tool — one implementation, two callers</td></tr>
+      <tr><td><code>critic/</code></td><td>Five typed checks, severity model, structured findings</td><td><code>critic/adapter.py:build_draft_from_extraction</code> builds a <code>DraftChapter</code> from every chapter's own extraction; <code>analyze_chapter</code> persists the resulting report (phase 5) for every chapter, not a subset</td></tr>
+      <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Runs automatically at the end of <code>analyze_chapter</code> (phase 4), replaying through the novel's latest chapter</td></tr>
     </tbody>
   </table>
 
+  <p>The consolidation went further than wiring these three modules in: the presentation-read side of the
+     codebase, which used to have two independently-maintained copies (one in <code>api/queries.py</code>,
+     one in <code>mcp_server/queries.py</code>), is now a single <code>backend/reads/</code> package that
+     both the wiki API and the MCP server call. <code>reads/tests/test_contract.py</code> enforces this
+     structurally: it asserts <code>api/routes/*.py</code> and <code>mcp_server/server.py</code> contain
+     no SQL, and that every public <code>reads/</code> function accepts the shared
+     <code>up_to_chapter</code> cutoff parameter (barring a documented exemption set).</p>
+
   <div class="callout info">
-    The module-level code is genuinely strong: clean dataclasses, mock LLM fallbacks everywhere (good for
-    cost and testing), idempotent SQL, sensible defaults. <strong>The problem is not the parts; it is that
-    they are not connected.</strong>
+    The module-level code was always genuinely strong: clean dataclasses, mock LLM fallbacks everywhere
+    (good for cost and testing), idempotent SQL, sensible defaults. What Plans 1–2 fixed was exactly the
+    thing this section used to flag — <strong>the parts are now connected, through one read layer instead
+    of duplicated ones.</strong>
   </div>
   </section>
 
   <!-- ════════════════ SCHEMA AHEAD ════════════════ -->
   <section id="schema-ahead">
-  <h2>The Core Gap III — Schema Ahead of Code</h2>
-  <p>The <code>schema.sql</code> SOTA upgrade is impressively complete. But several of its most valuable
-     tables and columns have no code path that fills them, which makes the machinery built on top of them
-     inert. This table traces every marquee schema element to its producer.</p>
+  <h2>The Redesign III — Schema Evolution</h2>
+  <p>Earlier revisions of this page tracked a "schema ahead of code" gap: the SOTA <code>schema.sql</code>
+     upgrade had several tables and columns with no code path that filled them. The write-spine
+     consolidation (2026-07-11) closed that gap by resolution rather than by catching up — every
+     schema element with no producer was <em>removed</em>, not filled in after the fact. What remains in
+     <code>schema.sql</code> today has a producer, full stop. This table traces every marquee element.</p>
 
   <table>
     <thead><tr><th>Schema element</th><th>Populated by</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><code>scenes</code></td><td><code>persist_scenes</code> (scene_segmentation pass)</td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>knows_edges</code> (fact_description)</td><td><code>persist_knows_edges</code> (knowledge_state_deltas pass)</td><td><span class="badge green">live</span></td></tr>
-      <tr><td><code>commitments</code></td><td><code>persist_commitments</code> (commitments pass)</td><td><span class="badge green">live</span></td></tr>
-      <tr><td><code>chapters.summary_short/long</code></td><td><code>persist_multi_summaries</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>commitments</code></td><td><code>persist_commitments</code> (commitments pass); payoffs fuzzy-match pending commitments and flip them to <code>satisfied</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>chapters.summary_short/medium/long</code></td><td><code>persist_multi_summaries</code></td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>thread_events</code></td><td><code>_persist_extraction</code></td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>knows_edges.fact_id</code> → <code>canon_facts</code> (removed 2026-07-11)</td><td>never linked — column dropped from the schema</td><td><span class="badge yellow">removed</span></td></tr>
       <tr><td><code>canon_facts</code> (+ <code>locked</code>)</td><td><code>persist_canon_facts()</code> (pass 13) — upsert-unless-locked; contradiction → continuity_flag</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>state_deltas</code> (write-spine, added 2026-07-11)</td><td><code>persist_state_deltas()</code> (state_deltas pass, reference-only resolution)</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>critique_reports</code> / <code>critique_findings</code> (write-spine, added 2026-07-11)</td><td><code>persist_critique()</code> — every <code>analyze_chapter</code> call, phase 5</td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>schema_version</code> (write-spine, added 2026-07-11)</td><td><code>init_db()</code> — rewritten on every <code>init-db</code> run</td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>events.subject_entity_id / verb / object_entity_id</code> (removed 2026-07-11)</td><td>nothing — events were inserted without SVO; columns dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
       <tr><td><code>events.story_time_ordinal / narrative_order / scene_id</code> (removed 2026-07-11)</td><td>nothing; columns dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
       <tr><td><code>temporal_constraints</code> (removed 2026-07-11)</td><td><strong>nothing</strong> — no INSERT ever existed; table dropped from the schema</td><td><span class="badge red">removed</span></td></tr>
       <tr><td><code>located_in_edges</code>, <code>possesses_edges</code></td><td><code>StateMaterializer</code> — runs automatically at the end of <code>analyze_chapter</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>materialized_state_runs</code></td><td><code>StateMaterializer.materialize()</code> — one row per run, including every automatic phase-4 run</td><td><span class="badge green">live</span></td></tr>
     </tbody>
   </table>
 
-  <div class="callout bad">
-    <strong>Consequence:</strong> timeline checking was <em>decorative</em> before 2026-07-11 — the SVO and
-    temporal columns existed but stayed empty, so anything querying them no-op'd; the write-spine change
-    then removed those columns and <code>temporal_constraints</code> from the schema entirely. (The bitemporal
-    location/possession edges and the lockable-canon mechanism have since gained live producers.)
+  <div class="callout tip">
+    <strong>Resolution, not catch-up.</strong> Timeline checking was <em>decorative</em> before 2026-07-11 —
+    the SVO and temporal columns existed but stayed empty, so anything querying them no-op'd. Rather than
+    build an SVO extraction pass to fill them, the write-spine change removed those columns and
+    <code>temporal_constraints</code> from the schema entirely, and gave narrative-order + typed state
+    changes a home in the new <code>state_deltas</code> table instead — which does have a producer (pass 3
+    of extraction) and a consumer (the State Materializer).
   </div>
   </section>
 
   <!-- ════════════════ EXTRACTION ════════════════ -->
   <section id="extraction">
   <h2>Deep Dive — Extraction <span class="badge green">Wired</span></h2>
-  <p>This is the strongest part of the system and is meaningfully ahead of what the stale top-level
-     <code>architecture.md</code> describes (it still says "6-pass"). The real pipeline runs
+  <p>This has always been the strongest part of the system. The pipeline runs
      <strong>13 sequential passes per chunk</strong>:</p>
 
-  <pre><code>chapter_summary · new_entities · entity_deltas · events · thread_updates
+  <pre><code>chapter_summary · new_entities · state_deltas · events · thread_updates
 continuity_flags · relationship_updates · dynamics_updates · scene_segmentation
 multi_granularity_summaries · knowledge_state_deltas · commitments · canon_facts</code></pre>
 
   <p>Followed by an intra-extraction dedup pass and an LLM canonicalizer with type-specific rules
      (the object rules correctly refuse to merge same-named items with different owners; the character
-     rules demand a verbatim grammatical anchor before merging — both are thoughtful). Dedup now covers
-     <em>every</em> name field (event factions, scenes, learnings, custom entity types), validates LLM
-     group output against the actually-extracted names, merges trivially-equal names deterministically
-     without an LLM call, and caps the roster sent per canonicalization call
-     (<code>CANONICALIZER_MAX_ROSTER</code>, default 80) so per-chapter cost stays bounded as the cast
-     grows. Custom entity types get aliases via <code>entities.aliases</code>. When dedup still gets it
-     wrong, manual repair now exists: <code>POST /api/novels/{id}/entities/merge</code> merges a
-     duplicate into its canonical twin in one transaction (no longer a CLI command — see
+     rules demand a verbatim grammatical anchor before merging — both are thoughtful). Dedup covers
+     <em>every</em> name field (event factions, scenes, learnings, custom entity types, and the
+     write-spine's <code>state_deltas</code>), validates LLM group output against the actually-extracted
+     names, merges trivially-equal names deterministically without an LLM call, and caps the roster sent
+     per canonicalization call (<code>CANONICALIZER_MAX_ROSTER</code>, default 80) so per-chapter cost
+     stays bounded as the cast grows. Custom entity types get aliases via <code>entities.aliases</code>.
+     When dedup still gets it wrong, manual repair exists: <code>POST /api/novels/{id}/entities/merge</code>
+     merges a duplicate into its canonical twin in one transaction (see
      <code>pipeline/db/entity_merge.py</code>). Duplicate relationship edges are also deduped at
-     persist time. The mock-LLM path keeps the whole thing testable offline.</p>
+     persist time. The mock-LLM path keeps the whole thing testable offline, and is what the eval
+     harness's default (non-<code>RUN_LLM_EVALS</code>) run exercises.</p>
 
-  <h3>The gaps that matter</h3>
+  <h3>Resolved since the SOTA branch</h3>
   <ul>
-    <li><strong>Events are not SVO triples.</strong> The <code>events</code> pass emits
-      <code>{description, event_type, impact_level, involved_*}</code> — no subject/verb/object. So the
-      SVO columns and any structured causal/temporal reasoning the schema anticipates cannot function.</li>
-    <li><strong>Canon-fact pass is now wired.</strong> Pass 13 (<code>canon_facts</code>) proposes lockable world-facts (eye colour, magic costs, roles). <code>persist_canon_facts()</code> upserts on <code>(novel_id, subject_entity_id, predicate)</code>; a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) instead of an overwrite. The Canon page lets users toggle the lock per fact via <code>PATCH /api/novels/{id}/canon/{fact_id}</code>.</li>
-    <li><strong>No temporal-relation or story-time output.</strong> Events get neither a
-      <code>story_time_ordinal</code> nor <code>before/after</code> links, so non-linear narration and
-      timeline checks are impossible.</li>
-    <li><strong>Possession/location are left implicit</strong> in event descriptions rather than emitted as
-      typed deltas — which forces the brittle regex inference downstream (see Heuristic Inference).</li>
+    <li><strong>Possession/location/knowledge/status are typed deltas, not inferred from prose.</strong>
+      Pass 3 (<code>state_deltas</code>) emits a typed change log — <code>kind</code>
+      (possession/location/knowledge/status), the affected entity, and a verbatim evidence quote — that
+      the State Materializer replays deterministically. There is no more regex-over-event-descriptions
+      inference step; see <a href="#heuristics">Typed State Deltas</a> (this section used to be titled
+      "Heuristic Inference" and describe the opposite problem).</li>
+    <li><strong>Canon-fact pass is wired.</strong> Pass 13 (<code>canon_facts</code>) proposes lockable
+      world-facts (eye colour, magic costs, roles). <code>persist_canon_facts()</code> upserts on
+      <code>(novel_id, subject_entity_id, predicate)</code>; a locked fact contradicted by extraction
+      becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) instead of an
+      overwrite. The Canon page lets users toggle the lock per fact via
+      <code>PATCH /api/novels/{id}/canon/{fact_id}</code>.</li>
   </ul>
 
-  <div class="nn">
-    <div class="stand">
-      <h4>Where we stand</h4>
-      <ul>
-        <li>12 deep passes, dedup, canonicalization — high quality</li>
-        <li>Events are free-text; SVO / story-time / canon / temporal columns left empty</li>
-      </ul>
-    </div>
-    <div class="need">
-      <h4>Where we need to be</h4>
-      <ul>
-        <li>Events as ordered SVO triples with <code>story_time_ordinal</code> + <code>scene_id</code></li>
-        <li>Typed possession/location deltas; a canon-fact proposal pass; temporal <code>before/after</code> links</li>
-      </ul>
-    </div>
-  </div>
+  <h3>What's genuinely still not there</h3>
+  <p>
+    Events are still free-text (<code>{description, event_type, impact_level, involved_*}</code>), not
+    SVO triples with story-time ordering — but the write-spine consolidation resolved this by removing
+    the never-populated SVO/<code>story_time_ordinal</code>/<code>narrative_order</code>/<code>scene_id</code>
+    columns from <code>events</code> rather than building a pass to fill them (see
+    <a href="#schema-ahead">Schema Evolution</a>). Non-linear narration and story-time-ordinal timeline
+    checks remain out of scope unless a future spec reintroduces that surface deliberately.
+  </p>
   </section>
 
   <!-- ════════════════ RETRIEVAL ════════════════ -->
   <section id="retrieval">
   <h2>Deep Dive — Hybrid Retrieval <span class="badge green">Wired</span></h2>
-  <p><strong>Resolved 2026-07-12.</strong> Previously the best-engineered module in the repo and the one
-     serving the fewest queries (zero); it now has two real callers. <code>HybridRetriever.retrieve</code>
-     runs exactly the pipeline the research prescribes:</p>
+  <p><strong>Resolved 2026-07-12, consumer simplified 2026-07-14.</strong> Previously the
+     best-engineered module in the repo and the one serving the fewest queries (zero); it now has one
+     production caller. <code>HybridRetriever.retrieve</code> runs:</p>
 
   <ol>
     <li>Embed the query once (reused for dense search and MMR).</li>
@@ -600,32 +617,20 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     <li>MMR diversification (λ=0.7) down to <code>query.k</code>.</li>
   </ol>
 
-  <p>It even records per-stage timings and top-K snapshots into a <code>debug</code> dict — the seed of an
-     observability story the rest of the system lacks. The BM25 backing (<code>tsvector</code> + GIN
-     indexes with weighted fields) and HNSW vector indexes are already in the schema and populated for
-     chapters/scenes/events.</p>
+  <p>It records per-stage timings and top-K snapshots into a <code>debug</code> dict — still the only
+     instrumentation of this kind in the codebase (see <a href="#observability">Observability &amp;
+     Cost</a>). The BM25 backing (<code>tsvector</code> + GIN indexes with weighted fields) and HNSW
+     vector indexes are in the schema and populated for chapters/scenes/events.</p>
 
-  <div class="callout warn">
-    <strong>Still partial:</strong> <code>gather_plan_context</code> (the planner's context builder) still
-    pulls "recent" material by pure <code>ORDER BY chapter DESC LIMIT n</code> recency — exactly the naive
-    retrieval the research warns against — even though the retriever it should be calling is now proven out
-    by two other callers.
-  </div>
-
-  <div class="nn">
-    <div class="stand">
-      <h4>Where we stood</h4>
-      <p>A complete, instrumented hybrid stack with no caller. Planner context used naive recency instead.</p>
-    </div>
-    <div class="need">
-      <h4>Where we are now / still need to be</h4>
-      <ul>
-        <li><span class="badge green">done</span> <code>reads/search.py</code> wraps it for <code>/api/search</code> and the MCP <code>search_story</code> tool</li>
-        <li><span class="badge green">done</span> (generator phase) <code>generation/loop.py::_context_block_for_scene</code> uses it to build the Drafter's per-scene context</li>
-        <li><span class="badge orange">still open</span> <code>gather_plan_context</code> does not yet route through it</li>
-      </ul>
-    </div>
-  </div>
+  <p>
+    <code>backend/reads/search.py::search()</code> wraps <code>HybridRetriever</code> behind a
+    <code>_build_retriever(db)</code> seam and backs both the wiki's Search page
+    (<code>GET /api/novels/{id}/search</code>) and the MCP <code>search_story</code> tool — one
+    implementation, two callers, which is exactly what the read-layer consolidation
+    (<a href="#wiring">above</a>) was for. The retriever's per-scene-context caller from the
+    chapter-authoring loop was removed along with that loop; nothing else in the analyzer path needed
+    changing when it left, because the read layer never depended on it.
+  </p>
   </section>
 
   <!-- ════════════════ CRITIC ════════════════ -->
@@ -637,63 +642,54 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      input producer and five checks, all producer-backed — the sixth, <code>temporal_consistency</code>,
      was deleted 2026-07-12 rather than left querying a removed table.</p>
 
-  <p><strong>1. It has an input producer now.</strong> The critic consumes a <code>DraftChapter</code> of
-     <em>already-extracted claims</em> (mentions, location/possession/knowledge claims, events,
-     planned thread/commitment IDs). The dataclass docstring's aspiration — <em>"In the eventual pipeline
-     this is populated by the Extractor running on the draft prose"</em> — is now the reality:
+  <p><strong>1. It has an input producer, for every chapter.</strong> The critic consumes a
+     <code>DraftChapter</code> of <em>already-extracted claims</em> (mentions, location/possession/
+     knowledge claims, events, planned thread/commitment IDs).
      <code>critic/adapter.py:build_draft_from_extraction</code> builds a <code>DraftChapter</code> straight
-     from the chapter's own extraction, and <code>analyze_chapter</code> calls it (phase 5) for every
-     chapter it processes, persisting the report via <code>persist_critique</code>. The generation loop
-     uses the sibling <code>extract_draft_claims</code> adapter for chapters that don't yet have an
-     extraction to reuse.</p>
+     from the chapter's own extraction — no second LLM pass — and <code>analyze_chapter</code> calls it
+     (phase 5) for every chapter it processes, persisting the report via <code>persist_critique</code>.
+     A sibling adapter, <code>extract_draft_claims</code>, still exists for building a
+     <code>DraftChapter</code> from arbitrary draft text that hasn't been through extraction yet — it's
+     what backs the MCP <code>check_continuity</code> tool, which lets a writing agent self-check a draft
+     <em>before</em> calling <code>save_chapter</code>.</p>
 
   <p><strong>2. The one check that queried an empty/removed table was deleted</strong> (see the dedicated scorecard below).</p>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
-      <p>Five well-typed checks, invoked and persisted for every analyzed chapter, all with live
-        producers. <code>temporal_consistency</code> was removed 2026-07-12 rather than left querying
-        tables with no producer.</p>
+      <h4>Where we stood</h4>
+      <p>Five well-typed checks with no input producer and no persistence — findings existed only for the
+        duration of one request.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <ul>
-        <li>Render persisted findings in the wiki (they are captured but not yet surfaced)</li>
-        <li>Decide what a chapter-processing failure in the critique phase should do beyond logging
-          (today it leaves <code>critique: None</code> in the result and the chapter still saved)</li>
-      </ul>
+      <h4>Where we are now</h4>
+      <p>Invoked and persisted for every analyzed chapter, all five checks producer-backed, and findings
+        render in the wiki (<code>Continuity.tsx</code>'s Critique tab). The one open question: a
+        chapter-processing failure in the critique phase today just logs and leaves
+        <code>critique: None</code> in the result — the chapter still saves. That's a deliberate
+        non-blocking design, not an oversight, but whether it should surface more loudly to the operator
+        is still a fair question.</p>
     </div>
   </div>
   </section>
 
-  <!-- ════════════════ PLANNER ════════════════ -->
-  <section id="planner">
-  <h2>Deep Dive — Scene Planner <span class="badge orange">Orphaned</span></h2>
-  <p><code>ScenePlanner.plan</code> gathers a <code>PlanContext</code> (locked facts, pending commitments,
-     active threads, recent summaries, recent events, main characters) and asks an LLM for a typed
-     <code>ChapterPlan</code> of scenes — each with POV, location, threads to advance, commitments to
-     plant/satisfy, target beat and word count. The mock path emits a deterministic two-scene plan so tests
-     and <code>USE_MOCK_LLM=true</code> stay green. The <code>ChapterPlan</code> is explicitly intended as
-     "the contract the Drafter must satisfy and the Critic will verify against."</p>
+  <!-- ════════════════ CHAPTER-AUTHORING TEARDOWN ════════════════ -->
+  <section id="teardown">
+  <h2>Retired — the Chapter-Authoring Sub-System</h2>
+  <p>This section previously deep-dived a scene-level planning module: given locked canon facts,
+     pending commitments, active threads, and recent context, it asked an LLM for a typed per-scene plan
+     — POV, location, threads to advance, target beat and word count — intended as a contract for a
+     prose-generation step to satisfy and the critic to verify against. It was well-typed and had a
+     deterministic mock path, but nothing ever consumed its output outside of the authoring loop it was
+     built alongside, and that loop was never the product.</p>
 
-  <p>Two issues: there is <strong>no Drafter to consume the plan</strong>, and the context it plans from is
-     assembled by recency rather than relevance. The planner's <code>locked_facts</code> input from
-     <code>canon_facts</code> is now populated by pass 13, so that blind spot is closed — but the planner
-     still reasons from naive recency rather than the hybrid retriever.</p>
-
-  <div class="nn">
-    <div class="stand">
-      <h4>Where we stand</h4>
-      <p>Produces sound plans into the void; plans from naive-recency context. Locked-facts input is
-         now populated (pass 13), but recency bias remains.</p>
-    </div>
-    <div class="need">
-      <h4>Where we need to be</h4>
-      <p>Plan from retriever-built context, hand the <code>ChapterPlan</code> to a Drafter, and have the
-         Critic verify the draft against the plan's declared threads/commitments.</p>
-    </div>
-  </div>
+  <p>Task 2 of Plan 3 (2026-07-14) deleted the module, its prose-generation counterpart, and the
+     orchestration that sequenced them, in full — not disabled, not left orphaned behind a flag. The one
+     piece of that sub-system worth keeping, a deterministic per-chapter prose fingerprint (sentence
+     length, dialogue ratio, POV person, exclamation rate), was extracted into
+     <code>pipeline/style.py</code> and is now computed at ingest time for every chapter — human- or
+     agent-authored alike — and stored on <code>chapters.style_fingerprint</code> as voice metadata for
+     the wiki, independent of any authoring pipeline.</p>
   </section>
 
   <!-- ════════════════ STATE ════════════════ -->
@@ -784,95 +780,124 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
 
   <!-- ════════════════ HEURISTICS ════════════════ -->
   <section id="heuristics">
-  <h2>Data Integrity — Heuristic Possession/Location Inference</h2>
-  <p><code>event_replay.py</code> infers item gain/loss by regex-matching English verb lists
-     (<code>took</code>, <code>gave</code>, <code>stole</code>, …) against the event <em>description</em>,
-     and assumes <code>involved_characters[0]</code> is the actor. For an engine whose entire value
-     proposition is precision, deriving possession from verb-matching is the weakest link in the chain:</p>
-  <ul>
-    <li>No negation handling ("did <em>not</em> take", "tried to take but failed").</li>
-    <li>No actor disambiguation — first-listed character is assumed to be the one acting.</li>
-    <li>Passive voice and multi-object sentences are mis-attributed.</li>
-  </ul>
-  <p>The research is clear that these transitions should be <strong>extracted as typed deltas</strong>, not
-     re-derived from prose downstream. The materializer should chain validity intervals; it should not be
-     guessing semantics from verbs.</p>
+  <h2>Data Integrity — Typed State Deltas <span class="badge green">Resolved 2026-07-13</span></h2>
+  <p><strong>Resolved (write-spine, Plan 1).</strong> This section previously described
+     <code>event_replay.py</code> inferring item gain/loss by regex-matching English verb lists
+     (<code>took</code>, <code>gave</code>, <code>stole</code>, …) against free-text event descriptions,
+     and assuming <code>involved_characters[0]</code> was the actor — no negation handling, no actor
+     disambiguation, passive voice mis-attributed. That module and that approach are both gone.</p>
+  <p>
+    Extraction pass 3 (<code>state_deltas</code>) now emits explicit, typed changes directly:
+    <code>{kind: possession|location|knowledge|status, subject, object/location/attribute, change,
+    quote}</code>, each with a verbatim evidence quote from the chapter text. <code>StateReplay</code>
+    (<code>pipeline/state/replay.py</code>) folds this log in narrative order
+    (<code>chapter.number, delta.ordinal, delta.id</code>) into snapshots and bitemporal edges — no verb
+    lists, no actor-position guessing, no free-text re-derivation. The delta <em>is</em> the semantic
+    claim; replay only stitches validity intervals.
+  </p>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
-      <p>Possession/location semantics reconstructed by regex on free-text descriptions.</p>
+      <h4>Where we stood</h4>
+      <p>Possession/location semantics reconstructed by regex on free-text event descriptions.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <p>Extractor emits explicit <code>{actor, object, change: gain|loss}</code> and
-         <code>{entity, location, since}</code> deltas; replay just stitches intervals.</p>
+      <h4>Where we are now</h4>
+      <p>Extractor emits explicit <code>{kind, subject, object/location, change}</code> deltas with
+         evidence quotes; replay just stitches intervals. This is done.</p>
     </div>
   </div>
   </section>
 
   <!-- ════════════════ ATOMICITY ════════════════ -->
   <section id="atomicity">
-  <h2>Data Integrity — Chapter Processing Is Not Atomic</h2>
-  <p><code>analyze_chapter</code> performs many independent commits: events are inserted one-by-one with
-     <code>commit=True</code>, and each <code>db.execute()</code> opens its own transaction (see
-     <code>db/client.py</code> — every fetch/execute borrows a connection and commits or rolls back on its
-     own). A <code>transaction()</code> context manager exists and the materializer uses it correctly, but
-     the main pipeline does not.</p>
-
-  <div class="callout bad">
-    A failure midway through <code>analyze_chapter</code> leaves partial state — some events written, no
-    commitments, scenes half-inserted — directly contradicting the research's "treat chapter generation as
-    a database transaction: <code>PLAN → DRAFT → CRITIQUE → REVISE → EXTRACT → COMMIT</code>, no partial
-    state escapes" discipline.
-  </div>
+  <h2>Data Integrity — Chapter Persistence Is Atomic <span class="badge green">Resolved 2026-07-13</span></h2>
+  <p><strong>Resolved (write-spine, Plan 1).</strong> This section previously described
+     <code>analyze_chapter</code> making many independent per-statement commits — events inserted
+     one-by-one with <code>commit=True</code>, each call opening its own transaction — so a mid-run
+     failure could leave partial state (some events written, no commitments, scenes half-inserted).</p>
+  <p>
+    The core persistence phase — ingest, entities, events, relationships, summaries, scenes,
+    knows-edges, commitments, canon facts, state deltas — now runs inside one
+    <code>DBClient.session()</code> block, bound to a single pooled connection. <code>DBSession</code>
+    accepts the same <code>commit=</code> keyword the older per-statement helpers pass, but silently
+    ignores it — commit/rollback ownership belongs entirely to the enclosing session, which commits once
+    on clean exit and rolls back the whole phase on any exception (see
+    <a href="reference.html#db-client">Reference: DBClient / DBSession</a>). A failure inside that block
+    now leaves <em>no</em> partial chapter, not a partially-written one.
+  </p>
+  <p>
+    The two phases that run <em>after</em> that commit — MATERIALIZE and CRITIQUE — are deliberately
+    <strong>not</strong> inside the same transaction: they're derived, idempotent, and re-runnable, so a
+    failure there is caught, logged, and reported via <code>materialized: False</code> /
+    <code>critique: None</code> in the result rather than rolling back an already-saved chapter. That's
+    a design choice, not the atomicity gap this section used to describe.
+  </p>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
-      <p>Dozens of per-statement commits per chapter; no rollback boundary; partial-failure states are
+      <h4>Where we stood</h4>
+      <p>Dozens of per-statement commits per chapter; no rollback boundary; partial-failure states were
          possible and not detectable.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <p>One transaction per chapter (or per phase), idempotent re-runs, and a clean rollback on any failure.</p>
+      <h4>Where we are now</h4>
+      <p>One transaction for the entire persist phase; materialize/critique run after commit,
+         independently retryable. This is done.</p>
     </div>
   </div>
   </section>
 
   <!-- ════════════════ EVALS ════════════════ -->
   <section id="evals">
-  <h2>Foundations — No Eval Harness <span class="badge red">Missing</span></h2>
-  <p>The research grounds nearly every recommendation in measurement: retrieval recall@10 on a held-out
-     scene set, continuity errors per 10k words, a 20–50 scene golden set with known canonical citations.
-     <strong>None of this exists.</strong> There is no eval directory, no golden set, no continuity metric.</p>
+  <h2>Foundations — Eval Harness <span class="badge green">Built 2026-07-14</span></h2>
+  <p><strong>Resolved (Plan 3, Task Plans 3–5).</strong> This section previously read "Missing": no eval
+     directory, no golden set, no continuity metric, so nothing could tell you whether a change to
+     retrieval, the critic, or the extractor improved continuity or regressed it. <code>backend/evals/</code>
+     now exists and is exactly the minimum-viable eval this section used to call for — a hand-built golden
+     set with known-correct answers, scored automatically.</p>
 
-  <div class="callout bad">
-    Without an eval harness, the branch name <em>closing-the-gap-with-sota</em> is unfalsifiable. There is
-    no way to tell whether wiring the critic, fixing the extractor, or adding a drafter improves continuity
-    — or regresses it. This should be built <strong>before</strong> the generator, not after.
-  </div>
+  <p>
+    The golden set is a full 10-chapter fixture novel, <strong>"The Lantern of Veyra"</strong>
+    (<code>backend/evals/golden/</code>), with a hand-authored <code>answer_key.yaml</code> covering
+    entities, possessions, knowledge, and ten retrieval queries with known expected chapters. Three evals
+    run against it:
+  </p>
+  <ul>
+    <li><strong>Critic precision/recall</strong> — four seeded continuity violations (one per
+      deterministic check) plus one clean draft against the seeded reads-test novel; asserts the critic
+      flags every violation and produces zero false positives. Both metrics assert exactly
+      <strong>1.0</strong> — deterministic, no LLM in the loop.</li>
+    <li><strong>Retrieval recall@8</strong> — ingests the golden novel through the real
+      <code>analyze_chapter</code> write spine (mock LLM, hash embeddings, real Postgres full-text
+      search), then runs the golden queries through the production <code>reads.search.search()</code>
+      path. Floor: mean recall@8 ≥ 0.5.</li>
+    <li><strong>Extraction fidelity</strong> — a mock-mode plumbing test always runs (ingest →
+      projections → scoring, no thresholds); a real-LLM variant, gated behind
+      <code>RUN_LLM_EVALS=1</code> so it doesn't spend API credits by default, asserts per-category
+      recall floors (characters/locations ≥ 0.75, objects ≥ 1.0, possessions ≥ 0.6, knowledge ≥ 0.5).</li>
+  </ul>
 
-  <p><strong>Minimum viable eval:</strong> 20–50 hand-built scenes with (a) the canonically-correct passages
-     a good retriever should surface, and (b) a handful of deliberately-seeded continuity errors a good
-     critic should catch. Report recall@k and critic precision/recall in CI.</p>
+  <p>Run the whole offline suite with <code>cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</code>
+     — see <a href="reference.html#evals">Reference: Eval Harness</a> for the module-to-eval table.</p>
   </section>
 
   <!-- ════════════════ OBSERVABILITY ════════════════ -->
   <section id="observability">
-  <h2>Foundations — Observability &amp; Cost</h2>
-  <p>A chapter already costs a lot of LLM calls: 13 extraction passes per chunk, plus intra-dedup,
-     canonicalization, multi-summaries, scenes, knowledge, and commitments — before any planning, drafting,
-     or critique. Prompt <em>size</em> is now bounded, at least: the canonicalizer roster is capped
-     (<code>CANONICALIZER_MAX_ROSTER</code>) and extraction context selects mentioned + recent entities under
-     <code>CONTEXT_MAX_CHARACTERS</code>/<code>CONTEXT_MAX_LOCATIONS</code> instead of dumping the full cast. Yet:</p>
+  <h2>Foundations — Observability &amp; Cost <span class="badge orange">Still Open</span></h2>
+  <p>A chapter already costs a lot of LLM calls: 13 extraction passes per chunk, plus intra-dedup and
+     canonicalization — before scenes, knowledge, and commitments are even persisted. Prompt <em>size</em>
+     is bounded: the canonicalizer roster is capped (<code>CANONICALIZER_MAX_ROSTER</code>) and extraction
+     context selects mentioned + recent entities under
+     <code>CONTEXT_MAX_CHARACTERS</code>/<code>CONTEXT_MAX_LOCATIONS</code> instead of dumping the full
+     cast. This part of the picture hasn't changed since the redesign, and is a genuinely open gap:</p>
   <ul>
-    <li><code>LLM_CONFIG</code> is single-model; there is no tiering (cheap model for extraction/style,
-        strong model for drafting) despite LiteLLM making this trivial.</li>
-    <li>No per-chapter token / cost / call-count logging. The research's "always-on observability" — token
-        usage by tier, retrieval hit-rates, critic findings by category, commitment-pool age — is absent.</li>
-    <li>The retriever's per-stage <code>debug</code> timings are the only instrumentation in the codebase,
-        and nothing consumes them.</li>
+    <li><code>LLM_CONFIG</code> is single-model — no tiering (cheap model for extraction/style, stronger
+        model where it would matter) despite LiteLLM making this straightforward.</li>
+    <li>No per-chapter token / cost / call-count logging. There's no run record answering "what did this
+        chapter cost" — token usage, retrieval hit-rates, critic finding counts by category.</li>
+    <li>The retriever's per-stage <code>debug</code> timings are still the only instrumentation of this
+        kind in the codebase, and nothing outside the retriever itself consumes them.</li>
   </ul>
 
   <div class="nn">
@@ -881,181 +906,209 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
       <p>Single model for everything; no cost or latency visibility; spend grows blindly with chapter count.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
+      <h4>Where it would help to go next</h4>
       <p>Model tiering via LiteLLM; a per-chapter run record (tokens, cost, timings, finding counts);
-         generalize the retriever's debug pattern across phases.</p>
+         generalize the retriever's debug pattern across the write spine's other phases.</p>
     </div>
   </div>
   </section>
 
   <!-- ════════════════ MIGRATIONS ════════════════ -->
   <section id="migrations">
-  <h2>Foundations — Migration Hygiene</h2>
-  <p>Schema is applied two ways at once: an idempotent <code>schema.sql</code> (run by <code>init-db</code>)
-     <em>and</em> five hand-run <code>migrate_*.py</code> scripts. There is no version table and no migration
-     framework. Fresh installs (full <code>schema.sql</code>) and incrementally-migrated databases will
-     drift apart over time. Separately, the <code>__EMBEDDING_DIM__</code> string-substitution bakes the
-     embedding dimension in at init — changing embedding models later requires a manual column + index
-     rebuild.</p>
+  <h2>Foundations — Migration Hygiene <span class="badge green">Mostly resolved 2026-07-13</span></h2>
+  <p><strong>Resolved (write-spine, Plan 1).</strong> This section previously described schema applied two
+     ways at once — an idempotent <code>schema.sql</code> plus five hand-run <code>migrate_*.py</code>
+     scripts, with no version table, so fresh installs and incrementally-migrated databases could drift
+     apart. The <code>migrate_*.py</code> scripts are retired: <code>schema.sql</code> is now the single,
+     idempotent source of truth for every schema change, including drops (<code>init-db</code> applies
+     removals — like <code>temporal_constraints</code> — idempotently, so existing dev databases converge
+     on next run). A <code>schema_version</code> table now exists, rewritten on every <code>init-db</code>
+     run, so client code can check what schema it's talking to.</p>
+
+  <p><strong>Still open:</strong> the <code>__EMBEDDING_DIM__</code> string-substitution still bakes the
+     embedding dimension in at init time. Changing embedding models later still requires a manual column +
+     index rebuild — <code>schema_version</code> tracks schema shape, not this parameter.</p>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
+      <h4>Where we stood</h4>
       <p>Idempotent schema + ad-hoc migration scripts, no version tracking, dimension locked at init.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <p>A single migration story (Alembic or a <code>schema_version</code> table); fold/retire the
-         <code>migrate_*</code> scripts; document the embedding-dimension constraint and a re-index path.</p>
+      <h4>Where we are now / still need to be</h4>
+      <ul>
+        <li><span class="badge green">done</span> Single idempotent <code>schema.sql</code>, no more hand-run migrate scripts</li>
+        <li><span class="badge green">done</span> <code>schema_version</code> table, rewritten every <code>init-db</code></li>
+        <li><span class="badge orange">still open</span> Document the embedding-dimension constraint and a re-index path</li>
+      </ul>
     </div>
   </div>
   </section>
 
   <!-- ════════════════ DOCS DRIFT ════════════════ -->
   <section id="docs-drift">
-  <h2>Foundations — Docs Drift</h2>
-  <p>The top-level <code>architecture.md</code> still describes a "6-pass" pipeline and lists none of
-     <code>critic/</code>, <code>planner/</code>, <code>retrieval/</code>, or <code>state/</code>. The
-     docs website (<a href="architecture.html">architecture.html</a>) is much more current — it even
-     documents those four advanced modules — but it presents them as part of the system without noting they
-     are not yet wired. The repo's own <code>CLAUDE.md</code> mandates keeping the docs website current
-     after every change; this page is part of closing that loop by stating the wiring status plainly.</p>
+  <h2>Foundations — Docs Drift <span class="badge orange">Docs site resolved; repo-root file still open</span></h2>
+  <p>The docs website (<a href="architecture.html">architecture.html</a>,
+     <a href="reference.html">reference.html</a>, and this page) was brought current with the final
+     two-spine architecture as part of Plan 3, Task 6: no mentions of the deleted chapter-authoring
+     sub-system remain, the CLI/env-var/schema/MCP tables match the code, and this page's own
+     status/roadmap sections were rewritten (that rewrite is what you're reading). The repo's
+     <code>CLAUDE.md</code> mandates keeping the docs website current after every change; that's now
+     true as of this pass.</p>
+
+  <p><strong>Still open:</strong> the top-level <code>/architecture.md</code> file (separate from the
+     <code>docs/</code> website) still describes a "6-pass" pipeline and predates <code>critic/</code>,
+     <code>retrieval/</code>, and <code>state/</code> entirely. It was out of scope for this pass — only
+     the three <code>docs/*.html</code> pages were in scope — and remains genuinely stale.</p>
 
   <div class="nn">
     <div class="stand">
-      <h4>Where we stand</h4>
+      <h4>Where we stood</h4>
       <p><code>architecture.md</code> stale; docs site current but optimistic about what's connected.</p>
     </div>
     <div class="need">
-      <h4>Where we need to be</h4>
-      <p>Retire or regenerate <code>architecture.md</code>; have the docs site mark wiring status (this page
-         is the source of truth for that).</p>
+      <h4>Where we are now / still need to be</h4>
+      <ul>
+        <li><span class="badge green">done</span> Docs site (<code>docs/*.html</code>) regenerated for the final architecture</li>
+        <li><span class="badge orange">still open</span> Retire or regenerate the repo-root <code>architecture.md</code></li>
+      </ul>
     </div>
   </div>
   </section>
 
   <!-- ════════════════ TARGET ════════════════ -->
   <section id="target">
-  <h2>Target Architecture</h2>
-  <p>Where the four orphaned modules and three missing ones belong: a deterministic, phase-gated loop with a
-     single transaction boundary per chapter. This is the analyzer's pieces plus a Drafter, sequenced by an
-     orchestrator — exactly the structure the research prescribes (DOC + DOME + StoryWriter + Novel-OS
-     gating).</p>
+  <h2>What Shipped — Plans 1–3</h2>
+  <p>The 2026-07-11 analyzer-architecture spec laid out three plans to take the system from "SOTA modules
+     that don't all talk to each other, plus a half-finished second product" to the analyzer described at
+     the top of this page. All three are complete.</p>
 
   <div class="diagram-wrap">
     <div class="mermaid">
 flowchart TB
-    PLAN["1 · PLAN<br/>ScenePlanner → ChapterPlan"] --> RET["2 · RETRIEVE<br/>HybridRetriever → typed context bundle"]
-    RET --> DRAFT["3 · DRAFT<br/>Drafter — prose (strongest model)"]
-    DRAFT --> EXA["3b · extract draft<br/>→ DraftChapter adapter"]
-    EXA --> CRIT["4 · CRITIQUE<br/>ContinuityCritic — 6 typed checks"]
-    CRIT -->|FAIL| REV["5 · REVISE<br/>targeted patches (cap 2–3 rounds)"]
-    REV --> EXA
-    CRIT -->|PASS| UPD["6 · UPDATE<br/>persist events · StateMaterializer"]
-    UPD --> COMMIT["7 · COMMIT<br/>single transaction · advance pointer"]
-    COMMIT --> PLAN
+    TXT["Chapter text<br/>(human or agent)"] --> ING["INGEST"]
+    ING --> EXT["EXTRACT<br/>13 passes incl. state_deltas"]
+    EXT --> PER["PERSIST<br/>one transaction"]
+    PER --> MAT["MATERIALIZE<br/>StateMaterializer"]
+    MAT --> CRIT["CRITIQUE<br/>5 checks, persisted, non-blocking"]
 
-    DB[("Postgres + pgvector<br/>canon · events · bitemporal edges<br/>commitments · scenes · knows")]
-    PLAN <--> DB
-    RET <--> DB
-    CRIT <--> DB
-    UPD <--> DB
+    CRIT --> READS["backend/reads/<br/>cutoff-aware, SQL lives only here"]
+    READS --> API["FastAPI + React wiki"]
+    READS --> MCP["MCP server, 13 tools"]
 
-    classDef have fill:#13351f,stroke:#3fb950,color:#e6edf3;
-    classDef build fill:#3a1715,stroke:#f85149,color:#e6edf3;
-    classDef store fill:#1a2230,stroke:#58a6ff,color:#e6edf3;
-    class PLAN,RET,CRIT,UPD have;
-    class DRAFT,EXA,REV,COMMIT build;
-    class DB store;
+    EVALS["backend/evals/<br/>golden fixture + scoring"] -.measures.-> EXT
+    EVALS -.measures.-> READS
+    EVALS -.measures.-> CRIT
+
+    classDef p1 fill:#13351f,stroke:#3fb950,color:#e6edf3;
+    classDef p2 fill:#1a2230,stroke:#58a6ff,color:#e6edf3;
+    classDef p3 fill:#332d12,stroke:#d29922,color:#e6edf3;
+    class TXT,ING,EXT,PER,MAT,CRIT p1;
+    class READS,API,MCP p2;
+    class EVALS p3;
     </div>
-    <div class="diagram-cap">Green nodes already exist (orphaned today). Red nodes are the new build. The blue store is mostly built but under-populated.</div>
+    <div class="diagram-cap">Green: Plan 1 (write spine). Blue: Plan 2 (read layer). Yellow: Plan 3 (eval harness — plus the teardown of the chapter-authoring code that used to sit beside this diagram, and this docs pass).</div>
   </div>
 
-  <p>For the <strong>analyzer-first</strong> product, the same diagram applies minus PLAN/DRAFT/REVISE: an
-     externally-written chapter enters at step 3b, the critic gates it, and findings surface in the wiki.
-     That is a small amount of glue over code that already exists.</p>
+  <div class="grid-3">
+    <div class="card">
+      <h4>Plan 1 — Write Spine (2026-07-13)</h4>
+      <p><code>analyze_chapter</code> consolidated into INGEST → EXTRACT → PERSIST (one transaction) →
+        MATERIALIZE → CRITIQUE. New tables: <code>state_deltas</code>, <code>critique_reports</code>,
+        <code>critique_findings</code>, <code>schema_version</code>. Removed:
+        <code>temporal_constraints</code>, events' SVO/story-time columns,
+        <code>knows_edges.fact_id</code>, <code>chapters.generation_meta</code>. Resolved the
+        <code>character_states</code> dual-writer tension and made chapter persistence atomic.</p>
+    </div>
+    <div class="card">
+      <h4>Plan 2 — Read Layer (2026-07-13)</h4>
+      <p>Consolidated <code>api/queries.py</code> and <code>mcp_server/queries.py</code> into one
+        <code>backend/reads/</code> package, structurally enforced cutoff-awareness and a no-SQL-outside-
+        reads/ rule, surfaced the critic's findings in the wiki, and added the Search page /
+        <code>search_story</code> MCP tool over the hybrid retriever.</p>
+    </div>
+    <div class="card">
+      <h4>Plan 3 — Teardown, Evals, Docs (2026-07-14)</h4>
+      <p>Deleted the chapter-authoring sub-system in full (planner, prose generation, orchestrated
+        revision loop), keeping only the style-fingerprint logic (moved to <code>pipeline/style.py</code>).
+        Built <code>backend/evals/</code>: golden fixture novel, scoring library, critic and retrieval
+        evals, extraction-fidelity eval. Regenerated this docs site for the final architecture.</p>
+    </div>
+  </div>
   </section>
 
   <!-- ════════════════ ROADMAP ════════════════ -->
   <section id="roadmap">
-  <h2>Roadmap (P0 → P5)</h2>
-  <p>Ordered by leverage. P0–P3 deliver value on the analyzer path and are mostly integration; P4 makes
-     everything measurable; P5 is the generator and should not start until P4 exists.</p>
+  <h2>Known Gaps / Next Steps</h2>
+  <p>Everything this page used to list as a gap is resolved <em>except</em> the items below — carried
+     forward because they're still genuinely true, not because the list needs padding. There is no
+     generator, chapter-authoring, or orchestrator item here: that direction was deliberately closed off
+     by the analyzer-only decision (see <a href="#fork">The Decision</a>), not left as a future phase.</p>
 
   <ul class="steps">
     <li>
-      <span class="phase-tag">P0 · the keystone</span><br>
-      <strong>Build the orchestrator and make a chapter one transaction.</strong> Wire
-      <code>extract → materialize_state → critique → surface findings</code> behind a single transaction
-      boundary. This alone converts four islands into a system.<br>
-      <em>Done when:</em> processing a chapter automatically populates bitemporal edges and runs the critic;
-      a mid-run failure leaves no partial state.
+      <span class="phase-tag">Observability &amp; cost</span><br>
+      <strong>No per-chapter cost/token accounting, no model tiering.</strong> A chapter is 13 extraction
+      passes plus dedup, canonicalization, multi-summaries, scenes, knowledge, and commitments, all on one
+      model (<code>DEFAULT_MODEL</code>). See <a href="#observability">Observability &amp; Cost</a>.<br>
+      <em>Done when:</em> a per-chapter run record exists (tokens, cost, timings, finding counts) and
+      low-stakes passes can route to a cheaper model via LiteLLM.
     </li>
     <li>
-      <span class="phase-tag">P1 · close the extractor → schema gap</span><br>
-      <strong>Make the empty tables fill.</strong> Emit SVO event triples + <code>story_time_ordinal</code> +
-      <code>scene_id</code> <em>(note: as of 2026-07-11 the write-spine change removed these columns and
-      <code>temporal_constraints</code> from the schema rather than filling them — this task would need to
-      reinstate them first)</em>; emit typed possession/location deltas; add a canon-fact proposal pass with a
-      lock workflow; emit <code>before/after</code> temporal links.<br>
-      <em>Done when:</em> <code>canon_facts</code> is non-empty after processing, and all six critic checks
-      can bite (the temporal_consistency check depends on schema elements removed 2026-07-11; see above).
+      <span class="phase-tag">Embedding-dimension migration path</span><br>
+      <strong><code>__EMBEDDING_DIM__</code> is baked in at <code>init-db</code> time.</strong> Changing
+      embedding models later still requires a manual column + index rebuild; nothing documents the
+      procedure. See <a href="#migrations">Migration Hygiene</a>.<br>
+      <em>Done when:</em> there's a documented (or scripted) re-index path for changing
+      <code>EMBEDDING_DIMENSIONS</code>/<code>EMBEDDING_MODEL</code> on an existing database.
     </li>
     <li>
-      <span class="phase-tag">P2 · critic as a service</span><br>
-      <strong>Surface continuity findings in the product.</strong> Build the extractor →
-      <code>DraftChapter</code> adapter, persist <code>CritiqueReport</code>s, and render them in the wiki
-      (a "Continuity" panel per chapter with FAIL/WARN/INFO and quotes).<br>
-      <em>Done when:</em> a user can see, per chapter, exactly which continuity rules fired and why.
+      <span class="phase-tag">Repo-root architecture.md</span><br>
+      <strong>Stale, out of scope for this docs pass.</strong> Still describes a 6-pass pipeline and
+      predates <code>critic/</code>, <code>retrieval/</code>, and <code>state/</code>. See
+      <a href="#docs-drift">Docs Drift</a>.<br>
+      <em>Done when:</em> it's retired (pointing at <code>docs/architecture.html</code>) or regenerated to
+      match.
     </li>
     <li>
-      <span class="phase-tag">P3 · wire the retriever</span><br>
-      <strong>Give the best module a consumer.</strong> Add <code>/api/search</code>; route
-      <code>gather_plan_context</code> through <code>HybridRetriever</code> instead of naive recency.<br>
-      <em>Done when:</em> search works in the UI and the planner plans from relevance, not recency.
-    </li>
-    <li>
-      <span class="phase-tag">P4 · eval harness (do not skip)</span><br>
-      <strong>Make "closing the gap" measurable.</strong> A 20–50 scene golden set; report retrieval
-      recall@k and critic precision/recall in CI; track continuity errors per 10k words.<br>
-      <em>Done when:</em> every change to retrieval/critic/extraction moves a number you can see.
-    </li>
-    <li>
-      <span class="phase-tag">P5 · the generator (eval-gated)</span><br>
-      <strong>Add the Drafter and Reviser inside the loop.</strong> Strongest model for prose, capped
-      revision rounds, heterogeneous critic model when budget allows. Only after P4 proves the
-      analyzer-side primitives are accurate.<br>
-      <em>Done when:</em> the full PLAN→…→COMMIT loop produces a chapter that passes the critic gate, with
-      cost and quality tracked per chapter.
+      <span class="phase-tag">Job tracking is in-memory</span><br>
+      <strong>Async chapter-processing job status doesn't survive a server restart</strong> and doesn't
+      scale horizontally (<code>backend/api/jobs.py</code>, a module-level dict). Documented as a known
+      limitation in <a href="reference.html#api-process">Reference: Chapter Processing</a>, not silently
+      papered over.<br>
+      <em>Done when:</em> job state moves to the database or a queue, if multi-worker deployment is ever
+      needed.
     </li>
   </ul>
   </section>
 
   <!-- ════════════════ METRICS ════════════════ -->
   <section id="metrics">
-  <h2>Success Metrics &amp; Thresholds</h2>
-  <p>Borrowed from the research's "benchmarks that should change the plan." These are the numbers that tell
-     you whether to keep going or stop and fix:</p>
+  <h2>Eval Metrics</h2>
+  <p>These are no longer aspirational — every row below is a real, currently-enforced assertion in
+     <code>backend/evals/</code> (see <a href="#evals">Eval Harness</a> and
+     <a href="reference.html#evals">Reference: Eval Harness</a>):</p>
 
   <table>
-    <thead><tr><th>Metric</th><th>Target</th><th>If it misses…</th></tr></thead>
+    <thead><tr><th>Metric</th><th>Floor</th><th>Where it's enforced</th></tr></thead>
     <tbody>
-      <tr><td>Retrieval recall@10 (golden scenes)</td><td>≥ 0.85</td><td>Add a graph-traversal step <em>before</em> hybrid retrieval, not after.</td></tr>
-      <tr><td>Continuity errors per 10k words</td><td>&lt; 2</td><td>Prioritize the temporal constraint solver + heterogeneous-model critique before adding features.</td></tr>
-      <tr><td>Critic precision on seeded errors</td><td>high (few false FAILs)</td><td>Tighten checks; a noisy critic gets ignored.</td></tr>
-      <tr><td>Style drift (generator phase)</td><td>&lt; 15% of chapters</td><td>Invest in sample-conditioning / LoRA before adding more agents.</td></tr>
-      <tr><td>Cost per chapter</td><td>tracked &amp; bounded</td><td>Route low-stakes passes (extraction, style) to cheaper models.</td></tr>
+      <tr><td>Critic recall on seeded violations</td><td>= 1.0 (exact)</td><td><code>evals/tests/test_critic_eval.py::test_critic_flags_every_seeded_violation</code></td></tr>
+      <tr><td>Critic precision (no false positives on a clean draft)</td><td>= 1.0 (exact)</td><td><code>evals/tests/test_critic_eval.py::test_critic_passes_clean_draft</code></td></tr>
+      <tr><td>Retrieval mean recall@8 (golden queries)</td><td>≥ 0.5</td><td><code>evals/tests/test_retrieval_eval.py::test_retrieval_recall_at_k</code></td></tr>
+      <tr><td>Extraction fidelity — characters/locations recall (real LLM)</td><td>≥ 0.75</td><td><code>evals/tests/test_extraction_fidelity.py</code>, gated on <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Extraction fidelity — objects recall (real LLM)</td><td>≥ 1.0</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Extraction fidelity — possessions recall (real LLM)</td><td>≥ 0.6</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Extraction fidelity — knowledge recall (real LLM)</td><td>≥ 0.5</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
     </tbody>
   </table>
 
   <hr>
 
   <div class="callout tip">
-    <strong>Bottom line.</strong> The hard, creative engineering is largely done and done well. The gap to
-    SOTA is an <em>integration gap</em>, a <em>data-population gap</em>, and a <em>measurement gap</em> —
-    in that priority order. Build the orchestrator (P0), fill the empty tables (P1), surface the critic
-    (P2), wire the retriever (P3), and stand up evals (P4) before reaching for the Drafter (P5). Each of
-    P0–P3 ships user-visible value on the analyzer you already have.
+    <strong>Bottom line.</strong> The redesign is complete: one write spine, one read layer, and now one
+    eval harness that makes both claims falsifiable rather than asserted. What's left (observability,
+    the embedding-dimension migration path, the repo-root <code>architecture.md</code>, in-memory job
+    tracking) are real but bounded — none of them block using the system as documented on this site.
   </div>
   </section>
 

@@ -238,10 +238,10 @@ pip install -e .
 
 <span class="cmt"># Create and initialize the database</span>
 createdb novel_wiki
-python -m pipeline --init-db
+novel-pipeline init-db
 
 <span class="cmt"># Or with a custom DB URL</span>
-DATABASE_URL=postgresql://user:pass@host/mydb python -m pipeline --init-db</code></pre>
+DATABASE_URL=postgresql://user:pass@host/mydb novel-pipeline init-db</code></pre>
 
     <h3>Run the API server</h3>
     <pre><code>cd backend
@@ -631,17 +631,24 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </p>
 
     <h3>ExtractionResult shape</h3>
+    <p>
+      This is <code>empty_extraction()</code>'s shape (<code>extractor.py</code>) — the dict every
+      chunk's extraction is normalized into before <code>merge_extractions()</code> combines chunks and
+      <code>IntraExtractionDeduplicator</code>/<code>EntityCanonicalizer</code> resolve names:
+    </p>
     <pre><code>{
   <span class="str">"summary"</span>: <span class="str">"..."</span>,
-  <span class="str">"summary_short"</span>: <span class="str">"..."</span>,
-  <span class="str">"summary_long"</span>: <span class="str">"..."</span>,
-  <span class="str">"new_characters"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ..., <span class="str">"aliases"</span>: [...] }],
-  <span class="str">"new_locations"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ... }],
-  <span class="str">"new_factions"</span>: [...],
-  <span class="str">"new_objects"</span>: [...],
-  <span class="str">"entity_deltas"</span>: [{
-    <span class="str">"character"</span>: ..., <span class="str">"location"</span>: ..., <span class="str">"emotional_state"</span>: ...,
-    <span class="str">"goals"</span>: [...], <span class="str">"knowledge"</span>: [...], <span class="str">"physical_state"</span>: ...
+  <span class="str">"new_entities"</span>: {
+    <span class="str">"characters"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"aliases"</span>: [...], <span class="str">"description"</span>: ... }],
+    <span class="str">"locations"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ..., <span class="str">"parent_location"</span>: ... }],
+    <span class="str">"factions"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ... }],
+    <span class="str">"objects"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ..., <span class="str">"owner_name"</span>: ..., <span class="str">"distinguishing_properties"</span>: ... }]
+  },
+  <span class="str">"state_deltas"</span>: [{
+    <span class="str">"kind"</span>: <span class="str">"possession"</span>|<span class="str">"location"</span>|<span class="str">"knowledge"</span>|<span class="str">"status"</span>,
+    <span class="str">"character_name"</span>: ..., <span class="str">"object_name"</span>: ..., <span class="str">"location_name"</span>: ...,
+    <span class="str">"change"</span>: <span class="str">"gain"</span>|<span class="str">"loss"</span>, <span class="str">"fact"</span>: ...,
+    <span class="str">"attribute"</span>: ..., <span class="str">"value"</span>: ..., <span class="str">"quote"</span>: <span class="str">"..."</span>
   }],
   <span class="str">"events"</span>: [{
     <span class="str">"description"</span>: ..., <span class="str">"event_type"</span>: ..., <span class="str">"impact_level"</span>: ...,
@@ -649,13 +656,21 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <span class="str">"involved_factions"</span>: [...], <span class="str">"involved_objects"</span>: [...]
   }],
   <span class="str">"thread_updates"</span>: [{
-    <span class="str">"action"</span>: <span class="str">"open"</span>|<span class="str">"progress"</span>|<span class="str">"close"</span>, <span class="str">"title"</span>: ..., <span class="str">"description"</span>: ...,
-    <span class="str">"thread_type"</span>: ..., <span class="str">"linked_events"</span>: [...]
+    <span class="str">"status"</span>: <span class="str">"open"</span>|<span class="str">"progressing"</span>|<span class="str">"closed"</span>, <span class="str">"impact"</span>: <span class="str">"opens"</span>|<span class="str">"advances"</span>|<span class="str">"closes"</span>,
+    <span class="str">"title"</span>: ..., <span class="str">"description"</span>: ..., <span class="str">"thread_type"</span>: ..., <span class="str">"event_description"</span>: ...
   }],
   <span class="str">"continuity_flags"</span>: [{
-    <span class="str">"description"</span>: ..., <span class="str">"flag_type"</span>: <span class="str">"foreshadow"</span>|<span class="str">"setup"</span>|<span class="str">"callback"</span>|<span class="str">"planted_detail"</span>
-  }]
+    <span class="str">"description"</span>: ..., <span class="str">"flag_type"</span>: <span class="str">"foreshadowing"</span>|<span class="str">"planted_detail"</span>|<span class="str">"setup"</span>|<span class="str">"callback"</span>|<span class="str">"other"</span>
+  }],
+  <span class="str">"relationship_updates"</span>: [...], <span class="str">"dynamics_updates"</span>: [...], <span class="str">"scenes"</span>: [...],
+  <span class="str">"summary_short"</span>: <span class="str">"..."</span>, <span class="str">"summary_medium"</span>: <span class="str">"..."</span>, <span class="str">"summary_long"</span>: <span class="str">"..."</span>,
+  <span class="str">"learnings"</span>: [...], <span class="str">"foreshadows_introduced"</span>: [...], <span class="str">"payoffs_delivered"</span>: [...],
+  <span class="str">"custom_entities"</span>: [...], <span class="str">"canon_facts"</span>: [...]
 }</code></pre>
+    <p>
+      See <a href="architecture.html#extraction-passes">13 Extraction Passes</a> for what populates each
+      field and <a href="#schema-canon">canon_facts pass schema</a> below for the <code>canon_facts</code> shape.
+    </p>
 
     <h3>Mock Extractor</h3>
     <p>
@@ -833,43 +848,72 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
   <!-- ══════════ PERSIST_EXTRAS ══════════ -->
   <section id="persist-extras">
-    <h2>persist_extras (SOTA)</h2>
+    <h2>persist_extras <span class="badge orange">SOTA</span></h2>
     <p>
-      Lives in <code>backend/pipeline/extraction/persist_extras.py</code>.
-      New in the <code>closing-the-gap-with-sota</code> branch.
+      Lives in <code>backend/pipeline/extraction/persist_extras.py</code>. Populates the SOTA tables
+      added on the <code>closing-the-gap-with-sota</code> branch — <code>scenes</code>,
+      <code>knows_edges</code>, <code>commitments</code> — plus the multi-granularity summary columns
+      on <code>chapters</code>. Called from <code>analyze_chapter</code> inside the persistence
+      transaction, after <code>_persist_extraction()</code>.
     </p>
 
     <h3>persist_scenes()</h3>
     <div class="method-sig">
-      <span class="fn-name">persist_scenes</span>(<span class="param">db</span>, <span class="param">chapter_id</span>, <span class="param">scenes</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>: <span class="ptype">EntityResolver</span>)
+      <span class="fn-name">persist_scenes</span>(<span class="param">db</span>, *, <span class="param">chapter_id</span>, <span class="param">scenes_data</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>: <span class="ptype">EntityResolver</span>, <span class="param">embedder</span>: <span class="ptype">EmbeddingService</span>) <span class="ret">→ list[str]</span>
     </div>
     <p>
-      Inserts scene rows. Each scene dict has: <code>pov_character</code> (name), <code>location</code> (name),
-      <code>time_anchor</code> (free text), <code>present_characters</code> (name list), <code>summary</code>.
-      The resolver converts names to UUIDs.
+      Inserts scene rows (upserting on <code>(chapter_id, scene_index)</code>) and returns the
+      inserted/updated scene ids. Each scene dict has: <code>pov_character_name</code>,
+      <code>location_name</code>, <code>time_anchor</code> (free text), <code>present_character_names</code>
+      (name list), <code>summary</code>. POV and present characters resolve reference-only
+      (<code>create=False</code>) so a scene can't mint a phantom character; the resolver converts
+      names to UUIDs. <code>summary</code> is embedded via <code>embedder</code> for scene search.
     </p>
 
     <h3>persist_knows_edges()</h3>
     <div class="method-sig">
-      <span class="fn-name">persist_knows_edges</span>(<span class="param">db</span>, <span class="param">chapter_number</span>, <span class="param">edges</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>)
+      <span class="fn-name">persist_knows_edges</span>(<span class="param">db</span>, *, <span class="param">chapter_number</span>, <span class="param">learnings</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>: <span class="ptype">EntityResolver</span>) <span class="ret">→ list[str]</span>
     </div>
     <p>
-      Inserts who-knows-what edges. Each edge dict: <code>character</code>, <code>fact_description</code>,
-      <code>source_type</code> (<code>told | witnessed | deduced | read | overheard</code>),
-      <code>certainty</code> (0.0–1.0), <code>shared_with</code> (list of character names).
+      Inserts who-knows-what edges from the <code>knowledge_state_deltas</code> pass's
+      <code>learnings</code> list. Each learning dict: <code>character_name</code>,
+      <code>fact_description</code>, <code>source_type</code> (one of
+      <code>dialogue | observation | inference | witnessed | told | assumed</code> — anything else is
+      stored as <code>NULL</code>), <code>certainty</code> (<code>high</code>/<code>medium</code>/<code>low</code>
+      or a raw 0.0–1.0 float), <code>shared_with_character_names</code>. The knowing character resolves
+      reference-only; a learning naming an unknown character is skipped.
     </p>
 
     <h3>persist_commitments()</h3>
     <div class="method-sig">
-      <span class="fn-name">persist_commitments</span>(<span class="param">db</span>, <span class="param">novel_id</span>, <span class="param">chapter_number</span>, <span class="param">commitments</span>: <span class="ptype">list[dict]</span>)
+      <span class="fn-name">persist_commitments</span>(<span class="param">db</span>, *, <span class="param">novel_id</span>, <span class="param">chapter_number</span>, <span class="param">foreshadows</span>: <span class="ptype">list[dict]</span>, <span class="param">payoffs</span>: <span class="ptype">list[dict]</span>, <span class="param">resolver</span>: <span class="ptype">EntityResolver</span>, <span class="param">embedder</span>: <span class="ptype">EmbeddingService</span>) <span class="ret">→ dict[str, list[str]]</span>
     </div>
     <p>
-      Inserts foreshadow/payoff pairs. Status is always <code>pending</code> at insert time —
-      the critic system (future) will update it to <code>satisfied</code>, <code>broken</code>, or <code>abandoned</code>.
+      Two independent jobs in one call, matching the extractor's <code>foreshadows_introduced</code> /
+      <code>payoffs_delivered</code> split. <strong>Foreshadows</strong> insert as new
+      <code>commitments</code> rows with <code>status='pending'</code>. <strong>Payoffs</strong> are
+      matched against this novel's currently-pending commitments by fuzzy text similarity
+      (<code>difflib.SequenceMatcher</code> on the payoff's <code>matches_foreshadow</code> text against
+      each candidate's <code>foreshadow_text</code>, falling back to the payoff text itself at a lower
+      weight) — a match below a 0.45 similarity floor is dropped rather than forced, and each matched
+      commitment updates to <code>status='satisfied'</code> with <code>payoff_chapter</code>/<code>payoff_text</code>
+      set. Returns <code>{"inserted": [...], "satisfied": [...]}</code> commitment ids. There is currently
+      no path to <code>broken</code> or <code>abandoned</code> — those are set only by hand via the canon
+      API pattern, or default to whatever a user picks in the UI.
     </p>
 
     <h3>persist_multi_summaries()</h3>
-    <p>Updates <code>chapters.summary_short</code> and <code>chapters.summary_long</code> from the extraction result.</p>
+    <div class="method-sig">
+      <span class="fn-name">persist_multi_summaries</span>(<span class="param">db</span>, *, <span class="param">chapter_id</span>, <span class="param">summary_short</span>, <span class="param">summary_medium</span>, <span class="param">summary_long</span>, <span class="param">embedder</span>: <span class="ptype">EmbeddingService | None</span> = None)
+    </div>
+    <p>
+      Updates <code>chapters.summary_short</code>, <code>chapters.summary_long</code>, and
+      (via <code>COALESCE(NULLIF(...))</code>) the legacy <code>chapters.summary</code> column from
+      <code>summary_medium</code>. When <code>embedder</code> is given and <code>summary_medium</code>
+      is non-empty, also re-embeds <code>chapters.embedding</code> from the medium summary — this is
+      why <code>analyze_chapter</code> skips its own chapter-embedding call whenever a medium summary
+      exists (see <a href="#process-chapter">analyze_chapter()</a>).
+    </p>
   </section>
 
 
@@ -947,7 +991,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   summary         <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- medium summary</span>
   summary_short   <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- 1-2 sentence</span>
   summary_long    <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- detailed</span>
-  style_fingerprint <span class="sql-type">TEXT</span>,                                     <span class="sql-comment">-- author's voice notes</span>
+  style_fingerprint <span class="sql-type">JSONB</span>,                                    <span class="sql-comment">-- deterministic ingest-time prose fingerprint, see pipeline/style.py</span>
   embedding       <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,                    <span class="sql-comment">-- pgvector</span>
   processed_at    <span class="sql-type">TIMESTAMPTZ</span>,
   source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'agent'</span>
@@ -1259,7 +1303,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   fact_description <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,
   learned_chapter  <span class="sql-type">INT</span>         <span class="sql-constraint">NOT NULL</span>,
   source_event_id  <span class="sql-type">UUID</span>        <span class="sql-constraint">REFERENCES</span> events,
-  source_type      <span class="sql-type">TEXT</span>,        <span class="sql-comment">-- 'told', 'witnessed', 'deduced', 'read', 'overheard'</span>
+  source_type      <span class="sql-type">TEXT</span>,        <span class="sql-comment">-- CHECK IN ('dialogue','observation','inference','witnessed','told','assumed')</span>
   certainty        <span class="sql-type">FLOAT</span>       <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
   shared_with      <span class="sql-type">UUID[]</span>,     <span class="sql-comment">-- character_ids this character has told</span>
   superseded_by_id <span class="sql-type">UUID</span>,
@@ -1350,10 +1394,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   notes           <span class="sql-type">TEXT</span>        <span class="sql-comment">-- e.g. "snapshots=12 location_edges=4 ..."</span>
 );</code></pre>
 
-    <div class="callout warn">
-      <strong>Producers status:</strong> <code>materialized_state_runs</code> is only written when the
-      State Materializer is run manually. See
-      <a href="state-of-the-system.html#schema-ahead">State of the System → Schema Ahead of Code</a>.
+    <div class="callout info">
+      <strong>Written on every chapter, not just manual runs.</strong> <code>StateMaterializer.materialize()</code>
+      inserts a row here every time it runs — and <code>analyze_chapter</code> now calls it automatically
+      after every chapter's persistence transaction commits (phase 4), so this table gets a row per
+      processed chapter. The standalone CLI (<code>python -m pipeline.state.cli</code>) is only needed for
+      manual backfills. See <a href="state-of-the-system.html#state">State of the System → State
+      Materializer</a>.
     </div>
     <div class="callout info">
       <strong>Removed:</strong> <code>temporal_constraints</code> (event-ordering constraints) was
@@ -1684,7 +1731,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="api-sota">
-    <h2>API: SOTA Endpoints <span class="badge orange">New in this branch</span></h2>
+    <h2>API: SOTA Endpoints <span class="badge orange">SOTA</span></h2>
 
     <table>
       <thead><tr><th>Path</th><th>Params</th><th>Returns</th></tr></thead>
@@ -1825,8 +1872,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <li>Add <code>cap</code> to the React Query <code>queryKey</code></li>
     </ol>
     <div class="callout tip">
-      <strong>Pattern to copy:</strong> <code>Scenes.tsx</code> is the cleanest example of a new SOTA page.
-      It follows all the conventions above and was written specifically for this branch.
+      <strong>Pattern to copy:</strong> <code>Scenes.tsx</code> is the cleanest example of a SOTA-era page
+      and follows all the conventions above.
     </div>
   </section>
 

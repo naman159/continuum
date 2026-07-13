@@ -358,10 +358,11 @@
   <a href="#retrieval">Hybrid Retrieval</a>
   <a href="#critic">Continuity Critic</a>
   <a href="#state-materializer">State Materializer</a>
+  <a href="#eval-harness">Eval Harness</a>
 
   <div class="sidebar-section">Codebase</div>
   <a href="#file-map">Key File Map</a>
-  <a href="#current-branch">Recent Changes</a>
+  <a href="#current-branch">History: the SOTA &amp; Redesign Branches</a>
 
   <div class="sidebar-doc-link">
     Also see:<br>
@@ -401,7 +402,16 @@
     </div>
 
     <div class="callout info">
-      <strong>Active branch:</strong> <code>closing-the-gap-with-sota</code> — This branch added SOTA narrative-tracking tables (scenes, commitments, canon_facts, knows_edges, bitemporal edges), plus the Entity Graph with rich edges, Custom Entity Types with genre presets, and the Critic / Retrieval / State sub-modules.
+      <strong>Status: redesign complete (2026-07-13/14).</strong> Continuum is a <strong>continuity
+      analyzer</strong>, not a chapter generator — that product decision is final, not provisional.
+      Two spines run over one Postgres database: the <strong>write spine</strong>
+      (<code>analyze_chapter</code>: INGEST → EXTRACT → PERSIST → MATERIALIZE → CRITIQUE) turns raw
+      chapter text — from the Process page/CLI (<code>source='human'</code>) or an MCP
+      <code>save_chapter</code> call from a writing agent (<code>source='agent'</code>) — into
+      structured knowledge, and the <strong>read layer</strong> (<code>backend/reads/</code>) serves
+      every wiki page, API route, and MCP tool from that same data, cutoff-aware by construction. See
+      <a href="state-of-the-system.html">State of the System</a> for the full history of how it got
+      here.
     </div>
   </section>
 
@@ -558,15 +568,15 @@ graph LR
 │   ├── <span class="dir">mcp_server/</span>          <span class="cmt"># FastMCP stdio server (novel-mcp): 13 tools for writing agents</span>
 │   │   ├── server.py             <span class="cmt"># @mcp.tool definitions + entry point (main); read tools call reads/ directly, no SQL</span>
 │   │   └── queries.py            <span class="cmt"># Writer-only glue: check_continuity, save_chapter (all read tools moved to reads/ in the read-layer migration)</span>
-│   ├── <span class="dir">evals/</span>              <span class="cmt"># Offline eval harness: golden fixture novel + answer key, scoring library (full harness lands with retrieval/critic/extraction evals)</span>
+│   ├── <span class="dir">evals/</span>               <span class="cmt"># Offline eval harness: golden fixture novel + answer key, scoring lib, retrieval/critic/extraction-fidelity evals — see Eval Harness below</span>
 │   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
 └── <span class="dir">frontend/src/</span>
-    ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 23 routes</span>
+    ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 24 routes</span>
     ├── <span class="key">api.ts</span>                <span class="cmt"># Type definitions + all fetch functions</span>
     ├── components/
     │   ├── <span class="key">Sidebar.tsx</span>       <span class="cmt"># Navigation (including dynamic custom-type links) + chapter cap slider</span>
     │   └── Layout.tsx
-    └── routes/               <span class="cmt"># 23 page components</span>
+    └── routes/               <span class="cmt"># 24 page components</span>
     </div>
   </section>
 
@@ -1624,6 +1634,64 @@ flowchart LR
   </section>
 
 
+  <!-- EVAL HARNESS -->
+  <section id="eval-harness">
+    <h2>Eval Harness</h2>
+    <p>
+      <code>backend/evals/</code> measures the write spine and read layer against a hand-written
+      golden fixture novel, <strong>"The Lantern of Veyra"</strong> (10 chapters plus a hand-authored
+      <code>answer_key.yaml</code>), rather than relying on eyeballing extraction output. Run the whole
+      offline suite with:
+    </p>
+    <pre><code><span class="comment">cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</span></code></pre>
+    <p>
+      This needs a real Postgres (for BM25/FTS and the schema) but no LLM API key or network access —
+      extraction runs against the mock LLM.
+    </p>
+
+    <div class="grid-2">
+      <div class="card">
+        <h4>Critic precision/recall</h4>
+        <p>
+          Seeds four known continuity violations (one per deterministic check) plus one clean draft
+          against the seeded reads-test novel, then asserts <code>ContinuityCritic</code> flags every
+          violation and produces no false positive on the clean draft — exact <strong>1.0</strong>
+          precision and recall, deterministic.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Retrieval recall@k</h4>
+        <p>
+          Ingests the golden novel through <code>analyze_chapter</code> (mock LLM, hash embeddings,
+          real chunking + Postgres full-text search), then runs 10 golden queries through the
+          production <code>reads.search.search()</code> path. Floor: mean recall@8 ≥ 0.5.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Extraction fidelity (mock)</h4>
+        <p>
+          Exercises the ingest → projections → scoring plumbing end to end with the mock LLM. No
+          thresholds — canned mock extraction isn't expected to match the answer key, only to produce
+          well-formed scores.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Extraction fidelity (real LLM)</h4>
+        <p>
+          Gated behind <code>RUN_LLM_EVALS=1</code> (spends API credits, skipped by default): ingests
+          the golden novel with a real LLM and asserts per-category recall floors — characters/locations
+          ≥ 0.75, objects ≥ 1.0, possessions ≥ 0.6, knowledge ≥ 0.5.
+        </p>
+      </div>
+    </div>
+
+    <div class="callout info">
+      See <a href="reference.html#evals">Reference: Eval Harness</a> for the full eval-to-module
+      table and env vars.
+    </div>
+  </section>
+
+
   <!-- FILE MAP -->
   <section id="file-map">
     <h2>Key File Map</h2>
@@ -1691,11 +1759,22 @@ flowchart LR
 
   <!-- CURRENT BRANCH / RECENT CHANGES -->
   <section id="current-branch">
-    <h2>Recent Changes (closing-the-gap-with-sota)</h2>
+    <h2>History: the SOTA &amp; Redesign Branches</h2>
     <p>
-      The <code>closing-the-gap-with-sota</code> branch is the main active branch. It contains
-      all of the SOTA tables, the Entity Graph, Custom Entity Types, and the advanced sub-modules.
-      Here's a summary of what was added:
+      Both branches below have been merged; neither is active. They're kept here as history because
+      the tables, routes, and sub-modules they introduced are still exactly what runs today.
+    </p>
+    <p>
+      <code>closing-the-gap-with-sota</code> (merged via PR #2) added the SOTA narrative-tracking
+      tables (scenes, commitments, canon_facts, knows_edges, bitemporal edges), the Entity Graph with
+      rich edges, Custom Entity Types with genre presets, and the Critic / Retrieval / State
+      sub-modules — summarized below. A later branch (the 2026-07-11 analyzer-architecture redesign,
+      Plans 1–3) then consolidated the read side into <code>reads/</code>, added the write-spine
+      tables (<code>state_deltas</code>, <code>critique_reports</code>, <code>critique_findings</code>,
+      <code>schema_version</code>), removed the chapter-authoring sub-system this branch had briefly
+      grown alongside the analyzer (see <a href="state-of-the-system.html">State of the System</a>
+      for that full arc), and added the <a href="#eval-harness">eval harness</a>. What follows is the
+      original SOTA-branch changelog, unedited except where a later change is called out inline.
     </p>
 
     <h3>New Backend Routes</h3>
@@ -1761,7 +1840,7 @@ flowchart LR
       <tbody>
         <tr><td><code>novel_entity_types</code></td><td>New table for custom entity type definitions</td></tr>
         <tr><td><code>chapters.*</code></td><td><code>summary_short</code>, <code>summary_long</code>, <code>style_fingerprint</code>, <code>search_tsv</code></td></tr>
-        <tr><td><code>events.*</code></td><td>SVO triples (<code>subject_entity_id</code>, <code>verb</code>, <code>object_entity_id</code>), <code>story_time_ordinal</code>, <code>narrative_order</code>, <code>scene_id</code>, <code>search_tsv</code></td></tr>
+        <tr><td><code>events.*</code></td><td>SVO triples (<code>subject_entity_id</code>, <code>verb</code>, <code>object_entity_id</code>), <code>story_time_ordinal</code>, <code>narrative_order</code>, <code>scene_id</code> — <strong>never got a writer; dropped in the 2026-07-11 write-spine consolidation</strong> (see <a href="#write-spine-tables">Write-Spine Tables</a>) — plus <code>search_tsv</code>, which stayed</td></tr>
         <tr><td><code>relationships.*</code></td><td><code>superseded_by_id</code>, <code>evidence_event_ids[]</code>, <code>sentiment</code></td></tr>
         <tr><td><code>scenes.*</code></td><td><code>search_tsv</code> (for BM25 retrieval)</td></tr>
         <tr><td><code>materialized_state_runs</code></td><td>New table — audit log for <code>StateMaterializer</code> runs</td></tr>
@@ -1771,9 +1850,10 @@ flowchart LR
     </table>
 
     <div class="callout info">
-      <strong>What to look for when reviewing PRs on this branch:</strong>
-      <br/>• Do new SOTA table queries have correct <code>cap</code> filtering?
-      <br/>• Does <code>persist_extras.py</code> correctly scope to <code>novel_id</code> (to avoid cross-novel contamination)?
+      <strong>What that PR review checklist looked for</strong> (still the right checklist for any new
+      table/route today):
+      <br/>• Do new table queries have correct <code>cap</code> filtering?
+      <br/>• Does the persistence helper correctly scope to <code>novel_id</code> (to avoid cross-novel contamination)?
       <br/>• Are new Pydantic schemas in <code>schemas.py</code> aligned with the TS types in <code>api.ts</code>?
       <br/>• Do new frontend pages use <code>useChapterCap()</code> and pass the cap to the API?
       <br/>• Do entity graph edge queries correctly set <code>edge_kind</code> and <code>tooltip</code>?
