@@ -30,19 +30,26 @@ def ingest_fixture(db: DBClient, *, use_mock_llm: bool = True) -> str:
         (key["novel"]["title"],),
         commit=True,
     ))
-    for number, text in load_chapters():
-        analyze_chapter(
-            novel_id=novel_id,
-            chapter_number=number,
-            raw_text=text,
-            chapter_title=None,
-            use_mock_llm=use_mock_llm,
-            chunk_size=settings.chunk_size,
-            chunk_overlap=settings.chunk_overlap,
-            db=db,
-            replace=False,
-            source="human",
-        )
+    # Each chapter commits its own transaction, so a mid-run failure would
+    # otherwise strand a partially-ingested novel (callers never see the
+    # novel_id to clean it up) — delete it before re-raising.
+    try:
+        for number, text in load_chapters():
+            analyze_chapter(
+                novel_id=novel_id,
+                chapter_number=number,
+                raw_text=text,
+                chapter_title=None,
+                use_mock_llm=use_mock_llm,
+                chunk_size=settings.chunk_size,
+                chunk_overlap=settings.chunk_overlap,
+                db=db,
+                replace=False,
+                source="human",
+            )
+    except BaseException:
+        db.execute("DELETE FROM novels WHERE id = %s", (novel_id,))
+        raise
     return novel_id
 
 
