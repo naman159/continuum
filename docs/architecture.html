@@ -357,8 +357,6 @@
   <div class="sidebar-section">Advanced Modules</div>
   <a href="#retrieval">Hybrid Retrieval</a>
   <a href="#critic">Continuity Critic</a>
-  <a href="#planner">Scene Planner</a>
-  <a href="#generation-loop">Generation Loop</a>
   <a href="#state-materializer">State Materializer</a>
 
   <div class="sidebar-section">Codebase</div>
@@ -403,7 +401,7 @@
     </div>
 
     <div class="callout info">
-      <strong>Active branch:</strong> <code>closing-the-gap-with-sota</code> — This branch added SOTA narrative-tracking tables (scenes, commitments, canon_facts, knows_edges, bitemporal edges), plus the Entity Graph with rich edges, Custom Entity Types with genre presets, and the Critic / Planner / Retrieval / State sub-modules.
+      <strong>Active branch:</strong> <code>closing-the-gap-with-sota</code> — This branch added SOTA narrative-tracking tables (scenes, commitments, canon_facts, knows_edges, bitemporal edges), plus the Entity Graph with rich edges, Custom Entity Types with genre presets, and the Critic / Retrieval / State sub-modules.
     </div>
   </section>
 
@@ -541,11 +539,6 @@ graph LR
 │   │   │   ├── adapter.py        <span class="cmt"># Draft/extraction → critic bridge (extract_draft_claims, build_draft_chapter, build_draft_from_extraction)</span>
 │   │   │   ├── types.py          <span class="cmt"># DraftChapter, CritiqueReport, Finding</span>
 │   │   │   └── checks/           <span class="cmt"># commitment, entity, knowledge, location, thread</span>
-│   │   ├── <span class="dir">planner/</span>          <span class="cmt"># ScenePlanner: next-chapter narrative plan</span>
-│   │   │   ├── planner.py        <span class="cmt"># LLM-based chapter plan generator</span>
-│   │   │   ├── context.py        <span class="cmt"># gather_plan_context() — DB snapshot for planner</span>
-│   │   │   ├── prompts.py        <span class="cmt"># Planner prompt templates</span>
-│   │   │   └── types.py          <span class="cmt"># ChapterPlan, ScenePlan</span>
 │   │   ├── <span class="dir">retrieval/</span>        <span class="cmt"># HybridRetriever: BM25 + dense + RRF + MMR</span>
 │   │   │   ├── hybrid.py         <span class="cmt"># Orchestrator: BM25 → dense → RRF → rerank → MMR</span>
 │   │   │   ├── bm25.py           <span class="cmt"># Full-text search (tsvector)</span>
@@ -1489,21 +1482,17 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
     <h2>Hybrid Retrieval</h2>
     <p>
       <code>backend/pipeline/retrieval/</code> implements a 4-stage retrieval pipeline designed to find
-      relevant story context from the DB for LLM-facing features (the Planner, and an eventual Drafter).
+      relevant story context from the DB.
     </p>
 
     <div class="callout warn">
-      <strong>Integration status.</strong> All four "Advanced Modules" in this group now have live
+      <strong>Integration status.</strong> The "Advanced Modules" in this group all have live
       callers. The <strong>State Materializer</strong> runs automatically at the end of
       <code>analyze_chapter</code>, so <code>located_in_edges</code> and <code>possesses_edges</code>
       are populated on every processed chapter. The <strong>Continuity Critic</strong> also runs at
       the end of every <code>analyze_chapter</code> call (phase 5) and persists its report to
-      <code>critique_reports</code>/<code>critique_findings</code> — for human-ingested and agent
-      chapters this is informational only (it never blocks the already-committed chapter); the
-      generation loop is the one caller where a failing report actually gates ingestion, via a
-      separate in-loop critique pass before the chapter is drafted-and-ingested. The
-      <strong>Scene Planner and Hybrid Retriever</strong> are consumed by the generation loop
-      (<code>pipeline/generation/loop.py</code>) when drafting chapters. See
+      <code>critique_reports</code>/<code>critique_findings</code> — informational for the
+      already-committed chapter, surfaced in the wiki and MCP. See
       <a href="state-of-the-system.html">State of the System</a> for the full wiring map.
     </div>
 
@@ -1543,14 +1532,11 @@ flowchart LR
     </p>
 
     <p>
-      <code>HybridRetriever</code> currently has three consumers. Two share one
+      <code>HybridRetriever</code> currently has two consumers, sharing one
       implementation: the wiki's <code>GET /api/novels/{id}/search</code> route and the MCP
       <code>search_story</code> tool both call <code>backend/reads/search.py</code>'s
       <code>search()</code>, which builds the retriever behind a <code>_build_retriever(db)</code>
-      seam. The third, per-scene retrieval inside chapter generation (see
-      <a href="#generation-loop">Generation</a>), constructs its own
-      <code>HybridRetriever</code> directly in <code>pipeline/generation/loop.py</code> — a
-      separate call site until Plan 3 consolidates retrieval further.
+      seam.
     </p>
   </section>
 
@@ -1585,59 +1571,6 @@ flowchart LR
       <code>passed</code> flag is <code>False</code> if any FAIL finding was produced.
       Locked canon facts that are contradicted → FAIL; unlocked → WARN.
     </p>
-  </section>
-
-
-  <!-- SCENE PLANNER -->
-  <section id="planner">
-    <h2>Scene Planner</h2>
-    <p>
-      <code>backend/pipeline/planner/</code> provides <code>ScenePlanner</code>, which generates
-      a <code>ChapterPlan</code> for the next chapter given the current story state. This is an
-      author-assist tool, not part of the ingestion pipeline.
-    </p>
-
-    <p>
-      <code>gather_plan_context()</code> assembles a <code>PlanContext</code> from the DB: main characters,
-      active threads, pending commitments, locked canon facts, recent chapter summaries, and recent
-      events (selected by recency, not by the Hybrid Retriever). The planner then
-      calls LiteLLM with this context to produce a <code>ChapterPlan</code> — a list of <code>ScenePlan</code>
-      objects (POV, location, goals, characters present, narrative beats).
-    </p>
-
-    <p>
-      Mock mode (<code>USE_MOCK_LLM=true</code>) emits a deterministic 2-scene plan from context
-      without network calls, so tests run offline.
-    </p>
-  </section>
-
-
-  <!-- GENERATION LOOP -->
-  <section id="generation-loop">
-    <h2>Generation Loop</h2>
-    <p>
-      <code>backend/pipeline/generation/</code> closes the recursive loop: Continuum can now
-      <strong>plan → retrieve → draft → critique → revise → ingest</strong> its own chapters.
-      Entry point: <code>generate_chapter(novel_id, n)</code> in <code>loop.py</code>, exposed as the
-      <code>generate-chapter</code> CLI subcommand (the former HTTP endpoint and Process-page
-      "Generate chapter" mode have been removed).
-    </p>
-    <ol>
-      <li><strong>Plan</strong> — <code>ScenePlanner</code> produces the <code>ChapterPlan</code> (forced to the deterministic mock plan when mocking, so <code>--mock-llm</code> never hits the network; in real mode planner failures <em>raise</em> rather than silently substituting the mock plan). The loop rejects a plan with no scenes, and resolves the plan's thread titles and commitment foreshadow texts to row uuids (read-only; unresolvable ones are dropped with a warning) before they reach the critic's SQL.</li>
-      <li><strong>Retrieve</strong> — per scene, the <code>HybridRetriever</code> pulls the top chapters/scenes/events matching the scene goal + cast (capped at chapter N−1, no spoilers). Computed once per scene and reused across revision iterations, since the plan is immutable; a scene whose retrieval <em>failed</em> is retried on the next revision.</li>
-      <li><strong>Draft</strong> — <code>SceneDrafter</code> writes prose per scene with the retrieved context, the plan's key facts, the prior text tail, and the novel's voice (averaged <code>style_fingerprint</code> of the last 3 chapters).</li>
-      <li><strong>Critique</strong> — <code>extract_draft_claims</code> pulls checkable claims from the draft, <code>build_draft_chapter</code> resolves names to ids <em>read-only</em> (critiquing never creates entities), and the <code>ContinuityCritic</code> runs its five typed checks. Both functions now live in <code>pipeline/critic/adapter.py</code>, alongside <code>build_draft_from_extraction</code>, which builds the same <code>DraftChapter</code> shape straight from a chapter's already-extracted <code>state_deltas</code>/<code>learnings</code>/<code>canon_facts</code>/<code>events</code> — no second LLM pass.</li>
-      <li><strong>Revise</strong> — blocking findings become revision notes injected into a redraft, up to <code>GENERATION_MAX_REVISIONS</code> times.</li>
-      <li><strong>Ingest</strong> — only a <em>passing</em> draft is ingested, via the normal <code>analyze_chapter</code> path with <code>source='generated'</code>. A failing draft is returned for human review, never ingested. <code>analyze_chapter</code> then re-runs its own phase-5 critique (via <code>build_draft_from_extraction</code>) over the ingested chapter and persists that report too — the in-loop critique above is what gates ingestion; the phase-5 one is the same persisted record every other chapter gets.</li>
-    </ol>
-    <table>
-      <thead><tr><th>Module</th><th>Responsibility</th></tr></thead>
-      <tbody>
-        <tr><td><code>generation/style.py</code></td><td>LLM-free per-chapter style fingerprint (sentence length, dialogue ratio, POV person), written to <code>chapters.style_fingerprint</code> at ingest</td></tr>
-        <tr><td><code>generation/drafter.py</code></td><td><code>SceneDrafter</code> — prose output (no JSON response_format), <code>DRAFT_MODEL</code>/<code>DRAFT_TEMPERATURE</code>, deterministic mock mode</td></tr>
-        <tr><td><code>generation/loop.py</code></td><td><code>generate_chapter</code> orchestrator with revision loop and critic-gated ingest-back</td></tr>
-      </tbody>
-    </table>
   </section>
 
 
@@ -1794,7 +1727,6 @@ flowchart LR
       </thead>
       <tbody>
         <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 5 typed checks against DB state; <code>persist.py</code> writes the report to <code>critique_reports</code>/<code>critique_findings</code></td></tr>
-        <tr><td><code>pipeline/planner/</code></td><td><code>ScenePlanner</code> — LLM-based next-chapter narrative plan from story context</td></tr>
         <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → LLM rerank → MMR</td></tr>
         <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from <code>state_deltas</code></td></tr>
       </tbody>
