@@ -558,6 +558,7 @@ graph LR
 │   ├── <span class="dir">mcp_server/</span>          <span class="cmt"># FastMCP stdio server (novel-mcp): 13 tools for writing agents</span>
 │   │   ├── server.py             <span class="cmt"># @mcp.tool definitions + entry point (main); read tools call reads/ directly, no SQL</span>
 │   │   └── queries.py            <span class="cmt"># Writer-only glue: check_continuity, save_chapter (all read tools moved to reads/ in the read-layer migration)</span>
+│   ├── <span class="dir">evals/</span>              <span class="cmt"># Offline eval harness: golden fixture novel + answer key, scoring library (full harness lands with retrieval/critic/extraction evals)</span>
 │   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
 └── <span class="dir">frontend/src/</span>
     ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 23 routes</span>

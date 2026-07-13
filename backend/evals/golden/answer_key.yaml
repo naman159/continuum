@@ -1,0 +1,41 @@
+# Answer key for the golden fixture novel "The Lantern of Veyra".
+# Interval semantics match possesses_edges: since_chapter/until_chapter are
+# inclusive chapter numbers; until: null means "still held at end of novel".
+novel:
+  title: The Lantern of Veyra
+
+entities:
+  characters: [Mira Solen, Toren Vale, Kessa Dray, Odo Bram]
+  locations: [Harbor of Veyra, Glass Archive, Saltmarsh, Undervault]
+  objects: [Brass Lantern]
+  factions: [Ash Council]
+
+possessions:
+  - {object: Brass Lantern, holder: Mira Solen, since: 1, until: 3}
+  - {object: Brass Lantern, holder: Toren Vale, since: 4, until: 4}
+  - {object: Brass Lantern, holder: Kessa Dray, since: 5, until: 6}
+  - {object: Brass Lantern, holder: Odo Bram, since: 7, until: 7}
+  - {object: Brass Lantern, holder: Mira Solen, since: 8, until: null}
+
+locations_at:
+  - {character: Mira Solen, location: Harbor of Veyra, chapter: 1}
+  - {character: Mira Solen, location: Glass Archive, chapter: 2}
+  - {character: Kessa Dray, location: Glass Archive, chapter: 5}
+  - {character: Mira Solen, location: Saltmarsh, chapter: 6}
+  - {character: Mira Solen, location: Undervault, chapter: 9}
+
+knowledge:
+  - {character: Mira Solen, fact: the brass lantern opens the undervault, since: 3}
+  - {character: Mira Solen, fact: kessa dray serves the ash council, since: 8}
+
+queries:
+  - {text: who found the brass lantern at the harbor, expect_chapters: [1]}
+  - {text: archivist at the Glass Archive examines the lantern, expect_chapters: [2]}
+  - {text: what does the Brass Lantern open, expect_chapters: [3]}
+  - {text: Mira gives the lantern to Toren for study, expect_chapters: [4]}
+  - {text: Kessa Dray steals the lantern from the iron cabinet, expect_chapters: [5]}
+  - {text: pursuit through the Saltmarsh causeways, expect_chapters: [6]}
+  - {text: ferryman fishes the lantern out of the channel, expect_chapters: [7]}
+  - {text: Odo Bram returns the lantern and warns about the grey ring, expect_chapters: [8]}
+  - {text: lighting the lantern at the sealed gate of the Undervault, expect_chapters: [9]}
+  - {text: bargaining with the Ash Council speakers, expect_chapters: [10]}
