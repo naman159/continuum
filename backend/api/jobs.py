@@ -125,39 +125,10 @@ def submit_job(*, novel_id: str, chapter_number: int, text: str, replace: bool =
     return job_id
 
 
-def submit_generation_job(*, novel_id: str, chapter_number: int, ingest: bool) -> str:
-    job_id = _job_store.create(total_passes=0)  # label-only progress
-    tracker = ProgressTracker(job_id=job_id, store=_job_store)
-
-    def _run() -> None:
-        try:
-            from pipeline.generation.loop import generate_chapter
-
-            result = generate_chapter(
-                novel_id, chapter_number, ingest=ingest, progress=tracker
-            )
-            _job_store.mark_done(job_id, {
-                "chapter_number": result.chapter_number,
-                "iterations": result.iterations,
-                "passed": result.report.passed,
-                "fails": len(result.report.fails),
-                "warns": len(result.report.warns),
-                "ingested": result.ingested,
-                "chapter_id": result.chapter_id,
-                "text": result.text,
-            })
-        except Exception as exc:
-            _job_store.mark_error(job_id, str(exc))
-
-    _executor.submit(_run)
-    return job_id
-
-
 __all__ = [
     "JobRecord",
     "JobStore",
     "ProgressTracker",
     "get_job",
-    "submit_generation_job",
     "submit_job",
 ]

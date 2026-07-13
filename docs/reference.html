@@ -512,7 +512,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td>progress</td><td>Any | None</td><td>Optional progress callback object with <code>on_pass_start</code>/<code>on_pass_done</code> methods</td></tr>
         <tr><td>db</td><td>DBClient | None</td><td>Injectable DB client. If None, a new <code>DBClient</code> is created and closed on exit.</td></tr>
         <tr><td>replace</td><td>bool</td><td>If True, delete all previously extracted data for this chapter before re-processing. Default False.</td></tr>
-        <tr><td>source</td><td>str</td><td>Provenance tag stored on the chapter row (e.g. <code>"human"</code>, <code>"generated"</code>, <code>"agent"</code>). Default <code>"human"</code>.</td></tr>
+        <tr><td>source</td><td>str</td><td>Provenance tag stored on the chapter row (e.g. <code>"human"</code>, <code>"agent"</code>). Default <code>"human"</code>.</td></tr>
       </tbody>
     </table>
 
@@ -555,8 +555,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       (<code>pipeline.state.cli</code> for materialization) to catch up. Every analyzed chapter gets
       a persisted critique — one row in <code>critique_reports</code> (unique per
       <code>chapter_id</code>) plus per-finding rows in <code>critique_findings</code>
-      (<code>severity</code> = <code>fail</code> | <code>warn</code> | <code>info</code>) — not just
-      chapters generated through the critique loop.
+      (<code>severity</code> = <code>fail</code> | <code>warn</code> | <code>info</code>).
     </div>
 
     <h3>load_story_context()</h3>
@@ -930,7 +929,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   style_fingerprint <span class="sql-type">TEXT</span>,                                     <span class="sql-comment">-- author's voice notes</span>
   embedding       <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,                    <span class="sql-comment">-- pgvector</span>
   processed_at    <span class="sql-type">TIMESTAMPTZ</span>,
-  source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'generated' | 'agent'</span>
+  source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'agent'</span>
   created_at      <span class="sql-type">TIMESTAMPTZ</span>  <span class="sql-constraint">NOT NULL DEFAULT</span> now(),
   <span class="sql-constraint">UNIQUE</span>(novel_id, number)
 );</code></pre>
@@ -939,8 +938,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       from config at init-db time.
       The <code>summary</code> / <code>summary_short</code> / <code>summary_long</code> fields support
       three different granularities for different UI use cases.
-      <code>source</code> stores provenance (<code>"human"</code> for user-supplied text, <code>"generated"</code>
-      for the self-generation loop's own ingest, <code>"agent"</code> for chapters saved through the MCP
+      <code>source</code> stores provenance (<code>"human"</code> for user-supplied text via the Process
+      page or CLI ingest, <code>"agent"</code> for chapters saved through the MCP
       <code>save_chapter</code> tool, or any custom tag).
     </p>
   </section>
@@ -1715,14 +1714,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "...", "replace": false}</code>. Pass <code>"replace": true</code> to delete previously extracted data before re-processing. Returns <code>{"job_id": "..."}</code></td>
         </tr>
         <tr>
-          <td><span class="badge blue">POST</span></td>
-          <td><code>/api/novels/{id}/chapters/generate</code></td>
-          <td>Generate the next chapter as an async job (HTTP 202). Body <code>GenerateRequest</code>: <code>{"number": N, "ingest": false}</code>. Returns HTTP 409 if chapter <code>N</code> already exists (generation never overwrites; the check runs before any LLM spend). With <code>"ingest": true</code> the chapter is ingested back into Continuum <em>only if the continuity critic passes</em> (<code>source='generated'</code>). The job result includes <code>{text, passed, fails, warns, iterations, ingested, chapter_id}</code>. Returns <code>{"job_id": "..."}</code></td>
-        </tr>
-        <tr>
           <td><span class="badge green">GET</span></td>
           <td><code>/api/jobs/{job_id}</code></td>
-          <td>Poll job status (note: not nested under the novel). Returns <code>JobStatusResponse</code> — <code>{job_id, status: "pending|running|done|error", current_pass, passes_done, total_passes, result, error}</code>. Generation jobs report label-only progress (<code>total_passes = 0</code>).</td>
+          <td>Poll job status (note: not nested under the novel). Returns <code>JobStatusResponse</code> — <code>{job_id, status: "pending|running|done|error", current_pass, passes_done, total_passes, result, error}</code>.</td>
         </tr>
       </tbody>
     </table>

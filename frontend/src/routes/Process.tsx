@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Zap, Check, X } from "lucide-react";
 
-import { api, fetchJson, postJson } from "../api";
+import { fetchJson, postJson } from "../api";
 
 type JobStatus = {
   job_id: string;
@@ -26,7 +26,7 @@ function fetchJob(jobId: string): Promise<JobStatus> {
 const PASS_LABELS: Record<string, string> = {
   chapter_summary: "Summarising chapter",
   new_entities: "Extracting new entities",
-  entity_deltas: "Tracking character changes",
+  state_deltas: "Tracking character changes",
   events: "Extracting events",
   thread_updates: "Updating plot threads",
   continuity_flags: "Checking continuity",
@@ -46,18 +46,10 @@ export default function Process() {
   const [chapterNumber, setChapterNumber] = useState<number>(1);
   const [text, setText] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
-  const [mode, setMode] = useState<"process" | "generate">("process");
-  const [ingestGenerated, setIngestGenerated] = useState(false);
 
   const mutation = useMutation({
     mutationFn: ({ number, text }: { number: number; text: string }) =>
       postChapter(novelId!, number, text),
-    onSuccess: (data) => setJobId(data.job_id),
-  });
-
-  const generateMutation = useMutation({
-    mutationFn: ({ number, ingest }: { number: number; ingest: boolean }) =>
-      api.generateChapter(novelId!, number, ingest),
     onSuccess: (data) => setJobId(data.job_id),
   });
 
@@ -75,65 +67,14 @@ export default function Process() {
   const isRunning = Boolean(jobId) && job?.status !== "done" && job?.status !== "error";
 
   const result = job?.result as Record<string, unknown> | null | undefined;
-  const isGenerationResult = typeof result?.text === "string";
 
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-        <h1 style={{ margin: 0 }}>{mode === "generate" ? "Generate Chapter" : "Process Chapter"}</h1>
+        <h1 style={{ margin: 0 }}>Process Chapter</h1>
       </div>
 
       {!jobId && (
-        <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-          <button onClick={() => setMode("process")} disabled={mode === "process"}>
-            Ingest text
-          </button>
-          <button onClick={() => setMode("generate")} disabled={mode === "generate"}>
-            Generate chapter
-          </button>
-        </div>
-      )}
-
-      {!jobId && mode === "generate" && (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            generateMutation.mutate({ number: chapterNumber, ingest: ingestGenerated });
-          }}
-          style={{ maxWidth: 480 }}
-        >
-          <div className="form-group">
-            <label className="form-label" htmlFor="gen-number">Chapter number</label>
-            <input
-              id="gen-number"
-              type="number"
-              min={1}
-              value={chapterNumber}
-              onChange={(e) => setChapterNumber(Number(e.target.value))}
-              style={{ width: 100 }}
-            />
-          </div>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
-            <input
-              type="checkbox"
-              checked={ingestGenerated}
-              onChange={(e) => setIngestGenerated(e.target.checked)}
-            />
-            Ingest into Continuum if the continuity critic passes
-          </label>
-          {generateMutation.isError && (
-            <p style={{ color: "var(--red-text)", fontSize: 13, marginBottom: 12 }}>
-              Error: {(generateMutation.error as Error).message}
-            </p>
-          )}
-          <button type="submit" className="btn-primary" disabled={generateMutation.isPending}>
-            <Zap size={14} />
-            {generateMutation.isPending ? "Submitting…" : "Generate chapter"}
-          </button>
-        </form>
-      )}
-
-      {!jobId && mode === "process" && (
         <form
           className="process-form"
           onSubmit={(e) => {
@@ -210,9 +151,6 @@ export default function Process() {
               {job && job.total_passes > 0 ? (
                 <progress value={job.passes_done} max={job.total_passes} />
               ) : (
-                // Generation jobs report total_passes=0 (label-only progress);
-                // a value-less <progress> renders as indeterminate instead of
-                // a bar pegged at an invalid max of 0.
                 <progress />
               )}
             </div>
@@ -225,11 +163,11 @@ export default function Process() {
                   <Check />
                 </div>
                 <span style={{ fontSize: 14, fontWeight: 600, color: "var(--text-h)" }}>
-                  {isGenerationResult ? "Chapter generated" : "Chapter processed"}
+                  Chapter processed
                 </span>
               </div>
 
-              {result && !isGenerationResult && (
+              {result && (
                 <div className="job-result">
                   {([
                     ["New characters", result.new_characters],
@@ -242,19 +180,6 @@ export default function Process() {
                       <span className="job-result-value">{(value as number) ?? 0}</span>
                     </div>
                   ))}
-                </div>
-              )}
-
-              {result && isGenerationResult && (
-                <div style={{ marginTop: 4 }}>
-                  <div className="job-pass-count" style={{ marginBottom: 8 }}>
-                    Critic: {result.passed ? "passed" : `failed (${result.fails as number} blocking)`}
-                    {" · "}{result.iterations as number} iteration(s)
-                    {" · "}{result.ingested ? "ingested into Continuum" : "not ingested"}
-                  </div>
-                  <pre style={{ whiteSpace: "pre-wrap", maxHeight: 400, overflow: "auto" }}>
-                    {result.text as string}
-                  </pre>
                 </div>
               )}
 

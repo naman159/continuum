@@ -486,7 +486,5 @@ export const api = {
     fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
   customEntity: (novelId: string, entityId: string) =>
     fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
-  generateChapter: (novelId: string, number: number, ingest: boolean) =>
-    postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/generate`, { number, ingest }),
   deleteNovel: (id: string) => deleteRequest(`/api/novels/${id}`),
 };

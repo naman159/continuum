@@ -1619,9 +1619,8 @@ flowchart LR
       <code>backend/pipeline/generation/</code> closes the recursive loop: Continuum can now
       <strong>plan → retrieve → draft → critique → revise → ingest</strong> its own chapters.
       Entry point: <code>generate_chapter(novel_id, n)</code> in <code>loop.py</code>, exposed as the
-      <code>generate-chapter</code> CLI subcommand, the
-      <code>POST /api/novels/{id}/chapters/generate</code> job endpoint, and the
-      "Generate chapter" mode on the Process page.
+      <code>generate-chapter</code> CLI subcommand (the former HTTP endpoint and Process-page
+      "Generate chapter" mode have been removed).
     </p>
     <ol>
       <li><strong>Plan</strong> — <code>ScenePlanner</code> produces the <code>ChapterPlan</code> (forced to the deterministic mock plan when mocking, so <code>--mock-llm</code> never hits the network; in real mode planner failures <em>raise</em> rather than silently substituting the mock plan). The loop rejects a plan with no scenes, and resolves the plan's thread titles and commitment foreshadow texts to row uuids (read-only; unresolvable ones are dropped with a warning) before they reach the critic's SQL.</li>

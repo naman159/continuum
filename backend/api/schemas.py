@@ -414,11 +414,6 @@ class EntityMergeRequest(BaseModel):
     target_entity_id: UUID
 
 
-class GenerateRequest(BaseModel):
-    number: int
-    ingest: bool = False
-
-
 class SearchResultRow(BaseModel):
     kind: str
     chapter_number: int | None = None
