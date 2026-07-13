@@ -83,9 +83,9 @@ class DraftChapter:
     possession_claims: list[dict[str, Any]] = field(default_factory=list)
     # Events extracted from the draft (used for temporal + commitment checks)
     events: list[dict[str, Any]] = field(default_factory=list)
-    # Plot threads the planner said this chapter would advance.
+    # Plot threads the caller declared this chapter would advance.
     planned_thread_ids: list[str] = field(default_factory=list)
-    # Commitment IDs the planner said this chapter would plant/satisfy.
+    # Commitment IDs the caller declared this chapter would plant/satisfy.
     planned_commitment_ids: list[str] = field(default_factory=list)
 
 

@@ -52,16 +52,6 @@ class Settings:
     context_max_locations: int = field(
         default_factory=lambda: int(os.getenv("CONTEXT_MAX_LOCATIONS", "30"))
     )
-    # Generation loop
-    draft_model: str = field(
-        default_factory=lambda: os.getenv("DRAFT_MODEL", os.getenv("DEFAULT_MODEL", "gpt-4o-mini"))
-    )
-    draft_temperature: float = field(
-        default_factory=lambda: float(os.getenv("DRAFT_TEMPERATURE", "0.8"))
-    )
-    generation_max_revisions: int = field(
-        default_factory=lambda: int(os.getenv("GENERATION_MAX_REVISIONS", "2"))
-    )
 
 
 settings = Settings()

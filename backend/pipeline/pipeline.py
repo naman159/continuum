@@ -31,7 +31,7 @@ from pipeline.extraction.persist_extras import (
     persist_scenes,
 )
 from pipeline.extraction.resolver import EntityResolver
-from pipeline.generation.style import compute_style_fingerprint
+from pipeline.style import compute_style_fingerprint
 from pipeline.ingestion.ingest import delete_chapter_data, ingest_chapter
 from pipeline.state.materializer import StateMaterializer
 
@@ -787,18 +787,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Delete this chapter's previously extracted data and re-process it",
     )
 
-    generate_parser = subparsers.add_parser(
-        "generate-chapter",
-        help="Plan, draft, critique, and optionally ingest the next chapter",
-    )
-    generate_parser.add_argument("--novel-id", required=True)
-    generate_parser.add_argument("--number", required=True, type=int)
-    generate_parser.add_argument(
-        "--ingest", action="store_true", help="Ingest the chapter if the critic passes"
-    )
-    generate_parser.add_argument("--mock-llm", action="store_true")
-    generate_parser.add_argument("--out", help="Write the draft prose to this file")
-
     return parser
 
 
@@ -836,28 +824,6 @@ def main() -> None:
             replace=args.replace,
         )
         print(json.dumps(result, indent=2))
-        return
-
-    if args.command == "generate-chapter":
-        from pipeline.generation.loop import generate_chapter
-
-        generated = generate_chapter(
-            args.novel_id,
-            args.number,
-            ingest=args.ingest,
-            use_mock=True if args.mock_llm else None,
-        )
-        if args.out:
-            Path(args.out).write_text(generated.text, encoding="utf-8")
-        print(json.dumps({
-            "chapter_number": generated.chapter_number,
-            "iterations": generated.iterations,
-            "critic": generated.report.summary(),
-            "ingested": generated.ingested,
-            "chapter_id": generated.chapter_id,
-            "words": len(generated.text.split()),
-            "out": args.out,
-        }, indent=2, default=str))
         return
 
     raise SystemExit(f"Unknown command: {args.command}")

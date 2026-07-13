@@ -1,5 +1,5 @@
-"""Shared LLM plumbing used across extraction, generation, planning, and
-retrieval: the litellm loader and the lenient JSON parser for model output."""
+"""Shared LLM plumbing used across extraction and the continuity critic's
+claim extraction: the litellm loader and the lenient JSON parser for model output."""
 
 from __future__ import annotations
 

@@ -354,21 +354,6 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><code>30</code></td>
           <td>Max locations injected into extraction prompts (same selection rules as characters).</td>
         </tr>
-        <tr>
-          <td><code>DRAFT_MODEL</code></td>
-          <td><code>DEFAULT_MODEL</code></td>
-          <td>LiteLLM model for chapter drafting (the generation loop). Falls back to DEFAULT_MODEL.</td>
-        </tr>
-        <tr>
-          <td><code>DRAFT_TEMPERATURE</code></td>
-          <td><code>0.8</code></td>
-          <td>Temperature for drafting calls (higher than extraction — prose wants variety).</td>
-        </tr>
-        <tr>
-          <td><code>GENERATION_MAX_REVISIONS</code></td>
-          <td><code>2</code></td>
-          <td>How many critic-driven redrafts <code>generate_chapter</code> attempts before giving up (the failing draft is returned, never ingested).</td>
-        </tr>
       </tbody>
     </table>
 
@@ -395,7 +380,6 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       </thead>
       <tbody>
         <tr><td><code>novel-pipeline</code></td><td><code>pipeline.pipeline:main</code></td><td>Main pipeline CLI: <code>init-db</code>, <code>create-novel</code>, <code>list-novels</code>, <code>process-chapter</code></td></tr>
-        <tr><td><code>novel-pipeline generate-chapter</code></td><td><code>pipeline.pipeline:main</code></td><td>Plan, draft, critique, and optionally ingest the next chapter (<code>--novel-id --number [--ingest] [--mock-llm] [--out FILE]</code>) <span class="badge purple">GEN</span></td></tr>
         <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
         <tr><td><code>novel-mcp</code></td><td><code>mcp_server.server:main</code></td><td>Run the MCP stdio server exposing 13 tools to writing agents — see <a href="#mcp-server">MCP Server</a></td></tr>
       </tbody>

@@ -1,6 +1,6 @@
 """Plot-thread coverage check.
 
-Did the draft actually advance each plot thread the planner said it would?
+Did the draft actually advance each plot thread the caller said it would?
 
 Inputs:
     planned_thread_ids: UUIDs of plot_threads listed in the scene plan

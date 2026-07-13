@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """Deterministic, LLM-free style fingerprint of a chapter's prose.
 
-Stored in chapters.style_fingerprint at ingest; the drafter averages recent
-chapters' fingerprints to match the novel's voice.
+Computed at ingest and stored in chapters.style_fingerprint as chapter
+voice metadata for the wiki.
 """
+
+from __future__ import annotations
 
 import re
 from typing import Any
@@ -40,17 +40,4 @@ def compute_style_fingerprint(text: str) -> dict[str, Any]:
     }
 
 
-def average_fingerprints(fingerprints: list[dict[str, Any]]) -> dict[str, Any] | None:
-    usable = [f for f in fingerprints if isinstance(f, dict) and f.get("sentence_count")]
-    if not usable:
-        return None
-    numeric = ("avg_sentence_words", "dialogue_ratio", "exclamation_rate")
-    out: dict[str, Any] = {
-        k: round(sum(float(f.get(k) or 0.0) for f in usable) / len(usable), 3) for k in numeric
-    }
-    povs = [f.get("pov_person") for f in usable]
-    out["pov_person"] = max(set(povs), key=povs.count)
-    return out
-
-
-__all__ = ["compute_style_fingerprint", "average_fingerprints"]
+__all__ = ["compute_style_fingerprint"]

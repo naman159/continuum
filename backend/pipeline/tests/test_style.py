@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pipeline.generation.style import average_fingerprints, compute_style_fingerprint
+from pipeline.style import compute_style_fingerprint
 
 FIRST_PERSON = 'I walked to the door. "Hello?" I said. Nobody answered me.'
 THIRD_PERSON = (
@@ -29,11 +29,3 @@ def test_dialogue_ratio_bounds():
 def test_empty_text_safe():
     fp = compute_style_fingerprint("")
     assert fp["avg_sentence_words"] == 0.0
-
-
-def test_average_fingerprints():
-    fps = [compute_style_fingerprint(FIRST_PERSON), compute_style_fingerprint(THIRD_PERSON)]
-    avg = average_fingerprints(fps)
-    assert avg is not None
-    assert "avg_sentence_words" in avg and "pov_person" in avg
-    assert average_fingerprints([]) is None
