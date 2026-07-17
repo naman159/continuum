@@ -12,7 +12,6 @@ from typing import Any
 
 from evals.loader import load_answer_key, load_chapters
 from evals.scoring import recall_at_k
-from pipeline.config import settings
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService
 from pipeline.pipeline import analyze_chapter
@@ -41,8 +40,11 @@ def ingest_fixture(db: DBClient, *, use_mock_llm: bool = True) -> str:
                 raw_text=text,
                 chapter_title=None,
                 use_mock_llm=use_mock_llm,
-                chunk_size=settings.chunk_size,
-                chunk_overlap=settings.chunk_overlap,
+                # Pinned (not settings.chunk_size/overlap) so a developer's
+                # CHUNK_SIZE env can't perturb chunking under the eval's
+                # zero-margin recall floor.
+                chunk_size=2000,
+                chunk_overlap=200,
                 db=db,
                 replace=False,
                 source="human",

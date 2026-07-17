@@ -228,7 +228,7 @@
       <li>Python 3.11+</li>
       <li>PostgreSQL 15+ with <code>pgvector</code> extension</li>
       <li>Node 20+ (for frontend)</li>
-      <li>An OpenAI API key (or set <code>USE_MOCK_LLM=true</code> to skip)</li>
+      <li>An API key for your LLM provider (e.g. <code>OPENAI_API_KEY</code> or <code>GEMINI_API_KEY</code>, matching <code>DEFAULT_MODEL</code>; or set <code>USE_MOCK_LLM=true</code> to skip)</li>
     </ul>
 
     <h3>Backend Setup</h3>
@@ -301,9 +301,9 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <code>branch_db.sh clear</code> reverts to plain <code>.env</code>.</td>
         </tr>
         <tr>
-          <td><code>OPENAI_API_KEY</code></td>
+          <td><code>OPENAI_API_KEY</code> / <code>GEMINI_API_KEY</code> / …</td>
           <td>—</td>
-          <td>OpenAI key (used by LiteLLM). Required unless USE_MOCK_LLM=true</td>
+          <td>Provider API key matching <code>DEFAULT_MODEL</code>, read directly from the environment by LiteLLM (not a <code>config.py</code> field). Required unless USE_MOCK_LLM=true</td>
         </tr>
         <tr>
           <td><code>DEFAULT_MODEL</code></td>

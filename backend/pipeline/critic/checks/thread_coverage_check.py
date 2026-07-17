@@ -3,7 +3,7 @@
 Did the draft actually advance each plot thread the caller said it would?
 
 Inputs:
-    planned_thread_ids: UUIDs of plot_threads listed in the scene plan
+    planned_thread_ids: UUIDs of plot_threads the caller declared
     events: events extracted from the draft (with id when persisted)
 
 Evidence of advancement: a thread_events row exists linking one of the

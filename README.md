@@ -66,12 +66,38 @@ Or paste chapter text into the wiki's Process page. Writing agents use the
 MCP tools (`save_chapter`, `check_continuity`, `search_story`, and the
 cutoff-aware read tools that take `writing_chapter`).
 
+## Writing agents (MCP)
+
+The data layer is exposed to writing agents as an MCP server (`novel-mcp`,
+stdio). Every lookup takes a `writing_chapter` and returns only facts from
+earlier chapters, so an agent drafting chapter N sees the world as of N−1.
+
+- **Claude Code (this repo):** picked up automatically via `.mcp.json`.
+- **Claude Code (anywhere):**
+  `claude mcp add continuum -- uv run --directory /path/to/continuum/backend novel-mcp`
+- **Claude Desktop:** add to `claude_desktop_config.json`:
+
+  ```json
+  {
+    "mcpServers": {
+      "continuum": {
+        "command": "uv",
+        "args": ["run", "--directory", "/path/to/continuum/backend", "novel-mcp"]
+      }
+    }
+  }
+  ```
+
+Suggested agent workflow: `open_threads` + `unresolved_commitments` +
+`get_character` → draft → `check_continuity` → revise → `save_chapter`.
+The full tool table is in `docs/reference.html`.
+
 ## Tests and evals
 
 ```bash
 cd backend && .venv/bin/python -m pytest        # full suite (needs Postgres)
 cd backend && .venv/bin/python -m pytest evals/ # eval harness (offline)
-RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/  # + real-LLM extraction fidelity
+cd backend && RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/  # + real-LLM extraction fidelity
 cd frontend && npm run build                    # frontend gate
 ```
 

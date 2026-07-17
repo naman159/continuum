@@ -9,7 +9,7 @@ Verifies:
     matching is a future improvement.
 
 Inputs:
-    planned_commitment_ids: list of UUIDs from the scene plan
+    planned_commitment_ids: list of commitment UUIDs the caller declared
     events: list of events extracted from the draft
 """
 
