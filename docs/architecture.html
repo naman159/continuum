@@ -1839,7 +1839,7 @@ flowchart LR
       </thead>
       <tbody>
         <tr><td><code>novel_entity_types</code></td><td>New table for custom entity type definitions</td></tr>
-        <tr><td><code>chapters.*</code></td><td><code>summary_short</code>, <code>summary_long</code>, <code>style_fingerprint</code>, <code>search_tsv</code></td></tr>
+        <tr><td><code>chapters.*</code></td><td><code>summary_short</code>, <code>summary_long</code>, <code>style_fingerprint</code> (computed at ingest by <code>pipeline/style.py</code>), <code>search_tsv</code></td></tr>
         <tr><td><code>events.*</code></td><td>SVO triples (<code>subject_entity_id</code>, <code>verb</code>, <code>object_entity_id</code>), <code>story_time_ordinal</code>, <code>narrative_order</code>, <code>scene_id</code> — <strong>never got a writer; dropped in the 2026-07-11 write-spine consolidation</strong> (see <a href="#write-spine-tables">Write-Spine Tables</a>) — plus <code>search_tsv</code>, which stayed</td></tr>
         <tr><td><code>relationships.*</code></td><td><code>superseded_by_id</code>, <code>evidence_event_ids[]</code>, <code>sentiment</code></td></tr>
         <tr><td><code>scenes.*</code></td><td><code>search_tsv</code> (for BM25 retrieval)</td></tr>
