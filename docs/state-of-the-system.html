@@ -221,7 +221,7 @@
 
   <h1>State of the System</h1>
   <div class="subtitle">The redesign is complete. This page is both the retrospective on how Continuum got here and the honest list of what's still genuinely open.</div>
-  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · <strong>updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14)</strong></div>
+  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14) · <strong>updated 2026-07-17 — Plan 3 Task 7: README rewritten for the two-spine architecture, repo-root architecture.md and architecture-recommendations.html retired, continuity-arch-deep-research.md moved to docs/research/</strong></div>
 
   <p class="lead">
     Continuum is a <strong>continuity analyzer</strong>, not a chapter generator — and, as of this
@@ -435,7 +435,7 @@ flowchart TB
   <!-- ════════════════ THE FORK ════════════════ -->
   <section id="fork">
   <h2>The Redesign I — The Decision: Analyzer, Not Generator</h2>
-  <p>The deep-research doc (<code>continuity-arch-deep-research.md</code>) describes an
+  <p>The deep-research doc (<code>docs/research/continuity-arch-deep-research.md</code>) describes an
      <strong>agentic novel-writing system</strong>. Earlier revisions of this page tracked an
      unresolved ambiguity: the code that actually ran was a continuity analyzer, but generator-shaped
      modules (a scene-level planner, a prose drafter, an orchestrated plan→retrieve→draft→critique→
@@ -947,30 +947,36 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
 
   <!-- ════════════════ DOCS DRIFT ════════════════ -->
   <section id="docs-drift">
-  <h2>Foundations — Docs Drift <span class="badge orange">Docs site resolved; repo-root file still open</span></h2>
+  <h2>Foundations — Docs Drift <span class="badge green">Resolved 2026-07-17</span></h2>
   <p>The docs website (<a href="architecture.html">architecture.html</a>,
      <a href="reference.html">reference.html</a>, and this page) was brought current with the final
      two-spine architecture as part of Plan 3, Task 6: no mentions of the deleted chapter-authoring
      sub-system remain, the CLI/env-var/schema/MCP tables match the code, and this page's own
-     status/roadmap sections were rewritten (that rewrite is what you're reading). The repo's
-     <code>CLAUDE.md</code> mandates keeping the docs website current after every change; that's now
-     true as of this pass.</p>
+     status/roadmap sections were rewritten. The repo's <code>CLAUDE.md</code> mandates keeping the
+     docs website current after every change; that's now true as of this pass.</p>
 
-  <p><strong>Still open:</strong> the top-level <code>/architecture.md</code> file (separate from the
-     <code>docs/</code> website) still describes a "6-pass" pipeline and predates <code>critic/</code>,
-     <code>retrieval/</code>, and <code>state/</code> entirely. It was out of scope for this pass — only
-     the three <code>docs/*.html</code> pages were in scope — and remains genuinely stale.</p>
+  <p>Plan 3, Task 7 closed the remaining gap: the stale top-level <code>architecture.md</code> (still
+     describing a "6-pass" pipeline, predating <code>critic/</code>, <code>retrieval/</code>, and
+     <code>state/</code> entirely) and the unrelated <code>architecture-recommendations.html</code> were
+     both retired (<code>git rm</code>) rather than regenerated, since <code>docs/architecture.html</code>
+     already supersedes them. The deep-research doc moved to
+     <code>docs/research/continuity-arch-deep-research.md</code> so it reads as reference material
+     instead of a stray repo-root file, and <code>README.md</code> was rewritten for the two-spine
+     architecture, setup, usage, and the eval harness.</p>
 
   <div class="nn">
     <div class="stand">
       <h4>Where we stood</h4>
-      <p><code>architecture.md</code> stale; docs site current but optimistic about what's connected.</p>
+      <p><code>architecture.md</code> stale; docs site current but optimistic about what's connected;
+         <code>README.md</code> described a six-pass pipeline and a wiki-only MVP.</p>
     </div>
     <div class="need">
-      <h4>Where we are now / still need to be</h4>
+      <h4>Where we are now</h4>
       <ul>
         <li><span class="badge green">done</span> Docs site (<code>docs/*.html</code>) regenerated for the final architecture</li>
-        <li><span class="badge orange">still open</span> Retire or regenerate the repo-root <code>architecture.md</code></li>
+        <li><span class="badge green">done</span> Repo-root <code>architecture.md</code> and <code>architecture-recommendations.html</code> retired</li>
+        <li><span class="badge green">done</span> <code>continuity-arch-deep-research.md</code> moved to <code>docs/research/</code></li>
+        <li><span class="badge green">done</span> <code>README.md</code> rewritten for the two-spine architecture</li>
       </ul>
     </div>
   </div>
@@ -1063,14 +1069,6 @@ flowchart TB
       <code>EMBEDDING_DIMENSIONS</code>/<code>EMBEDDING_MODEL</code> on an existing database.
     </li>
     <li>
-      <span class="phase-tag">Repo-root architecture.md</span><br>
-      <strong>Stale, out of scope for this docs pass.</strong> Still describes a 6-pass pipeline and
-      predates <code>critic/</code>, <code>retrieval/</code>, and <code>state/</code>. See
-      <a href="#docs-drift">Docs Drift</a>.<br>
-      <em>Done when:</em> it's retired (pointing at <code>docs/architecture.html</code>) or regenerated to
-      match.
-    </li>
-    <li>
       <span class="phase-tag">Job tracking is in-memory</span><br>
       <strong>Async chapter-processing job status doesn't survive a server restart</strong> and doesn't
       scale horizontally (<code>backend/api/jobs.py</code>, a module-level dict). Documented as a known
@@ -1107,8 +1105,8 @@ flowchart TB
   <div class="callout tip">
     <strong>Bottom line.</strong> The redesign is complete: one write spine, one read layer, and now one
     eval harness that makes both claims falsifiable rather than asserted. What's left (observability,
-    the embedding-dimension migration path, the repo-root <code>architecture.md</code>, in-memory job
-    tracking) are real but bounded — none of them block using the system as documented on this site.
+    the embedding-dimension migration path, in-memory job tracking) are real but bounded — none of them
+    block using the system as documented on this site.
   </div>
   </section>
 
