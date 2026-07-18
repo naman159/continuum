@@ -252,8 +252,9 @@ def get_object_detail(
                WHEN r.entity_a_id = ob.entity_id THEN r.entity_b_id
                ELSE r.entity_a_id
              END
+        LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id)
-          AND (r.from_chapter IS NULL OR r.from_chapter <= %s)
+          AND COALESCE(r.from_chapter, rch.number, 0) <= %s
         ORDER BY r.from_chapter NULLS LAST
         """,
         (object_id, novel_id, novel_id, cutoff),
@@ -416,8 +417,9 @@ def get_custom_entity_detail(
         FROM relationships r
         JOIN entities ea ON ea.id = r.entity_a_id
         JOIN entities eb ON eb.id = r.entity_b_id
+        LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = %s OR r.entity_b_id = %s)
-          AND (r.from_chapter IS NULL OR r.from_chapter <= %s)
+          AND COALESCE(r.from_chapter, rch.number, 0) <= %s
         """,
         (entity_id, entity_id, cutoff),
         dict_rows=True,

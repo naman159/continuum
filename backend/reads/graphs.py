@@ -51,7 +51,8 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
         JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
         JOIN characters ca ON ca.entity_id = ea.id
         JOIN characters cb ON cb.entity_id = eb.id
-        WHERE (r.from_chapter IS NULL OR r.from_chapter <= %s)
+        LEFT JOIN chapters rch ON rch.id = r.chapter_id
+        WHERE COALESCE(r.from_chapter, rch.number, 0) <= %s
         ORDER BY r.from_chapter NULLS LAST, r.created_at
         """,
         (novel_id, cutoff),
@@ -126,10 +127,14 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         LEFT JOIN objects    o ON o.entity_id = e.id
         LEFT JOIN factions   f ON f.entity_id = e.id
         WHERE e.novel_id = %s
+          -- The typed LEFT JOINs are mutually exclusive, so COALESCE picks
+          -- the one first_appearance anchor this entity has; factions and
+          -- custom entities carry none and stay visible at every cutoff.
           AND (
-            e.entity_type != 'character'
-            OR c.first_appearance_chapter IS NULL
-            OR c.first_appearance_chapter <= %s
+            COALESCE(c.first_appearance_chapter, l.first_appearance_chapter,
+                     o.first_appearance_chapter) IS NULL
+            OR COALESCE(c.first_appearance_chapter, l.first_appearance_chapter,
+                        o.first_appearance_chapter) <= %s
           )
         """,
         (novel_id, cutoff),
@@ -148,7 +153,8 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         FROM relationships r
         JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s
         JOIN entities eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
-        WHERE r.from_chapter IS NULL OR r.from_chapter <= %s
+        LEFT JOIN chapters rch ON rch.id = r.chapter_id
+        WHERE COALESCE(r.from_chapter, rch.number, 0) <= %s
         """,
         (novel_id, novel_id, cutoff),
         dict_rows=True,

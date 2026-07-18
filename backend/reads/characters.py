@@ -56,6 +56,12 @@ def get_character_detail(
     )
     if identity_row is None:
         return None
+    first_appearance = identity_row.get("first_appearance_chapter")
+    if first_appearance is not None and first_appearance > cutoff:
+        # The character hasn't appeared yet as of this cutoff: reporting the
+        # identity (name/description summarize later chapters) would leak
+        # spoilers, and list_characters already hides them at the same cutoff.
+        return None
     identity = {
         "id": identity_row["id"],
         "name": identity_row["name"],
@@ -105,8 +111,9 @@ def get_character_detail(
         JOIN entities ea ON ea.id = r.entity_a_id AND ea.entity_type = 'character'
         JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
         JOIN characters c ON c.entity_id = ea.id OR c.entity_id = eb.id
+        LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE c.id = %s
-          AND (r.from_chapter IS NULL OR r.from_chapter <= %s)
+          AND COALESCE(r.from_chapter, rch.number, 0) <= %s
         """,
         (character_id, cutoff),
         dict_rows=True,
@@ -250,7 +257,10 @@ def get_character_page(
         raise ValueError(f"Character not found: {name}{hint}")
 
     detail = get_character_detail(db, novel_id, character["id"], up_to_chapter)
-    assert detail is not None  # the row was just found by the query above
+    if detail is None:
+        # The row exists but first appears after the cutoff — to a writing
+        # agent working at this chapter, the character does not exist yet.
+        raise ValueError(f"Character not found: {name} (first appears after the writing chapter)")
 
     return {
         "identity": detail["identity"],

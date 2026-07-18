@@ -110,3 +110,37 @@ def test_character_detail_current_state_location_resolves_by_name(db, seed_novel
     )
     assert detail["current_state"]["location"] == seeded["loc_a_name"]
     assert detail["current_state"]["chapter_number"] == 1
+
+
+def test_character_detail_is_none_before_first_appearance(db, seed_novel):
+    """char B first-appears ch3: at a cap of 2 the detail (and the MCP
+    get_character page built on it) must not reveal the character exists."""
+    seeded = seed_novel(db)
+    from reads import characters as characters_reads
+    assert characters_reads.get_character_detail(db, seeded["novel_id"], seeded["char_b_id"], 2) is None
+    assert characters_reads.get_character_detail(db, seeded["novel_id"], seeded["char_b_id"], 3) is not None
+
+
+def test_character_relationships_null_from_chapter_cut_by_provenance(db, seed_novel):
+    seeded = seed_novel(db)
+    from reads import characters as characters_reads
+    with db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO entities (novel_id, entity_type, name) VALUES (%s,'character','Cass') RETURNING id",
+            (seeded["novel_id"],),
+        )
+        cass_eid = str(cur.fetchone()[0])
+        cur.execute(
+            "INSERT INTO characters (novel_id, entity_id, name, first_appearance_chapter)"
+            " VALUES (%s,%s,'Cass',1) RETURNING id",
+            (seeded["novel_id"], cass_eid),
+        )
+        cur.execute(
+            "INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter, chapter_id)"
+            " VALUES (%s,%s,'debtor_of',NULL,%s)",
+            (seeded["char_a_eid"], cass_eid, seeded["chapter_ids"][2]),
+        )
+    detail = characters_reads.get_character_detail(db, seeded["novel_id"], seeded["char_a_id"], 2)
+    assert not any(r["rel_type"] == "debtor_of" for r in detail["relationships"])
+    detail3 = characters_reads.get_character_detail(db, seeded["novel_id"], seeded["char_a_id"], None)
+    assert any(r["rel_type"] == "debtor_of" for r in detail3["relationships"])
