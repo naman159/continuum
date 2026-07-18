@@ -69,7 +69,9 @@ def check_location_possession(
         char_ids = list({str(p["character_id"]) for p in possession_claims if p.get("character_id")})
         obj_ids = list({str(p["object_id"]) for p in possession_claims if p.get("object_id")})
 
-        # Active possession edges as of chapter_number - 1 (entering this chapter).
+        # Possession edges active entering this chapter: replay closes an edge
+        # at the loss chapter, so an edge with until_chapter = N-1 (lost last
+        # chapter) is NOT held entering chapter N — require until >= N.
         if char_ids and obj_ids:
             rows = db.fetchall(
                 """
@@ -80,7 +82,7 @@ def check_location_possession(
                    AND since_chapter < %s
                    AND (until_chapter IS NULL OR until_chapter >= %s)
                 """,
-                (char_ids, obj_ids, chapter_number, chapter_number - 1),
+                (char_ids, obj_ids, chapter_number, chapter_number),
                 dict_rows=True,
             )
             held: set[tuple[str, str]] = {

@@ -202,6 +202,44 @@ def test_possession_check_warns_when_object_not_held(db):
         _cleanup(db, novel_id)
 
 
+def test_possession_check_warns_when_object_lost_in_previous_chapter(db):
+    novel_id = _make_novel(db)
+    try:
+        char_eid = _make_entity(db, novel_id, "character", "Aelric")
+        obj_eid = _make_entity(db, novel_id, "object", "Dagger")
+        with db.transaction() as cur:
+            cur.execute(
+                "INSERT INTO characters (novel_id, entity_id, name) VALUES (%s,%s,%s) RETURNING id",
+                (novel_id, char_eid, "Aelric"),
+            )
+            ael_id = str(cur.fetchone()[0])
+            cur.execute(
+                "INSERT INTO objects (novel_id, entity_id, name) VALUES (%s,%s,%s) RETURNING id",
+                (novel_id, obj_eid, "Dagger"),
+            )
+            dag_id = str(cur.fetchone()[0])
+            # Held since ch 1, lost during ch 2 (replay closes the edge at the
+            # loss chapter) — so it is NOT held entering ch 3.
+            cur.execute(
+                "INSERT INTO possesses_edges (character_id, object_id, since_chapter, until_chapter)"
+                " VALUES (%s,%s,%s,%s)",
+                (ael_id, dag_id, 1, 2),
+            )
+        draft = DraftChapter(
+            novel_id=novel_id,
+            chapter_number=3,
+            text="...",
+            possession_claims=[
+                {"character_id": ael_id, "object_id": dag_id, "quote": "drew his dagger"},
+            ],
+        )
+        report = ContinuityCritic(db).critique(draft)
+        warn = next(f for f in report.warns if f.check == "location_possession")
+        assert "possession edge" in warn.message
+    finally:
+        _cleanup(db, novel_id)
+
+
 # ---------------------------------------------------------------------------
 # knowledge_state
 
