@@ -12,19 +12,21 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from reads.common import resolve_cutoff
+from reads.common import resolve_cutoff_and_uncapped
 
 
 def list_commitments(
     db: Any, novel_id: UUID | str, up_to_chapter: int | None, status: str | None = None
 ) -> list[dict[str, Any]]:
-    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
+    cutoff, uncapped = resolve_cutoff_and_uncapped(db, novel_id, up_to_chapter)
     rows = db.fetchall(
         """
         SELECT id, foreshadow_text, foreshadow_chapter, payoff_text, payoff_chapter,
                trigger_predicate, status, weight, related_entity_ids,
                CASE
-                 WHEN status IN ('broken','abandoned') THEN status
+                 -- broken/abandoned carry no chapter anchor: only an uncapped
+                 -- view may report them; a capped view saw them still pending.
+                 WHEN status IN ('broken','abandoned') AND %(uncapped)s THEN status
                  WHEN payoff_chapter IS NOT NULL AND payoff_chapter <= %(cutoff)s THEN 'satisfied'
                  ELSE 'pending'
                END AS status_at_cutoff
@@ -32,7 +34,7 @@ def list_commitments(
          WHERE novel_id = %(novel_id)s AND foreshadow_chapter <= %(cutoff)s
          ORDER BY status, foreshadow_chapter
         """,
-        {"novel_id": novel_id, "cutoff": cutoff},
+        {"novel_id": novel_id, "cutoff": cutoff, "uncapped": uncapped},
         dict_rows=True,
     )
     if status is not None and status != "all":

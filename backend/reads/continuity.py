@@ -5,13 +5,13 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from reads.common import resolve_cutoff
+from reads.common import resolve_cutoff, resolve_cutoff_and_uncapped
 
 
 def list_flags(
     db: Any, novel_id: UUID | str, up_to_chapter: int | None, resolved_filter: str
 ) -> list[dict[str, Any]]:
-    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
+    cutoff, uncapped = resolve_cutoff_and_uncapped(db, novel_id, up_to_chapter)
     raw = db.fetchall(
         """
         SELECT cf.id, cf.description, cf.flag_type, cf.resolved, cf.resolved_chapter_id,
@@ -34,8 +34,11 @@ def list_flags(
     for r in raw:
         resolved_at_id = r.get("resolved_chapter_id")
         resolved_chapter_number = chap_lookup.get(resolved_at_id)
+        # An undatable resolution (no resolved_chapter_id, or one that points
+        # outside this novel) counts only in an uncapped view — a capped view
+        # cannot know the flag was ever resolved.
         effectively_resolved = bool(r.get("resolved")) and (
-            resolved_chapter_number is None or resolved_chapter_number <= cutoff
+            resolved_chapter_number <= cutoff if resolved_chapter_number is not None else uncapped
         )
         if resolved_filter == "open" and effectively_resolved:
             continue

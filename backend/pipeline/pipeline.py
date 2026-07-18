@@ -685,7 +685,7 @@ def _persist_extraction(
                 thread_type = COALESCE(EXCLUDED.thread_type, plot_threads.thread_type),
                 closed_chapter = CASE
                     WHEN EXCLUDED.status = 'closed' THEN EXCLUDED.closed_chapter
-                    ELSE plot_threads.closed_chapter
+                    ELSE NULL
                 END
             RETURNING id
             """,

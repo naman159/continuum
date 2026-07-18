@@ -68,3 +68,20 @@ def max_chapter_for(db: Any, novel_id: UUID | str) -> int:
 
 def resolve_cutoff(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> int:
     return up_to_chapter if up_to_chapter is not None else max_chapter_for(db, novel_id)
+
+
+def resolve_cutoff_and_uncapped(
+    db: Any, novel_id: UUID | str, up_to_chapter: int | None
+) -> tuple[int, bool]:
+    """Cutoff plus whether the view is effectively uncapped (cutoff >= last chapter).
+
+    Terminal statuses without a chapter anchor (a thread closed with no
+    closed_chapter, a commitment marked broken, a flag resolved with no
+    resolved_chapter_id) cannot be dated, so point-in-time views must not
+    show them; only an uncapped view — where nothing lies in the future —
+    may report them as terminal.
+    """
+    max_ch = max_chapter_for(db, novel_id)
+    if up_to_chapter is None:
+        return max_ch, True
+    return up_to_chapter, up_to_chapter >= max_ch

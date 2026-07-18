@@ -1665,7 +1665,16 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       Each row carries both the raw <code>status</code>/<code>closed_chapter</code> columns (the
       novel-wide truth) and a derived <code>status_at_cutoff</code>: a thread closed in a chapter
       later than <code>cap</code> reads as <code>progressing</code>, not <code>closed</code>, at that
-      cutoff — <code>closed_chapter</code> itself is <em>not</em> nulled out. The <code>status</code>
+      cutoff — <code>closed_chapter</code> itself is <em>not</em> nulled out. A thread only counts
+      as closed when its raw <code>status</code> is still <code>closed</code> (a thread reopened by a
+      later chapter reads by its live status; the ingest upsert also clears
+      <code>closed_chapter</code> on reopen), and a closed thread with <em>no</em>
+      <code>closed_chapter</code> anchor counts as closed only in an uncapped view — a capped view
+      cannot date the closure, so it reads <code>progressing</code>. The same unanchored-terminal
+      rule applies to commitments (<code>broken</code>/<code>abandoned</code> read
+      <code>pending</code> in capped views) and continuity flags (a resolution with no
+      <code>resolved_chapter_id</code> counts only uncapped); see
+      <code>reads.common.resolve_cutoff_and_uncapped</code>. The <code>status</code>
       query param filters on <code>status_at_cutoff</code>. <code>Threads.tsx</code> displays
       <code>status_at_cutoff</code> as the primary badge and shows raw <code>status</code> only as a
       muted "(closes ch N)" hint when the two differ.</p>

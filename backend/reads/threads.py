@@ -15,19 +15,24 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from reads.common import resolve_cutoff
+from reads.common import resolve_cutoff_and_uncapped
 
 
 def list_threads(
     db: Any, novel_id: UUID | str, up_to_chapter: int | None, status: str = "all"
 ) -> list[dict[str, Any]]:
-    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
+    cutoff, uncapped = resolve_cutoff_and_uncapped(db, novel_id, up_to_chapter)
     rows = db.fetchall(
         """
         SELECT pt.id, pt.title, pt.description, pt.status, pt.thread_type,
                pt.opened_chapter, pt.closed_chapter,
                CASE
-                 WHEN pt.closed_chapter IS NOT NULL AND pt.closed_chapter <= %(cutoff)s THEN 'closed'
+                 WHEN pt.status = 'closed'
+                      AND pt.closed_chapter IS NOT NULL
+                      AND pt.closed_chapter <= %(cutoff)s THEN 'closed'
+                 WHEN pt.status = 'closed'
+                      AND pt.closed_chapter IS NULL
+                      AND %(uncapped)s THEN 'closed'
                  WHEN pt.status = 'closed' THEN 'progressing'
                  ELSE pt.status
                END AS status_at_cutoff
@@ -36,7 +41,7 @@ def list_threads(
            AND (pt.opened_chapter IS NULL OR pt.opened_chapter <= %(cutoff)s)
          ORDER BY pt.opened_chapter NULLS LAST, pt.title
         """,
-        {"novel_id": novel_id, "cutoff": cutoff},
+        {"novel_id": novel_id, "cutoff": cutoff, "uncapped": uncapped},
         dict_rows=True,
     )
     if status != "all":
