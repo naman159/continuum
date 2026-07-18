@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api } from "../api";
+import { useChapterCap } from "../hooks/useChapterCap";
 
 export default function Factions() {
   const { novelId } = useParams();
   const location = useLocation();
+  const [cap] = useChapterCap();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["factions", novelId],
-    queryFn: () => api.factions(novelId!),
+    queryKey: ["factions", novelId, cap],
+    queryFn: () => api.factions(novelId!, cap),
     enabled: Boolean(novelId),
   });
   if (isLoading) return <p>Loading…</p>;

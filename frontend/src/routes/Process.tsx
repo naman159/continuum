@@ -15,8 +15,17 @@ type JobStatus = {
   error: string | null;
 };
 
-function postChapter(novelId: string, number: number, text: string): Promise<{ job_id: string }> {
-  return postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/process`, { number, text });
+function postChapter(
+  novelId: string,
+  number: number,
+  text: string,
+  replace: boolean
+): Promise<{ job_id: string }> {
+  return postJson<{ job_id: string }>(`/api/novels/${novelId}/chapters/process`, {
+    number,
+    text,
+    replace,
+  });
 }
 
 function fetchJob(jobId: string): Promise<JobStatus> {
@@ -45,11 +54,12 @@ export default function Process() {
   const { novelId } = useParams();
   const [chapterNumber, setChapterNumber] = useState<number>(1);
   const [text, setText] = useState("");
+  const [replace, setReplace] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: ({ number, text }: { number: number; text: string }) =>
-      postChapter(novelId!, number, text),
+    mutationFn: ({ number, text, replace }: { number: number; text: string; replace: boolean }) =>
+      postChapter(novelId!, number, text, replace),
     onSuccess: (data) => setJobId(data.job_id),
   });
 
@@ -80,7 +90,7 @@ export default function Process() {
           onSubmit={(e) => {
             e.preventDefault();
             if (!text.trim()) return;
-            mutation.mutate({ number: chapterNumber, text });
+            mutation.mutate({ number: chapterNumber, text, replace });
           }}
           style={{ maxWidth: 680 }}
         >
@@ -105,6 +115,19 @@ export default function Process() {
               onChange={(e) => setText(e.target.value)}
               placeholder="Paste your chapter text here…"
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={replace}
+                onChange={(e) => setReplace(e.target.checked)}
+                style={{ width: "auto" }}
+              />
+              Replace existing chapter (deletes the chapter&apos;s previous extraction and
+              re-processes from this text)
+            </label>
           </div>
 
           {mutation.isError && (
@@ -197,6 +220,7 @@ export default function Process() {
                   onClick={() => {
                     setJobId(null);
                     setText("");
+                    setReplace(false);
                     setChapterNumber((n) => n + 1);
                   }}
                 >

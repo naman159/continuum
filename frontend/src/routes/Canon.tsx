@@ -2,14 +2,16 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { useChapterCap } from "../hooks/useChapterCap";
 
 export default function Canon() {
   const { novelId } = useParams();
   const queryClient = useQueryClient();
+  const [cap] = useChapterCap();
   const [lockedOnly, setLockedOnly] = useState(false);
   const { data, isLoading } = useQuery({
-    queryKey: ["canon", novelId, lockedOnly],
-    queryFn: () => api.canon(novelId!, lockedOnly),
+    queryKey: ["canon", novelId, cap, lockedOnly],
+    queryFn: () => api.canon(novelId!, cap, lockedOnly),
     enabled: Boolean(novelId),
   });
 
@@ -17,7 +19,7 @@ export default function Canon() {
     mutationFn: ({ factId, locked }: { factId: string; locked: boolean }) =>
       api.patchCanonFact(novelId!, factId, { locked }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["canon", novelId, lockedOnly] });
+      queryClient.invalidateQueries({ queryKey: ["canon", novelId, cap, lockedOnly] });
     },
   });
 

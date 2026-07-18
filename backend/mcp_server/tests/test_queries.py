@@ -80,14 +80,34 @@ def test_save_chapter_success_and_flags(monkeypatch):
 
     def fake_process(**kwargs):
         seen.update(kwargs)
-        return {"chapter_id": "abc-123"}
+        return {"chapter_id": "abc-123", "materialized": True, "critique": {"passed": True}}
 
     monkeypatch.setattr(queries, "analyze_chapter", fake_process)
     out = queries.save_chapter("novel-1", 9, "some prose", title="The Gate", db=FakeDB())
-    assert out == {"ingested": True, "chapter_id": "abc-123"}
+    assert out == {
+        "ingested": True,
+        "chapter_id": "abc-123",
+        "materialized": True,
+        "critique": {"passed": True},
+    }
     assert seen["source"] == "agent"
     assert seen["replace"] is False
     assert seen["chapter_title"] == "The Gate"
+
+
+def test_save_chapter_surfaces_best_effort_phase_failures(monkeypatch):
+    """materialized/critique are the ONLY signal that the post-commit
+    MATERIALIZE/CRITIQUE phases failed and a manual re-run is needed —
+    the MCP tool must not swallow them into a bare success."""
+
+    def fake_process(**kwargs):
+        return {"chapter_id": "abc-123", "materialized": False, "critique": None}
+
+    monkeypatch.setattr(queries, "analyze_chapter", fake_process)
+    out = queries.save_chapter("novel-1", 9, "some prose", db=FakeDB())
+    assert out["ingested"] is True
+    assert out["materialized"] is False
+    assert out["critique"] is None
 
 
 def test_save_chapter_rejects_empty_text():

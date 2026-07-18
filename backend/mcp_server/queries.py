@@ -84,4 +84,11 @@ def save_chapter(
         )
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
-    return {"ingested": True, "chapter_id": str(outcome.get("chapter_id"))}
+    # materialized/critique are the caller's only signal that the best-effort
+    # MATERIALIZE/CRITIQUE phases failed (see analyze_chapter's result dict).
+    return {
+        "ingested": True,
+        "chapter_id": str(outcome.get("chapter_id")),
+        "materialized": bool(outcome.get("materialized")),
+        "critique": outcome.get("critique"),
+    }

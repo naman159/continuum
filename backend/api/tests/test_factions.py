@@ -10,10 +10,14 @@ def test_list_factions(seed_novel_real, real_db, client):
     assert body[0]["name"] == seeded["faction_name"]
 
 
-def test_list_factions_ignores_cap(seed_novel_real, real_db, client):
-    """Faction rows have no chapter anchor; the cap is accepted but unused."""
+def test_list_factions_respects_cap_via_earliest_event_mention(seed_novel_real, real_db, client):
+    """Faction visibility is derived from the earliest event involving it —
+    the seed faction's only event is in ch3, so cap=1 hides it."""
     seeded = seed_novel_real(real_db)
     response = client.get(f"/api/novels/{seeded['novel_id']}/factions?cap=1")
+    assert response.status_code == 200
+    assert response.json() == []
+    response = client.get(f"/api/novels/{seeded['novel_id']}/factions?cap=3")
     assert response.status_code == 200
     assert [row["name"] for row in response.json()] == [seeded["faction_name"]]
 

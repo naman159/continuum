@@ -283,16 +283,25 @@ def get_object_detail(
 
 
 def list_factions(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> list[dict[str, Any]]:
-    """Faction rows carry no chapter anchor; up_to_chapter is accepted for
-    interface symmetry with the other world-entity listers but unused here."""
+    """Faction rows carry no first_appearance anchor, so visibility is derived
+    from the earliest event that involves the faction; a faction never
+    mentioned in any event has no derivable anchor and stays visible."""
+    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
         """
-        SELECT id, name, aliases, description
-        FROM factions
-        WHERE novel_id = %s
-        ORDER BY name
+        SELECT f.id, f.name, f.aliases, f.description
+        FROM factions f
+        WHERE f.novel_id = %(novel_id)s
+          AND COALESCE(
+                (SELECT MIN(ch.number)
+                   FROM events e
+                   JOIN chapters ch ON ch.id = e.chapter_id
+                  WHERE ch.novel_id = %(novel_id)s
+                    AND f.id = ANY(e.involved_factions)),
+                0) <= %(cutoff)s
+        ORDER BY f.name
         """,
-        (novel_id,),
+        {"novel_id": novel_id, "cutoff": cutoff},
         dict_rows=True,
     )
     return [
@@ -373,17 +382,26 @@ def list_entity_types(db: Any, novel_id: UUID | str) -> list[dict[str, Any]]:
 def list_custom_entities(
     db: Any, novel_id: UUID | str, entity_type: str, up_to_chapter: int | None
 ) -> list[dict[str, Any]]:
-    """Custom entity rows carry no chapter anchor; up_to_chapter is accepted
-    for interface symmetry with the other world-entity listers but unused
-    here."""
+    """Custom entity rows carry no first_appearance anchor, so visibility is
+    derived from the earliest relationship that references the entity (custom
+    ids ARE universal entities.id), anchored like every relationship read:
+    from_chapter, else the asserting chapter. An entity with no references
+    has no derivable anchor and stays visible."""
+    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
         """
-        SELECT id, name, entity_type, NULL AS description
-        FROM entities
-        WHERE novel_id = %s AND entity_type = %s
-        ORDER BY name
+        SELECT e.id, e.name, e.entity_type, NULL AS description
+        FROM entities e
+        WHERE e.novel_id = %(novel_id)s AND e.entity_type = %(entity_type)s
+          AND COALESCE(
+                (SELECT MIN(COALESCE(r.from_chapter, rch.number))
+                   FROM relationships r
+                   LEFT JOIN chapters rch ON rch.id = r.chapter_id
+                  WHERE r.entity_a_id = e.id OR r.entity_b_id = e.id),
+                0) <= %(cutoff)s
+        ORDER BY e.name
         """,
-        (novel_id, entity_type),
+        {"novel_id": novel_id, "entity_type": entity_type, "cutoff": cutoff},
         dict_rows=True,
     )
     return [

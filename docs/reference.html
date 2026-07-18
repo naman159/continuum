@@ -483,7 +483,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False, writing_chapter=None</code></td><td>optional</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts. <code>writing_chapter</code> is optional — when given, facts sourced at or after it are excluded <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. Always run before <code>save_chapter</code> <span class="badge purple">GEN</span></td></tr>
-        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>) <span class="badge purple">GEN</span></td></tr>
+        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>). Returns <code>{ingested, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run <span class="badge purple">GEN</span></td></tr>
       </tbody>
     </table>
 
@@ -1521,7 +1521,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><span class="badge green">GET</span></td>
           <td><code>/api/novels/{novel_id}/entity-types/{type_name}/entities</code></td>
           <td><code>?cap=N</code></td>
-          <td>List custom entities of a given type. Returns <code>CustomEntitySummary[]</code> — id, name, entity_type, description. Entity rows have no chapter anchor of their own, so <code>cap</code> is accepted but currently unused here.</td>
+          <td>List custom entities of a given type. Returns <code>CustomEntitySummary[]</code> — id, name, entity_type, description. Entity rows have no chapter anchor of their own, so visibility under <code>cap</code> is derived from the earliest relationship referencing the entity (<code>from_chapter</code>, else the asserting chapter); an entity with no references stays visible at every cap.</td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
@@ -1596,7 +1596,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/locations/{location_id}</code></td><td><code>?cap=N</code></td><td><code>LocationDetail</code> — description, parent, present characters, events</td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/objects</code></td><td><code>?cap=N</code></td><td><code>ObjectSummary[]</code></td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/objects/{object_id}</code></td><td><code>?cap=N</code></td><td><code>ObjectDetail</code> — significance, owners, events</td></tr>
-        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions</code></td><td><code>?cap=N</code></td><td><code>FactionSummary[]</code> (cap accepted, unused — factions have no chapter anchor)</td></tr>
+        <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions</code></td><td><code>?cap=N</code></td><td><code>FactionSummary[]</code> — factions have no chapter anchor, so <code>cap</code> visibility is derived from the earliest event involving the faction; a faction with no events stays visible</td></tr>
         <tr><td><span class="badge green">GET</span></td><td><code>/api/novels/{id}/factions/{faction_id}</code></td><td><code>?cap=N</code></td><td><code>FactionDetail</code> — members, relationships, events (cap filters the events sub-list)</td></tr>
       </tbody>
     </table>

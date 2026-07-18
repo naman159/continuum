@@ -2,12 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
 import FieldList, { renderArray } from "../components/FieldList";
+import { useChapterCap } from "../hooks/useChapterCap";
 
 export default function FactionDetail() {
   const { novelId, factionId } = useParams();
+  const [cap] = useChapterCap();
   const { data, isLoading, error } = useQuery({
-    queryKey: ["faction", novelId, factionId],
-    queryFn: () => api.faction(novelId!, factionId!),
+    queryKey: ["faction", novelId, factionId, cap],
+    queryFn: () => api.faction(novelId!, factionId!, cap),
     enabled: Boolean(novelId && factionId),
   });
   if (isLoading) return <p>Loading…</p>;

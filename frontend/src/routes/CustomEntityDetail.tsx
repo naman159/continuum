@@ -1,13 +1,15 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
+import { useChapterCap } from "../hooks/useChapterCap";
 
 export default function CustomEntityDetail() {
   const { novelId, entityId } = useParams<{ novelId: string; entityId: string }>();
+  const [cap] = useChapterCap();
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["custom-entity", novelId, entityId],
-    queryFn: () => api.customEntity(novelId!, entityId!),
+    queryKey: ["custom-entity", novelId, entityId, cap],
+    queryFn: () => api.customEntity(novelId!, entityId!, cap),
     enabled: Boolean(novelId && entityId),
   });
 

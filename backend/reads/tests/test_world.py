@@ -152,12 +152,54 @@ def test_get_object_detail_relationships_respect_cutoff(db, seed_novel):
 # ---------------------------------------------------------------------------
 
 
-def test_list_factions_ignores_up_to_chapter(db, seed_novel):
-    """Faction rows have no chapter anchor; every cutoff sees the same list."""
+def test_list_factions_derives_visibility_from_earliest_event_mention(db, seed_novel):
+    """Factions carry no first_appearance anchor, so visibility is derived
+    from the earliest event that involves them (seed faction: ch3). A faction
+    never mentioned in any event has no derivable anchor and stays visible."""
     seeded = seed_novel(db)
-    names_early = {r["name"] for r in world_reads.list_factions(db, seeded["novel_id"], up_to_chapter=0)}
-    names_late = {r["name"] for r in world_reads.list_factions(db, seeded["novel_id"], up_to_chapter=None)}
-    assert names_early == names_late == {seeded["faction_name"]}
+    early = {r["name"] for r in world_reads.list_factions(db, seeded["novel_id"], up_to_chapter=2)}
+    assert seeded["faction_name"] not in early
+    late = {r["name"] for r in world_reads.list_factions(db, seeded["novel_id"], up_to_chapter=None)}
+    assert seeded["faction_name"] in late
+
+    with db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO entities (novel_id, entity_type, name) VALUES (%s,'faction','Unseen Court') RETURNING id",
+            (seeded["novel_id"],),
+        )
+        eid = str(cur.fetchone()[0])
+        cur.execute(
+            "INSERT INTO factions (novel_id, entity_id, name) VALUES (%s,%s,'Unseen Court')",
+            (seeded["novel_id"], eid),
+        )
+    unmentioned = {r["name"] for r in world_reads.list_factions(db, seeded["novel_id"], up_to_chapter=0)}
+    assert "Unseen Court" in unmentioned
+
+
+def test_list_custom_entities_derives_visibility_from_earliest_relationship(db, seed_novel):
+    seeded = seed_novel(db)
+    with db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO entities (novel_id, entity_type, name) VALUES (%s,'spell','Emberward') RETURNING id",
+            (seeded["novel_id"],),
+        )
+        spell_eid = str(cur.fetchone()[0])
+        # First referenced by a ch3-asserted relationship (from_chapter NULL →
+        # provenance chapter anchors it).
+        cur.execute(
+            "INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter, chapter_id)"
+            " VALUES (%s,%s,'wields',NULL,%s)",
+            (seeded["char_a_eid"], spell_eid, seeded["chapter_ids"][2]),
+        )
+        cur.execute(
+            "INSERT INTO entities (novel_id, entity_type, name) VALUES (%s,'spell','Nameless Rite')",
+            (seeded["novel_id"],),
+        )
+    early = {r["name"] for r in world_reads.list_custom_entities(db, seeded["novel_id"], "spell", up_to_chapter=2)}
+    assert "Emberward" not in early
+    assert "Nameless Rite" in early  # no references anywhere: no derivable anchor, stays visible
+    late = {r["name"] for r in world_reads.list_custom_entities(db, seeded["novel_id"], "spell", up_to_chapter=None)}
+    assert "Emberward" in late
 
 
 def test_get_faction_detail_events_respect_cutoff(db, seed_novel):

@@ -429,10 +429,10 @@ export const api = {
     fetchJson<ObjectSummary[]>(`/api/novels/${novelId}/objects${capParam(cap)}`),
   object: (novelId: string, objectId: string, cap: number | null) =>
     fetchJson<ObjectDetail>(`/api/novels/${novelId}/objects/${objectId}${capParam(cap)}`),
-  factions: (novelId: string) =>
-    fetchJson<FactionSummary[]>(`/api/novels/${novelId}/factions`),
-  faction: (novelId: string, factionId: string) =>
-    fetchJson<FactionDetail>(`/api/novels/${novelId}/factions/${factionId}`),
+  factions: (novelId: string, cap: number | null) =>
+    fetchJson<FactionSummary[]>(`/api/novels/${novelId}/factions${capParam(cap)}`),
+  faction: (novelId: string, factionId: string, cap: number | null) =>
+    fetchJson<FactionDetail>(`/api/novels/${novelId}/factions/${factionId}${capParam(cap)}`),
   scenes: (novelId: string, cap: number | null, chapter: number | null) => {
     const params = new URLSearchParams();
     if (cap != null) params.set("cap", String(cap));
@@ -446,8 +446,9 @@ export const api = {
     params.set("status", status);
     return fetchJson<CommitmentRow[]>(`/api/novels/${novelId}/commitments?${params}`);
   },
-  canon: (novelId: string, lockedOnly: boolean) => {
+  canon: (novelId: string, cap: number | null, lockedOnly: boolean) => {
     const params = new URLSearchParams();
+    if (cap != null) params.set("cap", String(cap));
     if (lockedOnly) params.set("locked_only", "true");
     const qs = params.toString();
     return fetchJson<CanonFactRow[]>(`/api/novels/${novelId}/canon${qs ? `?${qs}` : ""}`);
@@ -482,9 +483,11 @@ export const api = {
   genres: () => fetchJson<GenrePreset[]>("/api/genres"),
   entityTypes: (novelId: string) =>
     fetchJson<NovelEntityType[]>(`/api/novels/${novelId}/entity-types`),
-  customEntities: (novelId: string, typeName: string) =>
-    fetchJson<CustomEntitySummary[]>(`/api/novels/${novelId}/entity-types/${typeName}/entities`),
-  customEntity: (novelId: string, entityId: string) =>
-    fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}`),
+  customEntities: (novelId: string, typeName: string, cap: number | null) =>
+    fetchJson<CustomEntitySummary[]>(
+      `/api/novels/${novelId}/entity-types/${typeName}/entities${capParam(cap)}`
+    ),
+  customEntity: (novelId: string, entityId: string, cap: number | null) =>
+    fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}${capParam(cap)}`),
   deleteNovel: (id: string) => deleteRequest(`/api/novels/${id}`),
 };
