@@ -129,7 +129,6 @@ class HybridRetriever:
             t0 = time.perf_counter()
             item_embeddings = self._fetch_item_embeddings(reranked)
             diversified = mmr(
-                query_embedding,
                 reranked,
                 item_embeddings,
                 lambda_=mmr_lambda,

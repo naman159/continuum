@@ -411,7 +411,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <h2>Eval Harness <span class="badge blue">backend/evals/</span></h2>
     <p>
       A hand-written golden fixture novel (<code>backend/evals/golden/</code>: 10 chapters plus
-      <code>answer_key.yaml</code>) drives three offline evals plus one env-gated online eval, all
+      <code>answer_key.yaml</code>) drives four offline evals plus two env-gated online evals, all
       runnable with <code>cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</code>
       (offline, mock LLM + a real Postgres). No API key or network access is required for the
       default run.
@@ -424,15 +424,42 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <tbody>
         <tr><td>Scoring library</td><td><code>evals/tests/test_scoring.py</code></td><td>Pure unit tests for the name/interval/word-overlap matchers in <code>evals/scoring.py</code> — no DB.</td></tr>
         <tr><td>Critic precision/recall</td><td><code>evals/critic_eval.py</code>, <code>evals/tests/test_critic_eval.py</code></td><td>Seeds known continuity violations and checks the <code>ContinuityCritic</code> flags every one, with no false positives on a clean draft.</td></tr>
-        <tr><td>Retrieval recall@k</td><td><code>evals/harness.py::run_retrieval_eval</code>, <code>evals/tests/test_retrieval_eval.py</code></td><td>Ingests the golden novel through <code>analyze_chapter</code> (mock LLM, hash embeddings, real chunking + Postgres FTS) once per module via the <code>golden_novel</code> fixture, then runs the 10 golden queries through the production <code>reads.search.search()</code> path and scores recall@8 against each query's expected chapter. Floor: mean recall@8 ≥ 0.5.</td></tr>
+        <tr><td>Retrieval recall@k</td><td><code>evals/harness.py::run_retrieval_eval</code>, <code>evals/tests/test_retrieval_eval.py</code></td><td>Ingests the golden novel through <code>analyze_chapter</code> (mock LLM, hash embeddings, real chunking + Postgres FTS) once per module via the <code>golden_novel</code> fixture, then runs the 10 golden queries through the production <code>reads.search.search()</code> path and scores recall@8 against each query's expected chapter. Floor: mean recall@8 ≥ 0.9, raised from 0.5 on 2026-08-14 — the old floor was calibrated against the AND-semantics BM25 and query-cosine MMR that scored exactly 0.5, so it could not have caught that regression. Currently scores 1.00.</td></tr>
         <tr><td>Extraction fidelity</td><td><code>evals/harness.py::read_projections</code>, <code>evals/tests/test_extraction_fidelity.py</code></td><td>Mock-mode run only checks the ingest → projections → scoring plumbing (no thresholds — canned mock extraction won't match the answer key). The real-LLM variant, gated behind <code>RUN_LLM_EVALS=1</code> (see the env-var table above), asserts recall floors: characters/locations ≥ 0.75, objects ≥ 1.0, possessions ≥ 0.6, knowledge ≥ 0.5.</td></tr>
+        <tr><td>Entity resolution</td><td><code>evals/er_eval.py::run_resolution_eval</code>, <code>evals/tests/test_er_eval.py</code></td><td>Grades surface-form → entity assignment against the answer key's <code>resolution:</code> alias sets using <code>scoring.pairwise_resolution</code> (every unordered pair of surfaces is one same-entity-or-not judgement, so the two id spaces need not correspond). Reports <code>false_merges</code> and <code>missed_merges</code> separately because the costs are not symmetric, plus <code>coverage</code> for surfaces extraction never emitted — those are extraction misses, not resolution errors, and are excluded from precision/recall. Mock mode checks plumbing only; the <code>RUN_LLM_EVALS=1</code> variant fails on <em>any</em> false merge and asserts recall ≥ 0.6, type accuracy ≥ 0.8, and zero cross-type duplicates.</td></tr>
+        <tr><td>Duplicate-pair count</td><td><code>evals/er_eval.py::count_duplicate_pairs</code></td><td>Ground-truth-free diagnostic, so it runs against <em>any</em> ingested novel, not just the fixture. Scores every entity pair with the canonicalizer's own <code>_name_pair_similarity</code> at its own <code>LEXICAL_MATCH_RATIO</code> and splits the result same-type vs cross-type. Candidates, not confirmed duplicates — <code>Mr. Bennet</code>/<code>Mrs. Bennet</code> scores 0.95 and is two people — so read the pair list, not just the count.</td></tr>
       </tbody>
     </table>
 
+    <div class="callout warn" id="entity-merge">
+      <strong>Cross-type duplicates: found and repairable, not yet prevented.</strong>
+      <code>EntityCanonicalizer._load_roster</code> loads candidates one <code>entity_type</code> at a
+      time, so it never compares a character against an object. On a 3-chapter real-LLM ingest this
+      was the dominant failure mode: <strong>14 cross-type duplicate pairs against 1 same-type</strong>
+      across 63 entities.
+      <br><br>
+      <code>merge_entities</code> used to raise unless source and target shared an
+      <code>entity_type</code>, which left these unrepairable from either direction. It now treats a
+      cross-type merge as a <em>reclassification</em>: entity-level references (relationships,
+      shared_dynamics, canon_facts, commitments, state_deltas) repoint as usual; event involvement
+      moves from the source's <code>involved_*</code> column into the target's; and the source's
+      type-specific rows (<code>character_states</code>, <code>knows_edges</code>,
+      <code>possesses_edges</code>) die with its typed row, since they were artifacts of the
+      misclassification. The non-cascading FKs — <code>scenes.pov_character_id</code>,
+      <code>scenes.location_id</code>, <code>character_states.location_id</code>,
+      <code>locations.parent_location_id</code> — are explicitly detached first, or the delete raises
+      a foreign-key violation. Covered by
+      <code>pipeline/db/tests/test_entity_merge_integration.py</code> against real Postgres, because
+      the fake-DB tests assert which statements run and cannot catch an FK violation.
+      <br><br>
+      Still missing: cross-type candidate loading in the canonicalizer, so these are caught by review
+      rather than prevented at ingest.
+    </div>
+
     <div class="callout info">
       <strong><code>RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/</code></strong> runs the
-      real-LLM extraction-fidelity eval in addition to the offline suite — it spends API credits
-      and is not part of the default test run.
+      real-LLM extraction-fidelity and entity-resolution evals in addition to the offline suite — they
+      spend API credits and are not part of the default test run.
     </div>
   </section>
 
@@ -1133,7 +1160,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   sentiment       <span class="sql-type">FLOAT</span>,           <span class="sql-comment">-- SOTA: -1.0 to 1.0</span>
   evidence_event_ids <span class="sql-type">UUID[]</span>,        <span class="sql-comment">-- SOTA: events that established this</span>
   superseded_by_id   <span class="sql-type">UUID</span>,          <span class="sql-comment">-- SOTA: points to newer relationship row</span>
-  symmetric       <span class="sql-type">BOOLEAN</span>,          <span class="sql-comment">-- NULL = unjudged; see below</span>
+  "symmetric"     <span class="sql-type">BOOLEAN</span>,          <span class="sql-comment">-- NULL = unjudged; reserved word, see below</span>
   created_at      <span class="sql-type">TIMESTAMPTZ</span> <span class="sql-constraint">DEFAULT</span> now()
 );</code></pre>
     <p>
@@ -1167,6 +1194,18 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       (<code>is_symmetric()</code>) for a reasonable default. This computed boolean is returned
       alongside every relationship row and graph edge; the frontend uses it to show a neutral "↔"
       instead of "to"/"from" and to drop the arrowhead in the graph views.
+    </p>
+    <p>
+      <strong>Writing this column requires quoting it.</strong> <code>SYMMETRIC</code> is a
+      <em>fully reserved</em> PostgreSQL keyword (it comes from <code>BETWEEN SYMMETRIC</code>), not
+      merely a DDL-context one, so any bare use as an identifier is a parse error — including the
+      column list of an <code>INSERT</code>/<code>UPDATE</code>. It parses unquoted in only two
+      places: after a dot (<code>SELECT r.symmetric</code>) and as an <code>AS</code> label. That
+      asymmetry is why the read paths in <code>reads/</code> look unquoted while
+      <code>schema.sql</code> and the relationship insert in
+      <code>pipeline/pipeline.py</code> write <code>"symmetric"</code>. Real-Postgres coverage lives
+      in <code>pipeline/extraction/tests/test_persist_relationships_integration.py</code>; the
+      fake-DB tests record statement text without parsing it and cannot catch this class of bug.
     </p>
   </section>
 
@@ -1497,6 +1536,22 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         </tr>
       </tbody>
     </table>
+
+    <div class="callout warn" id="novel-test-teardown">
+      <strong>Tests that POST a novel must reap it.</strong>
+      <code>POST /api/novels</code> writes a real row against the configured
+      <code>DATABASE_URL</code> — the API tests have no transactional rollback. Two tests in
+      <code>backend/api/tests/test_entity_types.py</code> created novels without cleanup and left
+      <strong>120 orphans across 60 suite runs</strong> (60 <code>My LitRPG</code>, 60
+      <code>Plain Novel</code>, all with zero chapters).
+      <br><br>
+      The <code>client</code> fixture in <code>backend/api/tests/conftest.py</code> now returns a
+      <code>_NovelReapingClient</code> that records the id from every <code>201</code> response to
+      <code>POST /api/novels</code> and cascade-deletes them at teardown, so any test using the
+      fixture gets the cleanup for free. Tests that seed a novel directly against Postgres should
+      keep using <code>seed_novel_real</code>, which tracks and deletes its own ids. Regression test:
+      <code>backend/api/tests/test_fixtures.py</code>.
+    </div>
   </section>
 
   <section id="api-entity-types">
@@ -1533,7 +1588,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels/{novel_id}/entities/merge</code></td>
           <td>—</td>
-          <td>Merge a duplicate entity into its canonical twin. Body: <code>{"source_entity_id": uuid, "target_entity_id": uuid}</code> (universal entity ids, same entity_type). Repoints every reference in one transaction, absorbs the source's name+aliases as target aliases, deletes the source. 400 on same-id/type-mismatch/missing entity.</td>
+          <td>Merge a duplicate entity into its canonical twin. Body: <code>{"source_entity_id": uuid, "target_entity_id": uuid}</code> (universal entity ids). Repoints every reference in one transaction, absorbs the source's name+aliases as target aliases, deletes the source. <strong>Source and target may differ in entity_type</strong> — that case is treated as a reclassification and the target's type wins; see <a href="#entity-merge">Entity Merge</a> for what survives. Response includes <code>cross_type</code> and <code>source_entity_type</code>. 400 on same-id or missing entity.</td>
+        </tr>
+        <tr>
+          <td><span class="badge green">GET</span></td>
+          <td><code>/api/novels/{novel_id}/entities/duplicates</code></td>
+          <td>—</td>
+          <td>Duplicate-looking entity pairs for review before merging, split <code>cross_type_pairs</code> / <code>same_type_pairs</code> (each with <code>score</code>, <code>kind</code>, and both sides' <code>entity_id</code>/<code>type</code>/<code>name</code>). Scored with the canonicalizer's own <code>_name_pair_similarity</code> at its own <code>LEXICAL_MATCH_RATIO</code>, so a listed pair is one the canonicalizer would have called a match had it compared them. Not chapter-capped — a duplicate created in chapter 40 is still one you want to see. <strong>Candidates, not confirmed duplicates:</strong> <code>Mr. Bennet</code>/<code>Mrs. Bennet</code> scores 0.95 and is two people.</td>
         </tr>
       </tbody>
     </table>
@@ -1636,7 +1697,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>Hybrid (semantic + keyword) search over chapters, scenes, and events, capped at
       <code>cap</code>. <code>q</code> is required and non-empty; <code>k</code> is clamped to
       1–50 (default 8). Returns <code>SearchResults</code>:
-      <code>{"results": [{kind, chapter_number, score, snippet}]}</code>.</p>
+      <code>{"results": [{kind, chapter_number, score, snippet}]}</code>. Results are ordered
+      best-first and <code>score</code> is the MMR ranking score they were ordered by, so it
+      decreases monotonically down the list; it is a within-query ranking signal, not a
+      cross-query relevance measure.</p>
     <p>Backed by <code>backend/reads/search.py</code>'s <code>search()</code>, the same
       function the MCP <code>search_story</code> tool calls (see
       <a href="#mcp-server">MCP Server</a>) — the route passes <code>cap</code> straight

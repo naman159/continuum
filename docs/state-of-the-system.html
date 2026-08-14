@@ -198,6 +198,7 @@
 
   <div class="sidebar-section">Engineering Foundations</div>
   <a href="#evals">Eval Harness</a>
+  <a href="#entity-resolution">Entity Resolution</a>
   <a href="#observability">Observability &amp; Cost</a>
   <a href="#migrations">Migration Hygiene</a>
   <a href="#docs-drift">Docs Drift</a>
@@ -221,7 +222,7 @@
 
   <h1>State of the System</h1>
   <div class="subtitle">The redesign is complete. This page is both the retrospective on how Continuum got here and the honest list of what's still genuinely open.</div>
-  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14) · <strong>updated 2026-07-17 — Plan 3 Task 7: README rewritten for the two-spine architecture, repo-root architecture.md and architecture-recommendations.html retired, continuity-arch-deep-research.md moved to docs/research/</strong></div>
+  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14) · updated 2026-07-17 — Plan 3 Task 7: README rewritten for the two-spine architecture, repo-root architecture.md and architecture-recommendations.html retired, continuity-arch-deep-research.md moved to docs/research/ · <strong>updated 2026-08-06 — branch main, 384 backend tests passed + 2 skipped; entity resolution is now measured (pairwise ER eval + ground-truth-free duplicate count), <code>entity_merge</code> can reclassify across entity types, and cross-type duplicates are the one newly-opened gap below</strong></div>
 
   <p class="lead">
     Continuum is a <strong>continuity analyzer</strong>, not a chapter generator — and, as of this
@@ -283,6 +284,15 @@
       retrieval recall@8 ≥ 0.5 against Postgres full-text search, and (env-gated, real-LLM) extraction
       fidelity floors per entity category. "The redesign is complete" is now a falsifiable, tested
       claim, not an assertion.</li>
+    <li><strong>Entity resolution is now measured too — and the measurement found a real hole
+      (2026-08-06).</strong> A pairwise ER eval grades surface→entity assignment against hand-labelled
+      alias sets, and a ground-truth-free duplicate counter can be pointed at any ingested novel. What
+      it found: the canonicalizer loads its candidate roster <em>one entity_type at a time</em>, so the
+      same real-world thing filed as a character in one chapter and an object in the next is never
+      compared. On a 3-chapter real-LLM ingest that was <strong>14 cross-type duplicate pairs against
+      1 same-type</strong>. Repair now exists (<code>entity_merge</code> reclassifies, and
+      <code>GET /entities/duplicates</code> surfaces candidates); prevention does not. See
+      <a href="#entity-resolution">Entity Resolution</a>.</li>
   </ul>
   </section>
 
@@ -425,8 +435,14 @@ flowchart TB
       <tr>
         <td><strong>Eval harness</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td><code>backend/evals/</code>: golden 10-chapter fixture novel + answer key, scoring library, critic precision/recall (exact 1.0), retrieval recall@8 (floor 0.5), extraction fidelity (mock plumbing + env-gated real-LLM floors)</td>
+        <td><code>backend/evals/</code>: golden 10-chapter fixture novel + answer key, scoring library, critic precision/recall (exact 1.0), retrieval recall@8 (floor 0.5), extraction fidelity and entity resolution (mock plumbing + env-gated real-LLM floors)</td>
         <td><code>cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</code> — see <a href="reference.html#evals">Reference: Eval Harness</a></td>
+      </tr>
+      <tr>
+        <td><strong>Entity resolution</strong> (canonicalizer + merge + duplicate detection)</td>
+        <td><span class="badge orange">Partly open</span></td>
+        <td>Same-type resolution is wired and measured (pairwise ER eval, real-LLM gate: zero false merges, recall ≥ 0.6, type accuracy ≥ 0.8). Repair is wired: <code>merge_entities</code> handles cross-type merges as reclassification, <code>GET /api/novels/{id}/entities/duplicates</code> lists candidates</td>
+        <td><strong>Prevention is not.</strong> <code>EntityCanonicalizer._load_roster</code> is per-<code>entity_type</code>, so cross-type duplicates are never compared at ingest — the dominant failure mode in practice. See <a href="#entity-resolution">Entity Resolution</a></td>
       </tr>
     </tbody>
   </table>
@@ -609,13 +625,29 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      production caller. <code>HybridRetriever.retrieve</code> runs:</p>
 
   <ol>
-    <li>Embed the query once (reused for dense search and MMR).</li>
+    <li>Embed the query once (used for dense search).</li>
     <li>BM25 + dense search per kind (<code>chapter</code>, <code>scene</code>, <code>event</code>) in
         parallel via a thread pool, with per-stage error capture.</li>
     <li>Reciprocal Rank Fusion (k=60) across all source/kind lists.</li>
     <li>Optional LLM cross-encoder rerank of the fused pool.</li>
-    <li>MMR diversification (λ=0.7) down to <code>query.k</code>.</li>
+    <li>MMR diversification (λ=0.7) down to <code>query.k</code>, ranking on the fused score and
+        using embeddings only for the novelty penalty.</li>
   </ol>
+
+  <p><strong>Ranking corrected 2026-08-14.</strong> Three defects made the "hybrid" ranking
+     effectively dense-only:</p>
+  <ul>
+    <li>MMR recomputed relevance as cosine similarity to the query embedding, discarding the fused
+        score — so the one result BM25 and dense agreed on landed 7th of 8. It now ranks on the
+        incoming fused score, max-normalized to share a scale with the novelty penalty.</li>
+    <li>Candidates missing an embedding fell back to a raw RRF score (~0.016) while embedded ones
+        were scored on cosine (~0.6), making them unrankable. Both now use the same normalized scale.</li>
+    <li><code>plainto_tsquery</code> ANDs every term, so natural-language queries matched nothing:
+        <em>"Jake fights the beast in the tutorial"</em> returned 0 of 27 events. Relaxed to OR
+        semantics over a sanitized <code>websearch_to_tsquery</code>; the same query now matches 22.</li>
+  </ul>
+  <p>Results also carry the MMR score rather than the RRF score, so the emitted order is monotonic
+     and the wiki's Search page stops rendering <code>0.02</code> for every row.</p>
 
   <p>It records per-stage timings and top-K snapshots into a <code>debug</code> dict — still the only
      instrumentation of this kind in the codebase (see <a href="#observability">Observability &amp;
@@ -860,8 +892,8 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <p>
     The golden set is a full 10-chapter fixture novel, <strong>"The Lantern of Veyra"</strong>
     (<code>backend/evals/golden/</code>), with a hand-authored <code>answer_key.yaml</code> covering
-    entities, possessions, knowledge, and ten retrieval queries with known expected chapters. Three evals
-    run against it:
+    entities, possessions, knowledge, hand-labelled alias sets (<code>resolution:</code>), and ten
+    retrieval queries with known expected chapters. Four evals run against it:
   </p>
   <ul>
     <li><strong>Critic precision/recall</strong> — four seeded continuity violations (one per
@@ -876,10 +908,72 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
       projections → scoring, no thresholds); a real-LLM variant, gated behind
       <code>RUN_LLM_EVALS=1</code> so it doesn't spend API credits by default, asserts per-category
       recall floors (characters/locations ≥ 0.75, objects ≥ 1.0, possessions ≥ 0.6, knowledge ≥ 0.5).</li>
+    <li><strong>Entity resolution</strong> (added 2026-08-06) — grades surface-form → entity assignment
+      against the answer key's <code>resolution:</code> alias sets. Every unordered pair of surfaces is
+      one same-entity-or-not judgement, so the metric works without the fixture's ids and the DB's ids
+      corresponding. Mock mode checks plumbing; the <code>RUN_LLM_EVALS=1</code> variant fails on
+      <em>any</em> false merge and asserts recall ≥ 0.6, type accuracy ≥ 0.8, and zero cross-type
+      duplicates. Alongside it, <code>count_duplicate_pairs</code> needs no ground truth at all and can
+      be pointed at any ingested novel — see <a href="#entity-resolution">Entity Resolution</a>.</li>
   </ul>
 
   <p>Run the whole offline suite with <code>cd backend &amp;&amp; .venv/bin/python -m pytest evals/ -s</code>
      — see <a href="reference.html#evals">Reference: Eval Harness</a> for the module-to-eval table.</p>
+  </section>
+
+  <!-- ════════════════ ENTITY RESOLUTION ════════════════ -->
+  <section id="entity-resolution">
+  <h2>Foundations — Entity Resolution <span class="badge orange">Measured 2026-08-06, one gap still open</span></h2>
+
+  <p>Extraction quality was measured before resolution quality was, which hid the more expensive error.
+     An entity the extractor misses is a hole; an entity it <em>splits in two</em> is a wrong answer that
+     looks like a right one — the wiki shows two characters, the MCP tools return half a history each,
+     and nothing flags it. Two new measurements close that blind spot, and they answer different
+     questions on purpose:</p>
+
+  <div class="grid-3">
+    <div class="card">
+      <h4>Pairwise ER eval (needs ground truth)</h4>
+      <p><code>evals/er_eval.py::run_resolution_eval</code> scores every unordered pair of surface forms
+        as one same-entity-or-not judgement against <code>answer_key.yaml</code>. <strong>Precision and
+        recall are not symmetric:</strong> a false merge welds two entities together and drags every
+        edge on both along with it, while a missed merge leaves a visible duplicate the merge endpoint
+        can repair. The real-LLM gate therefore fails on <em>any</em> false merge but holds recall only
+        to ≥ 0.6. Surfaces the extractor never emitted are reported as <code>coverage</code>, not scored
+        as merge misses — that is an extraction failure, not a resolution one.</p>
+    </div>
+    <div class="card">
+      <h4>Duplicate-pair count (needs none)</h4>
+      <p><code>evals/er_eval.py::count_duplicate_pairs</code> → <code>pipeline/db/duplicates.py</code>
+        scores every entity pair with the canonicalizer's <em>own</em> <code>_name_pair_similarity</code>
+        at its <em>own</em> <code>LEXICAL_MATCH_RATIO</code>, so a listed pair is one the canonicalizer
+        would have called a match had it compared them. No answer key required, so it runs against any
+        ingested novel — and it is the same function the <code>/entities/duplicates</code> endpoint
+        serves, so the eval and the product cannot drift apart.</p>
+    </div>
+    <div class="card">
+      <h4>Repair path</h4>
+      <p><code>merge_entities</code> used to raise unless source and target shared an
+        <code>entity_type</code>. It now treats a cross-type merge as a <em>reclassification</em>:
+        entity-level references repoint, event involvement moves columns, and the source's type-specific
+        rows die with its typed row as artifacts of the misclassification. Covered against real Postgres
+        by <code>pipeline/db/tests/test_entity_merge_integration.py</code>, because the fake-DB tests
+        assert which statements run and cannot catch a foreign-key violation.</p>
+    </div>
+  </div>
+
+  <div class="callout warn">
+    <strong>The open gap: cross-type duplicates are found and repairable, but not prevented.</strong>
+    <code>EntityCanonicalizer._load_roster</code> loads candidates one <code>entity_type</code> at a
+    time, so a character is never compared against an object. When extraction files the same real-world
+    thing under two different types across chapters, nothing in the pipeline can reach it. On a
+    3-chapter real-LLM ingest of a LitRPG novel this outnumbered same-type duplicates by an order of
+    magnitude: <strong>14 cross-type duplicate pairs against 1 same-type</strong> across 63 entities
+    (<code>Healer class</code> existing simultaneously as a character, an object and a faction;
+    <code>System</code> likewise). LitRPG is an adversarial case for typing — but the mechanism is
+    generic, and the fix (cross-type candidate loading in the canonicalizer) is listed in
+    <a href="#roadmap">Known Gaps</a>.
+  </div>
   </section>
 
   <!-- ════════════════ OBSERVABILITY ════════════════ -->
@@ -1053,6 +1147,18 @@ flowchart TB
 
   <ul class="steps">
     <li>
+      <span class="phase-tag">Cross-type duplicate prevention</span><br>
+      <strong><code>EntityCanonicalizer._load_roster</code> loads candidates one <code>entity_type</code>
+      at a time</strong>, so an entity filed as a character in one chapter and an object in the next is
+      never compared, let alone merged. Measured (14 cross-type pairs vs 1 same-type on a 3-chapter
+      real-LLM ingest) and repairable by hand (<code>GET /entities/duplicates</code> +
+      cross-type <code>merge_entities</code>), but not prevented at ingest. See
+      <a href="#entity-resolution">Entity Resolution</a>.<br>
+      <em>Done when:</em> the canonicalizer considers candidates across entity types (or a post-ingest
+      pass does), and the real-LLM ER eval's <code>cross_type_count == 0</code> assertion holds on a
+      novel that isn't the hand-written fixture.
+    </li>
+    <li>
       <span class="phase-tag">Observability &amp; cost</span><br>
       <strong>No per-chapter cost/token accounting, no model tiering.</strong> A chapter is 13 extraction
       passes plus dedup, canonicalization, multi-summaries, scenes, knowledge, and commitments, all on one
@@ -1097,6 +1203,11 @@ flowchart TB
       <tr><td>Extraction fidelity — objects recall (real LLM)</td><td>≥ 1.0</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
       <tr><td>Extraction fidelity — possessions recall (real LLM)</td><td>≥ 0.6</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
       <tr><td>Extraction fidelity — knowledge recall (real LLM)</td><td>≥ 0.5</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Entity resolution — false merges (real LLM)</td><td>= 0 (exact)</td><td><code>evals/tests/test_er_eval.py::test_entity_resolution_real_llm</code>, gated on <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Entity resolution — pairwise recall (real LLM)</td><td>≥ 0.6</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Entity resolution — type accuracy (real LLM)</td><td>≥ 0.8</td><td>same, <code>RUN_LLM_EVALS=1</code></td></tr>
+      <tr><td>Cross-type duplicate pairs on the fixture (real LLM)</td><td>= 0 (exact)</td><td>same, <code>RUN_LLM_EVALS=1</code> — <em>fixture only; real novels currently fail this, see <a href="#entity-resolution">Entity Resolution</a></em></td></tr>
+      <tr><td>Pairwise scoring correctness (offline)</td><td>unit-asserted</td><td><code>evals/tests/test_er_eval.py</code> — perfect case, both error kinds separated, unextracted surfaces excluded</td></tr>
     </tbody>
   </table>
 
@@ -1104,9 +1215,11 @@ flowchart TB
 
   <div class="callout tip">
     <strong>Bottom line.</strong> The redesign is complete: one write spine, one read layer, and now one
-    eval harness that makes both claims falsifiable rather than asserted. What's left (observability,
-    the embedding-dimension migration path, in-memory job tracking) are real but bounded — none of them
-    block using the system as documented on this site.
+    eval harness that makes both claims falsifiable rather than asserted. What's left is real but
+    bounded, and one item is newer than the rest: cross-type duplicate <em>prevention</em> is the gap
+    the entity-resolution eval opened up by measuring something that had never been measured — the
+    other three (observability, the embedding-dimension migration path, in-memory job tracking) are
+    long-standing and none of them block using the system as documented on this site.
   </div>
   </section>
 

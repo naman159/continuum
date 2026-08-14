@@ -533,7 +533,9 @@ graph LR
 │   │   ├── <span class="key">config.py</span>         <span class="cmt"># All tuneable settings (frozen dataclass)</span>
 │   │   ├── <span class="dir">db/</span>
 │   │   │   ├── <span class="key">schema.sql</span>        <span class="cmt"># Source of truth for DB structure</span>
-│   │   │   └── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
+│   │   │   ├── client.py         <span class="cmt"># psycopg3 connection pool wrapper</span>
+│   │   │   ├── entity_merge.py   <span class="cmt"># merge_entities() — repoint every reference, absorb aliases, drop the source (cross-type merge = reclassification)</span>
+│   │   │   └── duplicates.py     <span class="cmt"># find_duplicate_candidates() — duplicate-looking pairs, split same-type vs cross-type</span>
 │   │   ├── <span class="dir">extraction/</span>
 │   │   │   ├── <span class="key">extractor.py</span>      <span class="cmt"># ChapterExtractor — drives 13 LLM passes</span>
 │   │   │   ├── <span class="key">prompts.py</span>        <span class="cmt"># All prompt templates + JSON schemas</span>
@@ -563,12 +565,13 @@ graph LR
 │   │   │   └── types.py          <span class="cmt"># StateSnapshot, LocationFact, PossessionFact</span>
 │   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding + hash fallback</span>
 │   │   ├── llm.py                <span class="cmt"># Shared litellm loader + lenient JSON parser</span>
+│   │   ├── style.py              <span class="cmt"># Deterministic ingest-time prose fingerprint → chapters.style_fingerprint</span>
 │   │   ├── entity_tables.py      <span class="cmt"># Single source of the entity type → table map</span>
 │   │   └── ingestion/ingest.py   <span class="cmt"># Raw chapter INSERT</span>
 │   ├── <span class="dir">mcp_server/</span>          <span class="cmt"># FastMCP stdio server (novel-mcp): 13 tools for writing agents</span>
 │   │   ├── server.py             <span class="cmt"># @mcp.tool definitions + entry point (main); read tools call reads/ directly, no SQL</span>
 │   │   └── queries.py            <span class="cmt"># Writer-only glue: check_continuity, save_chapter (all read tools moved to reads/ in the read-layer migration)</span>
-│   ├── <span class="dir">evals/</span>               <span class="cmt"># Offline eval harness: golden fixture novel + answer key, scoring lib, retrieval/critic/extraction-fidelity evals — see Eval Harness below</span>
+│   ├── <span class="dir">evals/</span>               <span class="cmt"># Offline eval harness: golden fixture novel + answer key, scoring lib, retrieval/critic/extraction-fidelity/entity-resolution evals — see Eval Harness below</span>
 │   └── pyproject.toml            <span class="cmt"># Dependencies + script entry points</span>
 └── <span class="dir">frontend/src/</span>
     ├── <span class="key">App.tsx</span>               <span class="cmt"># Router + QueryClient setup, 24 routes</span>
@@ -1528,11 +1531,11 @@ flowchart LR
         <tr><th>Component</th><th>File</th><th>What It Does</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>BM25Search</code></td><td><code>bm25.py</code></td><td>Queries <code>search_tsv</code> columns on chapters, scenes, events using PostgreSQL full-text search</td></tr>
+        <tr><td><code>BM25Search</code></td><td><code>bm25.py</code></td><td>Queries <code>search_tsv</code> columns on chapters, scenes, events using PostgreSQL full-text search. User input is sanitized through <code>websearch_to_tsquery</code>, then relaxed from AND to OR semantics so partial matches survive; <code>ts_rank_cd</code> ranks fuller matches higher</td></tr>
         <tr><td><code>DenseSearch</code></td><td><code>dense.py</code></td><td>ANN search over HNSW vector indexes using cosine similarity</td></tr>
         <tr><td><code>reciprocal_rank_fusion</code></td><td><code>fusion.py</code></td><td>Merges BM25 and dense ranked lists via RRF formula; deduplicates by item_id</td></tr>
         <tr><td><code>LLMReranker</code></td><td><code>rerank.py</code></td><td>Optional LLM reranking of the fused top-K pool for better relevance</td></tr>
-        <tr><td><code>mmr</code></td><td><code>mmr.py</code></td><td>Max marginal relevance — diversifies the final result set to avoid redundancy</td></tr>
+        <tr><td><code>mmr</code></td><td><code>mmr.py</code></td><td>Max marginal relevance — diversifies the final result set to avoid redundancy. Relevance is the incoming fused/reranked score (max-normalized), never a recomputed query-embedding similarity, so the keyword half of the hybrid survives the last stage. Emits the MMR score as <code>score</code>, so result order and score agree</td></tr>
         <tr><td><code>HybridRetriever</code></td><td><code>hybrid.py</code></td><td>Orchestrates all stages; records per-stage timings and snapshots in <code>RetrievalBundle.debug</code></td></tr>
       </tbody>
     </table>
@@ -1683,6 +1686,51 @@ flowchart LR
           ≥ 0.75, objects ≥ 1.0, possessions ≥ 0.6, knowledge ≥ 0.5.
         </p>
       </div>
+      <div class="card">
+        <h4>Entity resolution (pairwise)</h4>
+        <p>
+          <code>evals/er_eval.py</code> grades surface-form → entity assignment against the answer
+          key's <code>resolution:</code> alias sets. Every unordered pair of surfaces is one
+          judgement — same entity or not — so the metric works without the two id spaces
+          corresponding. <strong>Precision and recall are not symmetric here:</strong> a false merge
+          welds two entities together and drags every edge on both along with it, while a missed
+          merge leaves a visible duplicate the merge endpoint can repair. The real-LLM gate fails on
+          <em>any</em> false merge, and only holds recall to ≥ 0.6.
+        </p>
+        <p>
+          Surfaces the extractor never emitted are reported as <code>coverage</code> rather than
+          scored as merge misses — that is an extraction failure, not a resolution one.
+        </p>
+      </div>
+      <div class="card">
+        <h4>Duplicate-pair count</h4>
+        <p>
+          <code>count_duplicate_pairs()</code> needs no ground truth — it scores every entity pair
+          with the canonicalizer's own <code>_name_pair_similarity</code> at its own
+          <code>LEXICAL_MATCH_RATIO</code>, so it can be pointed at any ingested novel. It splits the
+          count <strong>same-type vs cross-type</strong>, which is the number that matters: see the
+          callout below.
+        </p>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>Cross-type duplicates are the dominant failure mode.</strong>
+      <code>EntityCanonicalizer._load_roster</code> loads candidates for one <code>entity_type</code>
+      at a time, so when extraction files the same real-world thing as a character in one chapter and
+      an object in the next, the canonicalizer never compares them. On a 3-chapter real-LLM ingest of
+      a LitRPG novel this outnumbered same-type duplicates by an order of magnitude:
+      <strong>14 cross-type duplicate pairs against 1 same-type</strong> across 63 entities
+      (<code>Healer class</code> existing simultaneously as a character, an object and a faction;
+      <code>System</code> likewise).
+      <br><br>
+      <strong>Repair now exists; automatic detection does not.</strong>
+      <code>entity_merge</code> previously refused any merge whose source and target disagreed on
+      type, which made these unfixable by hand as well as by the pipeline. It now supports
+      <em>reclassifying</em> merges (see <a href="reference.html#entity-merge">Entity Merge</a>), and
+      <code>GET /api/novels/{id}/entities/duplicates</code> surfaces the candidates. What is still
+      missing is cross-type candidate loading inside the canonicalizer, so these are found and fixed
+      by review rather than prevented at ingest.
     </div>
 
     <div class="callout info">

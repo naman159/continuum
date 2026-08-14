@@ -6,49 +6,69 @@ from pipeline.db.client import DBClient
 from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
 
 
+# websearch_to_tsquery sanitizes arbitrary user input, but it ANDs every term,
+# so a document missing a single word of the query drops out entirely -- which
+# zeroes out recall for natural-language questions. Relaxing '&' to '|' keeps
+# partial matches in the candidate pool; ts_rank_cd then ranks documents that
+# match more of the query above those that match less. Negated terms
+# ("-foo" -> "!foo") keep AND semantics, since OR-ing a negation would match
+# nearly every row.
+_TSQUERY_CTE = """
+    WITH tq AS (
+        SELECT CASE
+                 WHEN strpos(t::text, '!') > 0 THEN t
+                 ELSE replace(t::text, '&', '|')::tsquery
+               END AS query
+        FROM websearch_to_tsquery('english', %(q)s) AS t
+    )
+"""
+
 _KIND_SQL: dict[str, str] = {
-    "chapter": """
+    "chapter": _TSQUERY_CTE
+    + """
         SELECT
             c.id::text AS item_id,
             c.id::text AS chapter_id,
             c.number AS chapter_number,
             COALESCE(c.summary_short, c.summary, c.title, '') AS snippet,
-            ts_rank_cd(c.search_tsv, query) AS raw_score
-        FROM chapters c, plainto_tsquery('english', %(q)s) query
+            ts_rank_cd(c.search_tsv, tq.query) AS raw_score
+        FROM chapters c, tq
         WHERE c.novel_id = %(novel_id)s
-          AND c.search_tsv @@ query
+          AND c.search_tsv @@ tq.query
           AND (%(max_chapter)s::int IS NULL OR c.number <= %(max_chapter)s::int)
         ORDER BY raw_score DESC
         LIMIT %(limit)s
     """,
-    "scene": """
+    "scene": _TSQUERY_CTE
+    + """
         SELECT
             s.id::text AS item_id,
             s.chapter_id::text AS chapter_id,
             c.number AS chapter_number,
             COALESCE(s.summary, '') AS snippet,
-            ts_rank_cd(s.search_tsv, query) AS raw_score
+            ts_rank_cd(s.search_tsv, tq.query) AS raw_score
         FROM scenes s
         JOIN chapters c ON c.id = s.chapter_id,
-             plainto_tsquery('english', %(q)s) query
+             tq
         WHERE c.novel_id = %(novel_id)s
-          AND s.search_tsv @@ query
+          AND s.search_tsv @@ tq.query
           AND (%(max_chapter)s::int IS NULL OR c.number <= %(max_chapter)s::int)
         ORDER BY raw_score DESC
         LIMIT %(limit)s
     """,
-    "event": """
+    "event": _TSQUERY_CTE
+    + """
         SELECT
             e.id::text AS item_id,
             e.chapter_id::text AS chapter_id,
             c.number AS chapter_number,
             COALESCE(e.description, '') AS snippet,
-            ts_rank_cd(e.search_tsv, query) AS raw_score
+            ts_rank_cd(e.search_tsv, tq.query) AS raw_score
         FROM events e
         JOIN chapters c ON c.id = e.chapter_id,
-             plainto_tsquery('english', %(q)s) query
+             tq
         WHERE c.novel_id = %(novel_id)s
-          AND e.search_tsv @@ query
+          AND e.search_tsv @@ tq.query
           AND (%(max_chapter)s::int IS NULL OR c.number <= %(max_chapter)s::int)
         ORDER BY raw_score DESC
         LIMIT %(limit)s

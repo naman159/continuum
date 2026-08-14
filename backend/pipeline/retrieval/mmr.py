@@ -25,7 +25,6 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def mmr(
-    query_embedding: list[float],
     candidates: list[RetrievalResult],
     item_embeddings: dict[str, list[float]],
     lambda_: float = 0.7,
@@ -34,11 +33,20 @@ def mmr(
     """Maximal Marginal Relevance diversification.
 
     At each step, picks the remaining candidate maximizing
-        lambda * sim(d, q) - (1 - lambda) * max(sim(d, d') for d' in selected).
+        lambda * rel(d) - (1 - lambda) * max(sim(d, d') for d' in selected).
 
-    Candidates without embeddings fall back to their current `score` for
-    relevance and are treated as fully novel (no penalty) versus selected
-    items that also lack embeddings.
+    Relevance is the candidate's incoming `score` -- the fused (or reranked)
+    hybrid signal -- max-normalized to [0, 1] so it shares a scale with the
+    cosine novelty penalty. Recomputing relevance from the query embedding
+    instead would discard the keyword half of the hybrid and collapse the
+    ranking to dense-only.
+
+    Embeddings are used solely for the diversity term; a candidate without one
+    is treated as fully novel, and its relevance is on the same normalized
+    scale as everyone else's.
+
+    The returned results carry the MMR score in `score`, so the emitted order
+    matches it; the pre-diversification score is kept in metadata.
     """
     if not candidates:
         return []
@@ -48,10 +56,11 @@ def mmr(
     selected: list[RetrievalResult] = []
     remaining: list[RetrievalResult] = list(candidates)
 
-    rel_cache: dict[str, float] = {}
-    for cand in remaining:
-        emb = item_embeddings.get(cand.item_id)
-        rel_cache[cand.item_id] = _cosine(query_embedding, emb) if emb else float(cand.score)
+    max_score = max((float(c.score) for c in candidates), default=0.0)
+    rel_cache: dict[str, float] = {
+        c.item_id: (float(c.score) / max_score if max_score > 0.0 else 0.0)
+        for c in candidates
+    }
 
     while remaining and len(selected) < top_k:
         best_idx = -1
@@ -78,6 +87,7 @@ def mmr(
         meta = dict(chosen.metadata)
         meta["mmr_score"] = best_score
         meta["mmr_relevance"] = rel_cache[chosen.item_id]
-        selected.append(replace(chosen, metadata=meta))
+        meta["pre_mmr_score"] = chosen.score
+        selected.append(replace(chosen, score=best_score, metadata=meta))
 
     return selected

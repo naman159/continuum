@@ -156,6 +156,39 @@ def test_bm25_event_filter_by_max_chapter(db, seeded):
     assert all((r.chapter_number or 0) <= 1 for r in results)
 
 
+def test_bm25_matches_when_only_some_terms_present(db, seeded):
+    # Natural-language queries rarely have every term in the target document.
+    # AND semantics (plainto_tsquery) drop these to zero hits; the ranker is
+    # responsible for pushing partial matches down, not the matcher.
+    bm25 = BM25Search(db)
+    query = RetrievalQuery(
+        text="Vextheryon bicycle telephone", novel_id=seeded["novel_id"]
+    )
+    results = bm25.search(query, kind="chapter", limit=10)
+    assert results, "BM25 should match on the terms that are present"
+    assert results[0].chapter_id == seeded["chapter_ids"][2]
+
+
+def test_bm25_ranks_full_matches_above_partial_matches(db, seeded):
+    bm25 = BM25Search(db)
+    query = RetrievalQuery(
+        text="Vextheryon dragon harbor moonbell", novel_id=seeded["novel_id"]
+    )
+    results = bm25.search(query, kind="chapter", limit=10)
+    ids = [r.chapter_id for r in results]
+    # Chapter 3 matches three terms, chapter 2 only "moonbell".
+    assert ids.index(seeded["chapter_ids"][2]) < ids.index(seeded["chapter_ids"][1])
+
+
+def test_bm25_tolerates_tsquery_punctuation(db, seeded):
+    # Raw user input reaches the matcher; operator characters must not
+    # produce a syntax error.
+    bm25 = BM25Search(db)
+    for text in ["what happened to Jake's bow?", "dragon & (harbor | :*", "!!!", "a <-> b"]:
+        query = RetrievalQuery(text=text, novel_id=seeded["novel_id"])
+        bm25.search(query, kind="chapter", limit=10)
+
+
 def test_bm25_scene_hits_target_scene(db, seeded):
     bm25 = BM25Search(db)
     query = RetrievalQuery(text="moonbell chalice", novel_id=seeded["novel_id"])
@@ -219,20 +252,47 @@ def test_rrf_empty_inputs():
 
 
 def test_mmr_diversifies_results():
-    q = [1.0, 0.0]
     e1 = [1.0, 0.0]
     e2 = [0.99, 0.01]  # near-duplicate of e1
     e3 = [0.0, 1.0]    # different
     cands = [_mk("a", score=0.9), _mk("b", score=0.89), _mk("c", score=0.5)]
     embeddings = {"a": e1, "b": e2, "c": e3}
     # lambda=0.3 puts more weight on diversity. With e2≈e1, "b" is a near-duplicate
-    # of "a", so MMR should prefer the orthogonal "c" even though "c" is less
-    # relevant to q. At lambda=0.5 the math ties (both score 0), so this test
+    # of "a", so MMR should prefer the orthogonal "c" even though "c" is more
+    # relevant. At lambda=0.5 the math ties (both score 0), so this test
     # uses 0.3 to verify diversity actually dominates when configured to.
-    out = mmr(q, cands, embeddings, lambda_=0.3, top_k=2)
+    out = mmr(cands, embeddings, lambda_=0.3, top_k=2)
     ids = [r.item_id for r in out]
     assert ids[0] == "a"
     assert ids[1] == "c"
+
+
+def test_mmr_relevance_comes_from_fused_score():
+    # The fused score is the hybrid signal (BM25 + dense). MMR must rank on it
+    # rather than recomputing similarity from the embedding, which would
+    # discard the keyword half of the hybrid.
+    cands = [_mk("keyword_winner", score=1.0), _mk("dense_only", score=0.2)]
+    embeddings = {"keyword_winner": [0.0, 1.0], "dense_only": [1.0, 0.0]}
+    out = mmr(cands, embeddings, lambda_=1.0, top_k=2)
+    assert [r.item_id for r in out] == ["keyword_winner", "dense_only"]
+
+
+def test_mmr_ranks_candidates_without_embeddings_on_the_same_scale():
+    # A strong keyword hit whose embedding is missing must still outrank a
+    # weak candidate that happens to have one.
+    cands = [_mk("no_embedding", score=1.0), _mk("has_embedding", score=0.1)]
+    out = mmr(cands, {"has_embedding": [1.0, 0.0]}, lambda_=0.7, top_k=2)
+    assert [r.item_id for r in out] == ["no_embedding", "has_embedding"]
+
+
+def test_mmr_reports_its_ranking_score():
+    cands = [_mk("a", score=0.9), _mk("b", score=0.8), _mk("c", score=0.7)]
+    embeddings = {"a": [1.0, 0.0], "b": [0.99, 0.01], "c": [0.0, 1.0]}
+    out = mmr(cands, embeddings, lambda_=0.7, top_k=3)
+    scores = [r.score for r in out]
+    assert scores == sorted(scores, reverse=True), "score must match the emitted order"
+    # The pre-diversification signal stays available for debugging.
+    assert "rrf_score" in out[0].metadata or "mmr_relevance" in out[0].metadata
 
 
 # ---- Hybrid orchestrator ----
@@ -249,11 +309,35 @@ def test_hybrid_retrieve_returns_relevant_items(db, embedder, seeded):
     assert bundle.results
     assert "timings_ms" in bundle.debug
     assert "stages" in bundle.debug
-    # The dragon-chapter / dragon-event should be in the top results.
-    dragon_chapter = seeded["chapter_ids"][2]
-    dragon_event = seeded["event_ids"][2]
-    ids = {r.item_id for r in bundle.results}
-    assert (dragon_chapter in ids) or (dragon_event in ids)
+    # The dragon material must lead, not merely appear somewhere in the page.
+    dragon_items = {
+        seeded["chapter_ids"][2],
+        seeded["scene_ids"][2],
+        seeded["event_ids"][2],
+    }
+    assert bundle.results[0].item_id in dragon_items
+
+
+def test_hybrid_scores_are_ordered(db, embedder, seeded):
+    retriever = HybridRetriever(db, embedder, reranker=None)
+    query = RetrievalQuery(
+        text="dragon raids Pellis harbor", novel_id=seeded["novel_id"], k=5
+    )
+    bundle = retriever.retrieve(query, kinds=["chapter", "scene", "event"])
+    scores = [r.score for r in bundle.results]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_hybrid_keeps_agreed_result_on_top(db, embedder, seeded):
+    # An item both BM25 and dense rank highly wins RRF; the diversification
+    # stage must not demote it below dense-only candidates.
+    retriever = HybridRetriever(db, embedder, reranker=None)
+    query = RetrievalQuery(
+        text="Vextheryon dragon Pellis", novel_id=seeded["novel_id"], k=8
+    )
+    bundle = retriever.retrieve(query, kinds=["chapter", "scene", "event"])
+    top_fused = bundle.debug["stages"]["rrf"][0]["item_id"]
+    assert bundle.results[0].item_id == top_fused
 
 
 def test_hybrid_respects_max_chapter(db, embedder, seeded):
