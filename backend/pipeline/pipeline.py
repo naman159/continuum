@@ -533,7 +533,7 @@ def _persist_extraction(
         db.execute(
             """
             INSERT INTO relationships (
-                entity_a_id, entity_b_id, rel_type, symmetric, from_chapter, to_chapter, notes, chapter_id
+                entity_a_id, entity_b_id, rel_type, "symmetric", from_chapter, to_chapter, notes, chapter_id
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,

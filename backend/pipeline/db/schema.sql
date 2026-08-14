@@ -222,8 +222,10 @@ ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
 -- (reads/relationship_types.py). TRUE/FALSE = the extractor read the chapter text and
 -- judged whether the relationship is genuinely mutual or reflects one side's view
 -- (e.g. A considers B a friend, but B doesn't feel the same).
--- "symmetric" is a reserved word in PostgreSQL's DDL grammar and needs
--- quoting here (read contexts like SELECT r.symmetric work unquoted).
+-- "symmetric" is a fully reserved PostgreSQL keyword (it comes from BETWEEN
+-- SYMMETRIC), so it needs quoting anywhere it appears as a bare identifier --
+-- here in the DDL and in INSERT/UPDATE column lists alike. It parses unquoted
+-- only after a dot (SELECT r.symmetric) or as an AS label.
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS "symmetric" BOOLEAN;
 
 -- ---- Ingestion provenance + replayability ----
