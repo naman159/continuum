@@ -11,6 +11,7 @@ from api.schemas import (
     NovelEntityType,
 )
 from pipeline.db.client import DBClient
+from pipeline.db.duplicates import find_duplicate_candidates
 from pipeline.db.entity_merge import EntityMergeError, merge_entities
 from pipeline.extraction.presets import list_genres
 from reads import world as world_reads
@@ -52,6 +53,18 @@ def get_custom_entity(
     if row is None:
         raise HTTPException(status_code=404, detail="Entity not found")
     return CustomEntityDetail(**row)
+
+
+@router.get("/api/novels/{novel_id}/entities/duplicates")
+def get_duplicate_candidates(novel_id: UUID) -> dict:
+    """Entity pairs that look like duplicates, for review before merging.
+
+    Deliberately not chapter-capped: a duplicate created in chapter 40 is still
+    one you want to see while reviewing the novel, so there is no
+    `cap`/`up_to_chapter` here. Candidates only — nothing is merged, and the
+    caller is expected to look at the pairs rather than trust the counts.
+    """
+    return find_duplicate_candidates(get_db(), novel_id)
 
 
 def _merge_db() -> DBClient:

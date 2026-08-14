@@ -70,21 +70,81 @@ def _db_for_character_merge():
     })
 
 
-def test_merge_rejects_type_mismatch():
-    db = _db_for_character_merge()
+def _db_for_cross_type_merge(source_type: str, target_type: str, source_table: str, target_table: str):
+    """Fake wired for a cross-type merge: the two entity rows disagree on type,
+    and each typed table answers only for its own side."""
+    db = MergeFakeDB({"FROM shared_dynamics": [], "FROM canon_facts": []})
     calls = {"n": 0}
-    orig = db.script_response
 
     def script(query, params):
         if "FROM entities WHERE id" in query:
             calls["n"] += 1
-            etype = "character" if calls["n"] == 1 else "location"
-            return [{"id": params[0], "entity_type": etype, "name": "X", "aliases": []}]
-        return orig(query, params)
+            is_source = calls["n"] == 1
+            return [{
+                "id": params[0],
+                "entity_type": source_type if is_source else target_type,
+                "name": "Healer class" if is_source else "Healer",
+                "aliases": ["Healer class"] if is_source else [],
+            }]
+        if f"FROM {source_table} WHERE entity_id" in query and str(params[0]) == SRC:
+            return [{"id": SRC_TYPED, "name": "Healer class", "aliases": []}]
+        if f"FROM {target_table} WHERE entity_id" in query and str(params[0]) == TGT:
+            return [{"id": TGT_TYPED, "name": "Healer", "aliases": []}]
+        return []
 
     db.script_response = script
-    with pytest.raises(EntityMergeError):
-        merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+    return db
+
+
+def test_cross_type_merge_is_allowed_and_reclassifies():
+    """A character that should have been an object is a misclassification, not
+    an illegal merge — this is the only way to repair one, since the
+    canonicalizer never compares across types in the first place."""
+    db = _db_for_cross_type_merge("character", "object", "characters", "objects")
+    result = merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+
+    assert result["cross_type"] is True
+    assert result["source_entity_type"] == "character"
+    assert result["entity_type"] == "object"
+
+    sql = [q for q, _ in db.statements]
+    # Event involvement moves columns rather than being dropped.
+    assert any(
+        "UPDATE events" in q and "involved_characters" in q and "involved_objects" in q
+        for q in sql
+    )
+    # Non-cascading FKs to the doomed character row are cleared first, or the
+    # DELETE below raises a foreign-key violation.
+    assert any("UPDATE scenes" in q and "pov_character_id = NULL" in q for q in sql)
+    assert any("present_characters" in q and "array_remove" in q for q in sql)
+    # The source's typed row goes; its character-only edges cascade with it.
+    assert any("DELETE FROM characters" in q for q in sql)
+    assert any("DELETE FROM entities" in q for q in sql)
+
+
+def test_cross_type_merge_from_location_clears_location_backrefs():
+    db = _db_for_cross_type_merge("location", "faction", "locations", "factions")
+    merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+
+    sql = [q for q, _ in db.statements]
+    assert any("UPDATE locations SET parent_location_id = NULL" in q for q in sql)
+    assert any("UPDATE scenes SET location_id = NULL" in q for q in sql)
+    assert any("UPDATE character_states SET location_id = NULL" in q for q in sql)
+    assert any("DELETE FROM locations" in q for q in sql)
+
+
+def test_cross_type_merge_absorbs_source_name_as_alias():
+    db = _db_for_cross_type_merge("character", "object", "characters", "objects")
+    merge_entities(db, novel_id=NOVEL, source_entity_id=SRC, target_entity_id=TGT)
+
+    alias_writes = [
+        params for q, params in db.statements
+        if "SET aliases" in q
+    ]
+    assert alias_writes, db.statements
+    # The absorbed name must survive as an alias on the target, or the resolver
+    # stops resolving old references to the surviving entity.
+    assert any("Healer class" in (p[0] or []) for p in alias_writes)
 
 
 def test_merge_rejects_same_ids():

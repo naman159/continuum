@@ -3,9 +3,25 @@ from __future__ import annotations
 """Merge one entity into another, repairing wrong dedup decisions.
 
 All statements run in a single transaction. Source and target must belong to
-the same novel and share an entity_type. After the merge the source's name and
-aliases become aliases of the target, so the resolver keeps resolving old
-references to the surviving entity.
+the same novel. After the merge the source's name and aliases become aliases of
+the target, so the resolver keeps resolving old references to the surviving
+entity.
+
+Cross-type merges are supported and mean something different from same-type
+ones. A same-type merge says "these two rows are the same thing"; a cross-type
+merge says "the source was *misclassified*, and the target's type is correct."
+Extraction produces these constantly — the same LitRPG skill filed as a
+character in one chapter and an object in the next — and until they could be
+merged there was no way to repair one at all, because the canonicalizer loads
+its candidate roster one entity_type at a time and never compares across types.
+
+The distinction matters for what survives. Entity-level references (relationships,
+shared_dynamics, canon_facts, commitments, state_deltas) key off `entities.id`
+and repoint identically either way. Type-specific rows do not: a
+`character_states` row hanging off something that turned out to be an object is
+an artifact of the misclassification, not data worth migrating, so it dies with
+the source's typed row. Event involvement *is* migrated, moving from the
+source's `involved_*` column into the target's.
 """
 
 import logging
@@ -72,6 +88,64 @@ def _replace_in_array_column(
     )
 
 
+def _move_between_array_columns(
+    cur, table: str, from_column: str, to_column: str, src: str, tgt: str
+) -> None:
+    """Move a typed id out of one array column and into another on the same row.
+
+    Used for `events.involved_*` when the merge crosses types: the event still
+    involves the entity, it was just filed under the wrong kind of involvement.
+    """
+    cur.execute(
+        f"""
+        UPDATE {table}
+           SET {from_column} = array_remove({from_column}, %s::uuid),
+               {to_column} = ARRAY(
+                 SELECT DISTINCT x
+                   FROM unnest(array_append(coalesce({to_column}, '{{}}'::uuid[]), %s::uuid)) AS x
+               )
+         WHERE %s::uuid = ANY({from_column})
+        """,
+        (src, tgt, src),
+    )
+
+
+def _detach_typed_references(cur, entity_type: str, typed_id: str) -> None:
+    """Clear references to a typed row that will not survive a cross-type merge.
+
+    Only the FKs that are *not* ON DELETE CASCADE need this — `scenes.pov_character_id`,
+    `scenes.location_id`, `character_states.location_id` and
+    `locations.parent_location_id` would otherwise raise a foreign-key violation
+    when the source's typed row is deleted. All are nullable, and the reference
+    is wrong data anyway once the row is known to be a misclassification.
+    """
+    if entity_type == "character":
+        cur.execute(
+            "UPDATE scenes SET pov_character_id = NULL WHERE pov_character_id = %s",
+            (typed_id,),
+        )
+        cur.execute(
+            "UPDATE scenes SET present_characters = array_remove(present_characters, %s::uuid) "
+            "WHERE %s::uuid = ANY(present_characters)",
+            (typed_id, typed_id),
+        )
+    elif entity_type == "location":
+        cur.execute(
+            "UPDATE locations SET parent_location_id = NULL WHERE parent_location_id = %s",
+            (typed_id,),
+        )
+        cur.execute("UPDATE scenes SET location_id = NULL WHERE location_id = %s", (typed_id,))
+        cur.execute(
+            "UPDATE character_states SET location_id = NULL WHERE location_id = %s",
+            (typed_id,),
+        )
+
+
+def _union_aliases(target_name: str, existing: list, absorbed: list) -> list[str]:
+    merged = list(dict.fromkeys([*(existing or []), *(absorbed or [])]))
+    return [a for a in merged if a and a.lower() != str(target_name or "").lower()]
+
+
 def merge_entities(
     db: Any, *, novel_id: str, source_entity_id: str, target_entity_id: str
 ) -> dict[str, Any]:
@@ -81,11 +155,9 @@ def merge_entities(
     with db.transaction() as cur:
         source = _fetch_entity(cur, str(source_entity_id), str(novel_id))
         target = _fetch_entity(cur, str(target_entity_id), str(novel_id))
-        if source["entity_type"] != target["entity_type"]:
-            raise EntityMergeError(
-                f"type mismatch: {source['entity_type']} vs {target['entity_type']}"
-            )
-        entity_type = str(source["entity_type"])
+        source_type = str(source["entity_type"])
+        entity_type = str(target["entity_type"])
+        cross_type = source_type != entity_type
         src, tgt = str(source["id"]), str(target["id"])
 
         # ---- entity-level references (apply to every type) ----
@@ -181,7 +253,50 @@ def merge_entities(
 
         # ---- typed-table references ----
         table = TYPED_TABLES.get(entity_type)
-        if table is not None:
+        source_table = TYPED_TABLES.get(source_type)
+
+        if cross_type:
+            src_typed = _fetch_typed(cur, source_table, src) if source_table else None
+            tgt_typed = _fetch_typed(cur, table, tgt) if table else None
+            if source_table and src_typed is None:
+                raise EntityMergeError(f"typed row missing for {source_type} source")
+            if table and tgt_typed is None:
+                raise EntityMergeError(f"typed row missing for {entity_type} target")
+
+            # The event still involves this entity; only the kind of involvement
+            # was wrong. Everything else type-specific dies with the source row.
+            if src_typed and tgt_typed and source_type in _INVOLVED_COLUMN and entity_type in _INVOLVED_COLUMN:
+                _move_between_array_columns(
+                    cur, "events",
+                    _INVOLVED_COLUMN[source_type], _INVOLVED_COLUMN[entity_type],
+                    str(src_typed["id"]), str(tgt_typed["id"]),
+                )
+            elif src_typed and source_type in _INVOLVED_COLUMN:
+                # Target is a custom type with no involved_* column of its own.
+                cur.execute(
+                    f"UPDATE events SET {_INVOLVED_COLUMN[source_type]} = "
+                    f"array_remove({_INVOLVED_COLUMN[source_type]}, %s::uuid)",
+                    (str(src_typed["id"]),),
+                )
+
+            if src_typed:
+                _detach_typed_references(cur, source_type, str(src_typed["id"]))
+
+            absorbed = [*(source.get("aliases") or []), str(source["name"])]
+            if tgt_typed:
+                cur.execute(
+                    f"UPDATE {table} SET aliases = %s WHERE id = %s",
+                    (_union_aliases(tgt_typed["name"], tgt_typed.get("aliases"), absorbed),
+                     str(tgt_typed["id"])),
+                )
+            cur.execute(
+                "UPDATE entities SET aliases = %s WHERE id = %s",
+                (_union_aliases(target["name"], target.get("aliases"), absorbed), tgt),
+            )
+            if src_typed:
+                cur.execute(f"DELETE FROM {source_table} WHERE id = %s", (str(src_typed["id"]),))
+
+        elif table is not None:
             src_typed = _fetch_typed(cur, table, src)
             tgt_typed = _fetch_typed(cur, table, tgt)
             if src_typed is None or tgt_typed is None:
@@ -239,11 +354,19 @@ def merge_entities(
 
         cur.execute("DELETE FROM entities WHERE id = %s", (src,))
 
-    logger.info("merged entity %s into %s (%s)", src, tgt, entity_type)
+    if cross_type:
+        logger.info(
+            "merged entity %s (%s) into %s (%s) — cross-type reclassification",
+            src, source_type, tgt, entity_type,
+        )
+    else:
+        logger.info("merged entity %s into %s (%s)", src, tgt, entity_type)
     return {
         "source_entity_id": src,
         "target_entity_id": tgt,
         "entity_type": entity_type,
+        "source_entity_type": source_type,
+        "cross_type": cross_type,
         "absorbed_name": str(source["name"]),
     }
 
