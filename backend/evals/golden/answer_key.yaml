@@ -39,3 +39,44 @@ queries:
   - {text: Odo Bram returns the lantern and warns about the grey ring, expect_chapters: [8]}
   - {text: lighting the lantern at the sealed gate of the Undervault, expect_chapters: [9]}
   - {text: bargaining with the Ash Council speakers, expect_chapters: [10]}
+
+# Ground truth for entity resolution. Every surface form below actually occurs
+# in the chapter text; `canonical` is the entity it refers to. Surfaces are
+# graded pairwise (see scoring.pairwise_resolution), so this doubles as the
+# negative set: any two surfaces under different canonicals must NOT be merged.
+#
+# The descriptive surfaces ("the thief", "the old ferryman") are the point.
+# Lexical matching cannot reach them, and they are also the ones extraction
+# most often drops entirely — which is why the eval reports coverage apart
+# from precision/recall rather than scoring a dropped surface as a merge miss.
+resolution:
+  - canonical: Mira Solen
+    type: character
+    surfaces: [Mira Solen, Mira, harbor-girl]
+  - canonical: Toren Vale
+    type: character
+    surfaces: [Toren Vale, Toren, the archivist on duty]
+  - canonical: Kessa Dray
+    type: character
+    surfaces: [Kessa Dray, the woman who called herself Kessa Dray, the thief]
+  - canonical: Odo Bram
+    type: character
+    surfaces: [Odo Bram, Odo, the old ferryman]
+  - canonical: Brass Lantern
+    type: object
+    surfaces: [Brass Lantern, brass lantern, the strange lantern, vault-key]
+  - canonical: Harbor of Veyra
+    type: location
+    surfaces: [Harbor of Veyra, the harbor]
+  - canonical: Glass Archive
+    type: location
+    surfaces: [Glass Archive, the reading-room]
+  - canonical: Saltmarsh
+    type: location
+    surfaces: [Saltmarsh, the marsh]
+  - canonical: Undervault
+    type: location
+    surfaces: [Undervault, the vault, the sealed gate]
+  - canonical: Ash Council
+    type: faction
+    surfaces: [Ash Council, the Council]

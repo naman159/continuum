@@ -108,3 +108,54 @@ def recall_at_k(
     top = set(result_chapters[:k])
     hit = sum(1 for c in expected_chapters if c in top)
     return hit / len(expected_chapters)
+
+
+def pairwise_resolution(
+    truth: dict[str, str], predicted: dict[str, str]
+) -> dict[str, Any]:
+    """Pairwise precision/recall for entity resolution.
+
+    Both maps are surface-form -> cluster id: `truth` from the answer key,
+    `predicted` from whatever entity the pipeline filed that surface under.
+    Every unordered pair of surfaces is one judgement — same cluster or not —
+    which is the standard way to score clustering without needing the two id
+    spaces to correspond.
+
+    Only surfaces present in *both* maps are graded. A surface the extractor
+    never emitted is an extraction miss, not a resolution error, and folding
+    the two together would make this metric move for reasons that have nothing
+    to do with resolution; `coverage` reports it separately.
+
+    The two error lists are the point of this function. `false_merges` are
+    distinct entities welded together, which corrupt every edge attached to
+    either and are expensive to unpick. `missed_merges` leave duplicate rows,
+    which are visible and cheap to repair. Precision and recall respectively
+    track them, and they should not be traded off one-for-one.
+    """
+    gradeable = sorted(set(truth) & set(predicted))
+    tp = 0
+    false_merges: list[tuple[str, str]] = []
+    missed_merges: list[tuple[str, str]] = []
+    for i, a in enumerate(gradeable):
+        for b in gradeable[i + 1:]:
+            same_truth = truth[a] == truth[b]
+            same_pred = predicted[a] == predicted[b]
+            if same_truth and same_pred:
+                tp += 1
+            elif same_pred:
+                false_merges.append((a, b))
+            elif same_truth:
+                missed_merges.append((a, b))
+    precision = tp / (tp + len(false_merges)) if tp or false_merges else 1.0
+    recall = tp / (tp + len(missed_merges)) if tp or missed_merges else 1.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,
+        "true_positive_pairs": tp,
+        "false_merges": false_merges,
+        "missed_merges": missed_merges,
+        "coverage": len(gradeable) / len(truth) if truth else 1.0,
+        "not_extracted": sorted(set(truth) - set(predicted)),
+    }
