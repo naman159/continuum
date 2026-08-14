@@ -1,73 +1,50 @@
-# React + TypeScript + Vite
+# Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The Continuum wiki: a React 19 + TypeScript + Vite SPA over the backend's
+read layer. It renders what the pipeline extracted — characters, locations,
+objects, factions, relationships, threads, commitments, knowledge, canon
+facts, scenes, timeline, continuity critiques — and lets you process new
+chapters from the Process page.
 
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev      # http://localhost:5173, proxies /api to 127.0.0.1:8000
+npm run build    # tsc -b && vite build → dist/ (served by novel-webapp)
+npm run lint
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The dev server proxies `/api` to the backend on port 8000
+(`vite.config.ts`), so run `uv run novel-webapp` alongside it. In
+production `novel-webapp` serves `dist/` directly with an SPA fallback.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Layout
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
 ```
+src/
+├── App.tsx                 # Router + QueryClient; 24 pages
+├── api.ts                  # Every fetch call + the TS types for API responses
+├── components/
+│   ├── Sidebar.tsx         # Nav (incl. per-novel custom entity types) + chapter-cap slider
+│   ├── Layout.tsx
+│   └── FieldList.tsx
+├── hooks/useChapterCap.ts  # The chapter cutoff, stored in the ?cap= query param
+└── routes/                 # One component per page
+```
+
+## The chapter cap
+
+The single idea worth knowing before reading the code. Every read endpoint
+takes an optional chapter cutoff, and the UI keeps that cutoff in the URL
+(`?cap=N`) via `useChapterCap`. Setting it makes every page show the story
+as it stood at the end of chapter N — no later spoilers — which is the same
+mechanism the MCP server uses to keep a drafting agent from seeing its own
+future. Because it lives in the query string, a capped view is shareable and
+survives a reload.
+
+Data fetching is TanStack Query throughout; the cap is part of each query
+key, so changing it refetches rather than filtering client-side.
+
+Graphs (`EntityGraph.tsx`, relationship views) use `vis-network`.
+
+See `../docs/reference.html` for the API these pages call and
+`../docs/architecture.html` for how the data gets there.

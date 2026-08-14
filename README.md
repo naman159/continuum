@@ -26,8 +26,21 @@ ground truth while drafting and saves finished chapters back.
 Chapter `raw_text` is ground truth: projections can always be deleted and
 rebuilt, and novels can be re-processed after schema changes.
 
-See `docs/architecture.html` for the full design and
-`docs/reference.html` for schema/API/CLI/MCP reference.
+## Docs (start here)
+
+Open these in a browser — they are the onboarding path, in order:
+
+1. `docs/architecture.html` — what the system is, the mental model, the
+   pipeline phase by phase, the DB design, and a directory map.
+2. `docs/reference.html` — schema, API endpoints, CLI, MCP tools, env vars,
+   eval harness.
+3. `docs/state-of-the-system.html` — how it got here, what is wired, and the
+   honest list of what's still open (currently: cross-type duplicate
+   prevention, per-chapter cost accounting, embedding-dimension migration,
+   in-memory job state).
+
+`docs/research/` holds background research; `docs/superpowers/` holds the
+specs and plans the redesign was executed from.
 
 ## Setup
 
@@ -97,10 +110,23 @@ The full tool table is in `docs/reference.html`.
 ```bash
 cd backend && .venv/bin/python -m pytest        # full suite (needs Postgres)
 cd backend && .venv/bin/python -m pytest evals/ # eval harness (offline)
-cd backend && RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/  # + real-LLM extraction fidelity
+cd backend && RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/  # + real-LLM evals
 cd frontend && npm run build                    # frontend gate
 ```
 
+Use `backend/.venv` (not a repo-root venv) — the DB-integration tests
+resolve their connection from `backend/.env`.
+
 The eval harness (`backend/evals/`) grades the system against a
-hand-written golden novel: extraction fidelity, retrieval recall@k, and
-critic precision/recall.
+hand-written golden novel: extraction fidelity, retrieval recall@k, critic
+precision/recall, and entity resolution. `RUN_LLM_EVALS=1` additionally
+runs the two real-LLM evals (extraction fidelity, entity resolution) —
+those spend API credits.
+
+Entity resolution is the weakest link and is documented as such: the
+canonicalizer compares candidates within one `entity_type` at a time, so
+cross-type duplicates (the same thing filed as a character in one chapter
+and an object in the next) are not caught at ingest. They can be found
+(`GET /api/novels/{id}/entities/duplicates`) and repaired
+(`POST .../entities/merge`, which reclassifies across types), but not yet
+prevented — see `docs/state-of-the-system.html#entity-resolution`.
