@@ -23,6 +23,9 @@ class RecordingDB:
     def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
         return None  # nothing pre-exists
 
+    def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+        return []  # nothing pre-exists, so no partial-name candidates either
+
     def fetchval(self, query, params=None, *, commit=False):
         q = query.strip().lower()
         if "insert into characters" in q:

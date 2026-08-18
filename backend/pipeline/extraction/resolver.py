@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from pipeline.db.client import DBClient
 from pipeline.entity_tables import table_for
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -59,6 +62,54 @@ class EntityResolver:
             )
             return parent
         return self._resolve("location", normalized, meta, create=create)
+
+    def _merge_aliases(
+        self, entity_type: str, typed_id: str, metadata: dict[str, Any]
+    ) -> None:
+        """Add extractor-supplied aliases to an entity that already exists.
+
+        Only additive — an alias is never removed, and the canonical name is
+        never changed, so this cannot merge two distinct entities. Names that
+        already resolve elsewhere are skipped rather than stolen.
+        """
+        incoming = [
+            str(a).strip()
+            for a in (metadata or {}).get("aliases", []) or []
+            if str(a).strip()
+        ]
+        if not incoming:
+            return
+        table = table_for(entity_type)
+        if table is None:
+            return
+        row = self.db.fetchone(
+            f"SELECT name, aliases FROM {table} WHERE id = %s LIMIT 1", (typed_id,)
+        )
+        if not row:
+            return
+        name = str(row[0] or "")
+        aliases = list(row[1] or [])
+        known = {name.lower()} | {a.lower() for a in aliases}
+        added = []
+        for alias in incoming:
+            if alias.lower() in known:
+                continue
+            # Don't claim a surface form that already identifies a different
+            # entity of this type — that would silently repoint it.
+            clash = self._lookup_typed(entity_type, alias)
+            if clash is not None and str(clash[0]) != str(typed_id):
+                logger.warning(
+                    "alias %r for %s %r already resolves to a different entity; skipping",
+                    alias, entity_type, name,
+                )
+                continue
+            added.append(alias)
+            known.add(alias.lower())
+        if added:
+            self.db.execute(
+                f"UPDATE {table} SET aliases = %s WHERE id = %s",
+                (aliases + added, typed_id),
+            )
 
     def _append_location_alias(self, location_id: str, alias: str) -> None:
         row = self.db.fetchone(
@@ -239,6 +290,14 @@ class EntityResolver:
         found = self._lookup_typed(entity_type, normalized_name)
         if found:
             self._cache[cache_key] = found
+            # Fold in aliases the extractor supplied for an entity that already
+            # exists. _create_entity writes metadata["aliases"], but only on
+            # create — so a nickname first established in a later chapter used
+            # to be dropped on the floor, and the next bare use of it minted a
+            # duplicate entity. `create` gates this for the same reason as the
+            # partial-match branch: only authoritative passes touch identity.
+            if create:
+                self._merge_aliases(entity_type, found[0], metadata)
             return ResolvedEntity(found[0], found[1], created=False)
 
         if entity_type == "character":
@@ -247,7 +306,12 @@ class EntityResolver:
             like_safe = (
                 normalized_name.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
-            partial_row = self.db.fetchone(
+            # Deliberately NOT `LIMIT 1`: with two candidates the match is
+            # ambiguous, and picking one meant binding "Elizabeth" to whichever
+            # of Elizabeth Bennet / Elizabeth Elliot the planner happened to
+            # return — then persisting that guess as an alias, permanently. An
+            # unresolvable name is recoverable; a wrong merge is not.
+            partial_rows = self.db.fetchall(
                 r"""
                 SELECT id, entity_id, name, aliases
                 FROM characters
@@ -258,11 +322,20 @@ class EntityResolver:
                           replace(replace(replace(name, '\', '\\'), '%%', '\%%'), '_', '\_') || ' %%'
                       )
                   )
-                LIMIT 1
+                ORDER BY id
                 """,
                 (self.novel_id, like_safe, normalized_name),
             )
-            if partial_row:
+            if len(partial_rows) > 1:
+                logger.warning(
+                    "character name %r partially matches %d existing characters (%s); "
+                    "refusing to guess — resolve it explicitly or add an alias",
+                    normalized_name,
+                    len(partial_rows),
+                    ", ".join(str(r[2]) for r in partial_rows[:5]),
+                )
+            elif partial_rows:
+                partial_row = partial_rows[0]
                 entity_id = str(partial_row[0])
                 universal_id = str(partial_row[1]) if partial_row[1] else entity_id
                 existing_name = str(partial_row[2])
@@ -270,7 +343,16 @@ class EntityResolver:
                 # Add whichever form is shorter as an alias (the short form may
                 # not be in aliases yet if this is the first time it appears).
                 short_form = normalized_name if len(normalized_name) < len(existing_name) else existing_name
-                if short_form.lower() not in {a.lower() for a in existing_aliases} and short_form.lower() != existing_name.lower():
+                # Only an authoritative pass may persist an alias. Reference-only
+                # passes (scene POV, knows-edges, event actors, state deltas)
+                # resolve for lookup and must not mutate identity: a stray name
+                # in a scene list is far weaker evidence than the canonicalizer
+                # demands before it will write one.
+                if (
+                    create
+                    and short_form.lower() not in {a.lower() for a in existing_aliases}
+                    and short_form.lower() != existing_name.lower()
+                ):
                     self.db.execute(
                         "UPDATE characters SET aliases = %s WHERE id = %s",
                         (existing_aliases + [short_form], entity_id),

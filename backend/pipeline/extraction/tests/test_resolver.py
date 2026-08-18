@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pipeline.extraction.resolver import EntityResolver, ResolvedEntity
+from pipeline.extraction.resolver import EntityResolver
 
 
 class FakeDBForResolver:
@@ -35,6 +35,28 @@ class FakeDBForResolver:
             return None
         return None
 
+    def fetchall(self, sql: str, params=(), dict_rows: bool = False):
+        """Partial-name match over characters, mirroring the real LIKE query.
+
+        The production query matches when one name is a word-boundary prefix of
+        the other, and returns every candidate (not LIMIT 1) so the resolver can
+        refuse an ambiguous match instead of guessing.
+        """
+        sql_lower = sql.lower()
+        if "from characters" in sql_lower and "like" in sql_lower:
+            novel_id, probe = str(params[0]), str(params[1]).lower()
+            rows = []
+            for c in self._characters:
+                if str(c["novel_id"]) != novel_id:
+                    continue
+                name = str(c["name"]).lower()
+                if name.startswith(probe + " ") or probe.startswith(name + " "):
+                    rows.append(
+                        (c["id"], c.get("entity_id"), c["name"], c.get("aliases") or [])
+                    )
+            return sorted(rows, key=lambda r: str(r[0]))
+        return []
+
     def fetchval(self, sql: str, params=(), commit: bool = False):
         import uuid
         new_id = uuid.uuid4()
@@ -44,13 +66,30 @@ class FakeDBForResolver:
             self._entities.append(entity)
             return new_id
         if "insert into characters" in sql_lower:
-            char = {"id": new_id, "novel_id": params[0], "name": params[1], "entity_id": params[2]}
+            # Param order matches the real statement:
+            # (novel_id, entity_id, name, aliases, first_appearance_chapter, description).
+            # This fake previously read name=params[1] / entity_id=params[2],
+            # i.e. swapped — so it stored a UUID as the character's name and
+            # _lookup_typed could never match, silently sending every test down
+            # the not-found branch.
+            char = {
+                "id": new_id,
+                "novel_id": params[0],
+                "entity_id": params[1],
+                "name": params[2],
+                "aliases": list(params[3] or []),
+            }
             self._characters.append(char)
             return new_id
         return new_id
 
     def execute(self, sql: str, params=(), commit: bool = False):
-        pass
+        sql_lower = sql.lower()
+        if "update characters set aliases" in sql_lower:
+            aliases, char_id = params[0], str(params[1])
+            for c in self._characters:
+                if str(c["id"]) == char_id:
+                    c["aliases"] = list(aliases)
 
 
 def test_resolve_character_creates_entity_record():
@@ -316,6 +355,9 @@ def test_resolve_any_entity_creates_character_only_as_last_resort():
         def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
             return None
 
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            return []
+
         def fetchval(self, query, params=None, *, commit=False):
             self.inserts.append(query)
             return uuid.uuid4()
@@ -366,6 +408,9 @@ def test_resolve_any_entity_create_false_returns_none_when_absent():
 
         def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
             return None
+
+        def fetchall(self, query, params=None, *, dict_rows=False, commit=False):
+            return []
 
         def fetchval(self, query, params=None, *, commit=False):
             self.inserts.append(query)
