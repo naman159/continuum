@@ -35,8 +35,13 @@ def load_entity_surfaces(db: Any, novel_id: UUID | str) -> list[dict[str, Any]]:
     canonicalizer normalizes them so comparisons are apples-to-apples."""
     rows: list[dict[str, Any]] = []
     for entity_type, table in TYPED_TABLES.items():
+        # ORDER BY id is load-bearing, not cosmetic: er_eval assigns each
+        # surface to the first entity that claims it, so an unordered scan
+        # makes precision/recall/F1 shift between runs on identical data
+        # whenever two entities share a surface.
         for r in db.fetchall(
-            f"SELECT id, entity_id, name, aliases FROM {table} WHERE novel_id = %s",
+            f"SELECT id, entity_id, name, aliases FROM {table} "
+            "WHERE novel_id = %s ORDER BY id",
             (str(novel_id),),
             dict_rows=True,
         ):

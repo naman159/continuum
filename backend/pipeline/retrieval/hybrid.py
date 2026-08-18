@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -12,6 +13,8 @@ from pipeline.retrieval.fusion import reciprocal_rank_fusion
 from pipeline.retrieval.mmr import mmr
 from pipeline.retrieval.rerank import LLMReranker
 from pipeline.retrieval.types import RetrievalBundle, RetrievalQuery, RetrievalResult
+
+logger = logging.getLogger(__name__)
 
 
 _DEFAULT_KINDS: tuple[str, ...] = ("chapter", "scene", "event")
@@ -90,6 +93,13 @@ class HybridRetriever:
                 try:
                     res = fut.result()
                 except Exception as exc:
+                    # debug is discarded by reads/search.py, so without this log
+                    # a fully-offline dense stage is invisible: the request
+                    # still returns 200 with BM25-only results.
+                    logger.warning(
+                        "retrieval stage %s/%s failed, continuing degraded: %s",
+                        source, kind, exc,
+                    )
                     debug.setdefault("errors", []).append(
                         {"stage": source, "kind": kind, "error": str(exc)}
                     )

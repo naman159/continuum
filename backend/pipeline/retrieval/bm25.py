@@ -36,7 +36,11 @@ _KIND_SQL: dict[str, str] = {
         WHERE c.novel_id = %(novel_id)s
           AND c.search_tsv @@ tq.query
           AND (%(max_chapter)s::int IS NULL OR c.number <= %(max_chapter)s::int)
-        ORDER BY raw_score DESC
+        -- item_id breaks ties deterministically: ts_rank_cd produces many
+        -- exactly-equal scores, and RRF consumes rank alone, so an arbitrary
+        -- tie order propagates straight into the fused ranking and makes the
+        -- retrieval eval flaky with no seed to reproduce a failure.
+        ORDER BY raw_score DESC, item_id
         LIMIT %(limit)s
     """,
     "scene": _TSQUERY_CTE
@@ -53,7 +57,11 @@ _KIND_SQL: dict[str, str] = {
         WHERE c.novel_id = %(novel_id)s
           AND s.search_tsv @@ tq.query
           AND (%(max_chapter)s::int IS NULL OR c.number <= %(max_chapter)s::int)
-        ORDER BY raw_score DESC
+        -- item_id breaks ties deterministically: ts_rank_cd produces many
+        -- exactly-equal scores, and RRF consumes rank alone, so an arbitrary
+        -- tie order propagates straight into the fused ranking and makes the
+        -- retrieval eval flaky with no seed to reproduce a failure.
+        ORDER BY raw_score DESC, item_id
         LIMIT %(limit)s
     """,
     "event": _TSQUERY_CTE
@@ -70,7 +78,11 @@ _KIND_SQL: dict[str, str] = {
         WHERE c.novel_id = %(novel_id)s
           AND e.search_tsv @@ tq.query
           AND (%(max_chapter)s::int IS NULL OR c.number <= %(max_chapter)s::int)
-        ORDER BY raw_score DESC
+        -- item_id breaks ties deterministically: ts_rank_cd produces many
+        -- exactly-equal scores, and RRF consumes rank alone, so an arbitrary
+        -- tie order propagates straight into the fused ranking and makes the
+        -- retrieval eval flaky with no seed to reproduce a failure.
+        ORDER BY raw_score DESC, item_id
         LIMIT %(limit)s
     """,
 }
