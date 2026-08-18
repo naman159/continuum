@@ -15,6 +15,7 @@ import Factions from "./routes/Factions";
 import Knowledge from "./routes/Knowledge";
 import LocationDetail from "./routes/LocationDetail";
 import Locations from "./routes/Locations";
+import NotFound from "./routes/NotFound";
 import Novels from "./routes/Novels";
 import ObjectDetail from "./routes/ObjectDetail";
 import Objects from "./routes/Objects";
@@ -60,6 +61,12 @@ export default function App() {
           <Route path="/novels/:novelId/process" element={<Layout><Process /></Layout>} />
           <Route path="/novels/:novelId/entity-types/:typeName/entities" element={<Layout><CustomEntityList /></Layout>} />
           <Route path="/novels/:novelId/custom-entities/:entityId" element={<Layout><CustomEntityDetail /></Layout>} />
+          {/* A bare /novels/:novelId has no page of its own; send it to the
+              novel's characters rather than rendering nothing. */}
+          <Route path="/novels/:novelId" element={<Navigate to="characters" replace />} />
+          {/* Without a catch-all, an unmatched URL renders zero routes: a
+              blank page with no sidebar and no way back. */}
+          <Route path="*" element={<Layout><NotFound /></Layout>} />
         </Routes>
       </Router>
     </QueryClientProvider>

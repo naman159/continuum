@@ -8,13 +8,15 @@ export default function Scenes() {
   const { novelId } = useParams();
   const [cap] = useChapterCap();
   const [chapter, setChapter] = useState<number | null>(null);
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["scenes", novelId, cap, chapter],
     queryFn: () => api.scenes(novelId!, cap, chapter),
     enabled: Boolean(novelId),
   });
 
-  if (isLoading) return <p>Loading…</p>;
+  // No early return before the filter input: `chapter` is part of the query
+  // key, so every keystroke put this component back into isLoading and
+  // unmounted the input, losing focus after the first digit.
 
   // Group scenes by chapter.
   const byChapter = new Map<number, typeof data>();
@@ -49,7 +51,15 @@ export default function Scenes() {
         )}
       </label>
 
-      {chapterKeys.length === 0 && <p className="muted">No scenes extracted yet.</p>}
+      {isLoading && <p>Loading…</p>}
+      {error && (
+        <p className="error">
+          Couldn&rsquo;t load scenes: {(error as Error).message}
+        </p>
+      )}
+      {!isLoading && !error && chapterKeys.length === 0 && (
+        <p className="muted">No scenes extracted yet.</p>
+      )}
 
       {chapterKeys.map((n) => (
         <section key={n} style={{ marginTop: 24 }}>

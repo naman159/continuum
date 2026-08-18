@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { DataSet } from "vis-data";
 import { Network } from "vis-network/standalone";
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import { useChapterCap } from "../hooks/useChapterCap";
@@ -11,8 +11,7 @@ export default function CharacterList() {
   const [cap] = useChapterCap();
   const location = useLocation();
   const navigate = useNavigate();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const networkRef = useRef<Network | null>(null);
+  const [graphEl, setGraphEl] = useState<HTMLDivElement | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["characters", novelId, cap],
@@ -26,8 +25,14 @@ export default function CharacterList() {
     enabled: Boolean(novelId),
   });
 
+  // A callback ref, not useRef: the isLoading early return below means the
+  // graph container is not mounted while the character list is still
+  // loading. If the graph query resolved first, the effect ran, bailed on a
+  // null ref, and never re-ran — graphData kept the same reference — so the
+  // graph silently never rendered. Storing the element in state re-runs the
+  // effect at the moment the container mounts.
   useEffect(() => {
-    if (!graphData || !containerRef.current) return;
+    if (!graphData || !graphEl) return;
     const nodes = new DataSet(
       graphData.nodes.map((n) => ({ id: n.id, label: n.label, title: n.description ?? undefined }))
     );
@@ -37,11 +42,14 @@ export default function CharacterList() {
         from: e.from,
         to: e.to,
         label: e.label ?? undefined,
-        arrows: "to",
+        // Mutual relations (spouse_of and friends) must not be drawn with a
+        // direction; Relationships.tsx already does this and both pages read
+        // the same cache entry, so an arrow here contradicted that page.
+        arrows: e.symmetric ? undefined : "to",
       }))
     );
     const network = new Network(
-      containerRef.current,
+      graphEl,
       { nodes, edges },
       {
         physics: { stabilization: { iterations: 200 } },
@@ -65,12 +73,10 @@ export default function CharacterList() {
         navigate(`/novels/${novelId}/characters/${params.nodes[0]}${window.location.search}`);
       }
     });
-    networkRef.current = network;
     return () => {
       network.destroy();
-      networkRef.current = null;
     };
-  }, [graphData, navigate, novelId]);
+  }, [graphData, graphEl, navigate, novelId]);
 
   if (isLoading) return <p className="muted">Loading…</p>;
   if (error) return <p style={{ color: "var(--red-text)" }}>Error: {(error as Error).message}</p>;
@@ -106,7 +112,7 @@ export default function CharacterList() {
       ) : (
         <>
           <p className="graph-caption">Double-click a node to open an entity. Hover for description.</p>
-          <div ref={containerRef} className="graph-container" />
+          <div ref={setGraphEl} className="graph-container" />
           <h3>All relationships ({graphData?.edges.length ?? 0})</h3>
           <table>
             <thead>
