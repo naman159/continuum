@@ -131,6 +131,20 @@ class DBSession:
     def __init__(self, conn: Any) -> None:
         self._conn = conn
 
+    @contextmanager
+    def savepoint(self):
+        """Isolate a block of statements behind a SAVEPOINT.
+
+        Postgres aborts the whole transaction on any statement error, so a
+        caller that catches an exception and keeps issuing statements on the
+        same connection gets ``InFailedSqlTransaction`` for everything that
+        follows — and the eventual COMMIT is silently converted to ROLLBACK.
+        Wrapping a best-effort block here rolls back just that block, leaving
+        the surrounding chapter transaction usable.
+        """
+        with self._conn.transaction():
+            yield
+
     def execute(self, query: str, params: Sequence[Any] | None = None) -> None:
         with self._conn.cursor() as cur:
             cur.execute(query, params)

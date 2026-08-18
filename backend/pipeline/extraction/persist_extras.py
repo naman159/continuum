@@ -9,6 +9,7 @@ on the closing-the-gap-with-sota branch: ``scenes``, ``knows_edges``, and
 """
 
 import logging
+from contextlib import contextmanager
 from difflib import SequenceMatcher
 from typing import Any
 
@@ -17,6 +18,28 @@ from pipeline.embeddings import EmbeddingService, vector_literal
 from pipeline.extraction.resolver import EntityResolver
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _row_savepoint(db: Any):
+    """Isolate one best-effort statement so a failure can't poison the chapter.
+
+    Every helper in this module runs inside the single transaction opened by
+    ``analyze_chapter``. Postgres aborts that transaction on the first
+    statement error, so catching the exception and continuing used to make
+    every later statement fail with ``InFailedSqlTransaction`` — and the
+    eventual COMMIT silently degrade to ROLLBACK, losing the whole chapter.
+    A SAVEPOINT rolls back only the failed block.
+
+    Falls back to a pass-through for DB objects with no savepoint support
+    (test fakes, or a bare DBClient used outside a session).
+    """
+    sp = getattr(db, "savepoint", None)
+    if sp is None:
+        yield
+        return
+    with sp():
+        yield
 
 
 # ---------------------------------------------------------------------------
@@ -47,8 +70,9 @@ def persist_scenes(
         pov_character_id = None
         if pov_name:
             try:
-                # Reference-only: resolve against existing characters, never mint.
-                resolved_pov = resolver.resolve_character(pov_name, create=False)
+                with _row_savepoint(db):
+                    # Reference-only: resolve against existing characters, never mint.
+                    resolved_pov = resolver.resolve_character(pov_name, create=False)
                 pov_character_id = resolved_pov.entity_id if resolved_pov else None
             except Exception as exc:  # pragma: no cover - defensive
                 logger.warning("scene pov resolve failed (%s): %s", pov_name, exc)
@@ -57,7 +81,8 @@ def persist_scenes(
         location_id = None
         if location_name:
             try:
-                location_id = resolver.resolve_location(location_name).entity_id
+                with _row_savepoint(db):
+                    location_id = resolver.resolve_location(location_name).entity_id
             except Exception as exc:  # pragma: no cover
                 logger.warning("scene location resolve failed (%s): %s", location_name, exc)
 
@@ -67,7 +92,8 @@ def persist_scenes(
             if not cleaned:
                 continue
             try:
-                resolved_present = resolver.resolve_character(cleaned, create=False)
+                with _row_savepoint(db):
+                    resolved_present = resolver.resolve_character(cleaned, create=False)
                 if resolved_present is not None:
                     present_ids.append(resolved_present.entity_id)
             except Exception as exc:  # pragma: no cover
@@ -79,38 +105,43 @@ def persist_scenes(
         embedding_vec = vector_literal(embedder.embed_text(summary)) if summary else None
 
         try:
-            scene_id = db.fetchval(
-                """
-                INSERT INTO scenes (
-                    chapter_id, scene_index, pov_character_id, location_id,
-                    time_anchor, present_characters, summary, embedding
+            with _row_savepoint(db):
+                scene_id = db.fetchval(
+                    """
+                    INSERT INTO scenes (
+                        chapter_id, scene_index, pov_character_id, location_id,
+                        time_anchor, present_characters, summary, embedding,
+                        embedding_model
+                    )
+                    VALUES (
+                        %s, %s, %s, %s, %s, %s::uuid[], %s,
+                        CASE WHEN %s::text IS NULL THEN NULL ELSE %s::vector END,
+                        %s
+                    )
+                    ON CONFLICT (chapter_id, scene_index) DO UPDATE SET
+                        pov_character_id = EXCLUDED.pov_character_id,
+                        location_id = EXCLUDED.location_id,
+                        time_anchor = EXCLUDED.time_anchor,
+                        present_characters = EXCLUDED.present_characters,
+                        summary = EXCLUDED.summary,
+                        embedding = EXCLUDED.embedding,
+                        embedding_model = EXCLUDED.embedding_model
+                    RETURNING id
+                    """,
+                    (
+                        chapter_id,
+                        scene_index,
+                        pov_character_id,
+                        location_id,
+                        time_anchor,
+                        present_ids,
+                        summary,
+                        embedding_vec,
+                        embedding_vec,
+                        embedder.model_name if embedding_vec else None,
+                    ),
+                    commit=True,
                 )
-                VALUES (
-                    %s, %s, %s, %s, %s, %s::uuid[], %s,
-                    CASE WHEN %s::text IS NULL THEN NULL ELSE %s::vector END
-                )
-                ON CONFLICT (chapter_id, scene_index) DO UPDATE SET
-                    pov_character_id = EXCLUDED.pov_character_id,
-                    location_id = EXCLUDED.location_id,
-                    time_anchor = EXCLUDED.time_anchor,
-                    present_characters = EXCLUDED.present_characters,
-                    summary = EXCLUDED.summary,
-                    embedding = EXCLUDED.embedding
-                RETURNING id
-                """,
-                (
-                    chapter_id,
-                    scene_index,
-                    pov_character_id,
-                    location_id,
-                    time_anchor,
-                    present_ids,
-                    summary,
-                    embedding_vec,
-                    embedding_vec,
-                ),
-                commit=True,
-            )
             inserted.append(str(scene_id))
         except Exception as exc:  # pragma: no cover - log and continue
             logger.warning("scene insert failed: %s", exc)
@@ -145,10 +176,12 @@ def persist_multi_summaries(
             SET summary_short = %s,
                 summary = COALESCE(NULLIF(%s, ''), summary),
                 summary_long = %s,
-                embedding = %s::vector
+                embedding = %s::vector,
+                embedding_model = %s
             WHERE id = %s
             """,
-            (short or None, medium, long_ or None, embedding_vec, chapter_id),
+            (short or None, medium, long_ or None, embedding_vec,
+             embedder.model_name, chapter_id),
         )
     else:
         db.execute(
@@ -197,8 +230,9 @@ def persist_knows_edges(
             continue
 
         try:
-            # Reference-only: only existing characters can hold knowledge.
-            resolved_knower = resolver.resolve_character(character_name, create=False)
+            with _row_savepoint(db):
+                # Reference-only: only existing characters can hold knowledge.
+                resolved_knower = resolver.resolve_character(character_name, create=False)
         except Exception as exc:  # pragma: no cover
             logger.warning("knows_edge character resolve failed (%s): %s", character_name, exc)
             continue
@@ -224,32 +258,34 @@ def persist_knows_edges(
             if not cleaned:
                 continue
             try:
-                resolved_shared = resolver.resolve_character(cleaned, create=False)
+                with _row_savepoint(db):
+                    resolved_shared = resolver.resolve_character(cleaned, create=False)
                 if resolved_shared is not None:
                     shared_ids.append(resolved_shared.entity_id)
             except Exception as exc:  # pragma: no cover
                 logger.warning("knows_edge shared resolve failed (%s): %s", cleaned, exc)
 
         try:
-            edge_id = db.fetchval(
-                """
-                INSERT INTO knows_edges (
-                    character_id, fact_description, learned_chapter,
-                    source_type, certainty, shared_with
+            with _row_savepoint(db):
+                edge_id = db.fetchval(
+                    """
+                    INSERT INTO knows_edges (
+                        character_id, fact_description, learned_chapter,
+                        source_type, certainty, shared_with
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s::uuid[])
+                    RETURNING id
+                    """,
+                    (
+                        character_id,
+                        fact,
+                        chapter_number,
+                        source_type,
+                        certainty,
+                        shared_ids,
+                    ),
+                    commit=True,
                 )
-                VALUES (%s, %s, %s, %s, %s, %s::uuid[])
-                RETURNING id
-                """,
-                (
-                    character_id,
-                    fact,
-                    chapter_number,
-                    source_type,
-                    certainty,
-                    shared_ids,
-                ),
-                commit=True,
-            )
             inserted.append(str(edge_id))
         except Exception as exc:  # pragma: no cover
             logger.warning("knows_edge insert failed: %s", exc)
@@ -266,7 +302,7 @@ _WEIGHT_MAP = {"low": 0.3, "medium": 0.6, "high": 1.0}
 
 
 def _resolve_related_entities(
-    names: list[str], resolver: EntityResolver
+    names: list[str], resolver: EntityResolver, db: Any = None
 ) -> list[str]:
     ids: list[str] = []
     for name in names or []:
@@ -274,8 +310,9 @@ def _resolve_related_entities(
         if not cleaned:
             continue
         try:
-            # Reference-only: link to existing entities, don't mint characters.
-            uid = resolver.resolve_any_entity(cleaned, create=False)
+            with _row_savepoint(db):
+                # Reference-only: link to existing entities, don't mint characters.
+                uid = resolver.resolve_any_entity(cleaned, create=False)
             if uid is not None:
                 ids.append(uid)
         except Exception as exc:  # pragma: no cover
@@ -311,37 +348,39 @@ def persist_commitments(
         weight_raw = str(fs.get("weight", "")).strip().lower()
         weight = _WEIGHT_MAP.get(weight_raw, 0.6)
         related_ids = _resolve_related_entities(
-            fs.get("related_entity_names", []) or [], resolver
+            fs.get("related_entity_names", []) or [], resolver, db
         )
         embedding_vec = vector_literal(embedder.embed_text(text))
 
         try:
-            cid = db.fetchval(
-                """
-                INSERT INTO commitments (
-                    novel_id, foreshadow_text, foreshadow_chapter,
-                    trigger_predicate, status, weight,
-                    related_entity_ids, embedding
+            with _row_savepoint(db):
+                cid = db.fetchval(
+                    """
+                    INSERT INTO commitments (
+                        novel_id, foreshadow_text, foreshadow_chapter,
+                        trigger_predicate, status, weight,
+                        related_entity_ids, embedding, embedding_model
+                    )
+                    VALUES (
+                        %s, %s, %s,
+                        CASE WHEN %s::text IS NULL THEN NULL ELSE to_jsonb(%s::text) END,
+                        'pending', %s, %s::uuid[], %s::vector, %s
+                    )
+                    RETURNING id
+                    """,
+                    (
+                        novel_id,
+                        text,
+                        chapter_number,
+                        trigger,
+                        trigger,
+                        weight,
+                        related_ids,
+                        embedding_vec,
+                        embedder.model_name,
+                    ),
+                    commit=True,
                 )
-                VALUES (
-                    %s, %s, %s,
-                    CASE WHEN %s::text IS NULL THEN NULL ELSE to_jsonb(%s::text) END,
-                    'pending', %s, %s::uuid[], %s::vector
-                )
-                RETURNING id
-                """,
-                (
-                    novel_id,
-                    text,
-                    chapter_number,
-                    trigger,
-                    trigger,
-                    weight,
-                    related_ids,
-                    embedding_vec,
-                ),
-                commit=True,
-            )
             inserted.append(str(cid))
         except Exception as exc:  # pragma: no cover
             logger.warning("commitment insert failed: %s", exc)
@@ -371,17 +410,18 @@ def persist_commitments(
             if not target_id:
                 continue
             try:
-                db.execute(
-                    """
-                    UPDATE commitments
-                    SET status = 'satisfied',
-                        payoff_chapter = %s,
-                        payoff_text = %s,
-                        updated_at = now()
-                    WHERE id = %s
-                    """,
-                    (chapter_number, payoff_text, target_id),
-                )
+                with _row_savepoint(db):
+                    db.execute(
+                        """
+                        UPDATE commitments
+                        SET status = 'satisfied',
+                            payoff_chapter = %s,
+                            payoff_text = %s,
+                            updated_at = now()
+                        WHERE id = %s
+                        """,
+                        (chapter_number, payoff_text, target_id),
+                    )
                 satisfied.append(target_id)
                 # Drop it from the in-memory pending list so a second payoff
                 # doesn't latch onto the same row.
