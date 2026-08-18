@@ -443,6 +443,49 @@ ALTER TABLE events      ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 ALTER TABLE scenes      ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 ALTER TABLE commitments ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 
+-- ---- events.involved_* array containment ----
+-- These UUID[] columns are the read layer's primary access path: every
+-- character/location/object/faction detail page runs `%s = ANY(e.involved_*)`,
+-- and reads/graphs.py self-joins events against characters on one of them.
+-- Without GIN, each of those is a sequential scan over events, whose heap
+-- tuples carry a VECTOR and a tsvector apiece.
+CREATE INDEX IF NOT EXISTS idx_events_involved_characters
+    ON events USING GIN (involved_characters);
+CREATE INDEX IF NOT EXISTS idx_events_involved_locations
+    ON events USING GIN (involved_locations);
+CREATE INDEX IF NOT EXISTS idx_events_involved_objects
+    ON events USING GIN (involved_objects);
+CREATE INDEX IF NOT EXISTS idx_events_involved_factions
+    ON events USING GIN (involved_factions);
+
+-- ---- FK columns driving the delete cascade ----
+-- Deleting a chapter cascades to its events; Postgres then enforces every
+-- referencing column with a per-deleted-row lookup. Unindexed, that is a
+-- sequential scan per event per table, which is what makes --replace on a
+-- mature novel take minutes while holding write locks.
+CREATE INDEX IF NOT EXISTS idx_continuity_flags_chapter
+    ON continuity_flags(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_continuity_flags_resolved_chapter
+    ON continuity_flags(resolved_chapter_id);
+CREATE INDEX IF NOT EXISTS idx_thread_events_event ON thread_events(event_id);
+CREATE INDEX IF NOT EXISTS idx_character_states_chapter ON character_states(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_character_states_location ON character_states(location_id);
+CREATE INDEX IF NOT EXISTS idx_scenes_pov_character ON scenes(pov_character_id);
+CREATE INDEX IF NOT EXISTS idx_scenes_location ON scenes(location_id);
+CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_location_id);
+CREATE INDEX IF NOT EXISTS idx_shared_dynamics_entity_b ON shared_dynamics(entity_b_id);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_event ON state_deltas(event_id);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_object ON state_deltas(object_id);
+CREATE INDEX IF NOT EXISTS idx_state_deltas_location ON state_deltas(location_id);
+CREATE INDEX IF NOT EXISTS idx_commitments_foreshadow_event
+    ON commitments(foreshadow_event_id);
+CREATE INDEX IF NOT EXISTS idx_commitments_payoff_event ON commitments(payoff_event_id);
+CREATE INDEX IF NOT EXISTS idx_knows_source_event ON knows_edges(source_event_id);
+CREATE INDEX IF NOT EXISTS idx_possesses_evidence_event
+    ON possesses_edges(evidence_event_id);
+CREATE INDEX IF NOT EXISTS idx_located_in_evidence_event
+    ON located_in_edges(evidence_event_id);
+
 CREATE OR REPLACE FUNCTION chapters_tsv_update() RETURNS trigger AS $$
 BEGIN
   NEW.search_tsv :=
