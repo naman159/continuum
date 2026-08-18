@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -63,6 +63,11 @@ if _FRONTEND_DIST.exists():
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str) -> FileResponse:
+        # Without this guard an unmatched /api/* GET falls through to
+        # index.html with status 200, so the frontend's res.ok check passes
+        # and res.json() dies on "<!doctype" instead of surfacing a 404.
+        if full_path == "api" or full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
         target = (_FRONTEND_DIST / full_path).resolve()
         # Refuse anything that escapes the dist directory ("../" traversal).
         if full_path and target.is_relative_to(_FRONTEND_DIST) and target.is_file():
