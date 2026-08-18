@@ -20,14 +20,39 @@ logger = logging.getLogger(__name__)
 _STATUS_FIELDS = {"emotional_state", "goals", "physical_state", "appearance", "notes"}
 
 
+class _CursorReader:
+    """Runs replay's reads on one caller-supplied cursor.
+
+    DBClient.fetchall checks out a fresh pooled connection per call, so
+    replay's four reads would otherwise land in four different transaction
+    snapshots. A chapter committed between them yields deltas whose chapter_id
+    is missing from the map built by the first read, and those deltas are
+    dropped silently.
+    """
+
+    def __init__(self, cur: Any) -> None:
+        self._cur = cur
+
+    def fetchall(self, query: str, params=None, *, dict_rows: bool = False, **_):
+        self._cur.execute(query, params)
+        rows = self._cur.fetchall()
+        if not dict_rows:
+            return list(rows)
+        cols = [d[0] for d in self._cur.description]
+        return [dict(zip(cols, row)) for row in rows]
+
+
 class StateReplay:
     def __init__(self, db: DBClient) -> None:
         self.db = db
 
     def replay(
-        self, novel_id: str, through_chapter: int
+        self, novel_id: str, through_chapter: int, cur: Any = None
     ) -> tuple[list[StateSnapshot], list[LocationFact], list[PossessionFact]]:
-        chapters = self.db.fetchall(
+        # When a cursor is supplied, every read runs inside the caller's
+        # transaction — one consistent snapshot for the whole replay.
+        db = _CursorReader(cur) if cur is not None else self.db
+        chapters = db.fetchall(
             "SELECT id, number FROM chapters WHERE novel_id = %s AND number <= %s ORDER BY number",
             (novel_id, through_chapter), dict_rows=True,
         )
@@ -38,20 +63,20 @@ class StateReplay:
 
         char_by_entity = {
             str(r["entity_id"]): str(r["id"])
-            for r in self.db.fetchall(
+            for r in db.fetchall(
                 "SELECT id, entity_id FROM characters WHERE novel_id = %s AND entity_id IS NOT NULL",
                 (novel_id,), dict_rows=True,
             )
         }
         object_by_entity = {
             str(r["entity_id"]): str(r["id"])
-            for r in self.db.fetchall(
+            for r in db.fetchall(
                 "SELECT id, entity_id FROM objects WHERE novel_id = %s AND entity_id IS NOT NULL",
                 (novel_id,), dict_rows=True,
             )
         }
 
-        deltas = self.db.fetchall(
+        deltas = db.fetchall(
             """
             SELECT d.kind, d.subject_id, d.object_id, d.location_id, d.change,
                    d.attribute, d.detail, d.certainty, d.event_id, d.chapter_id

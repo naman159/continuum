@@ -28,15 +28,26 @@ class StateMaterializer:
         self.replay = StateReplay(db)
 
     def materialize(self, novel_id: str, through_chapter: int) -> MaterializeResult:
-        snapshots, location_facts, possession_facts = self.replay.replay(
-            novel_id, through_chapter
-        )
-
         snapshots_written = 0
         location_edges_written = 0
         possession_edges_written = 0
 
         with self.db.transaction() as cur:
+            # Serialize per novel. materialize is a full novel-wide
+            # DELETE-then-rebuild, so two concurrent runs (jobs.py allows two
+            # chapters of one novel in flight) let the slower one overwrite the
+            # faster one's projections with a stale snapshot — and nothing
+            # re-derives them, because analyze_chapter already reported
+            # materialized=True. The lock is transaction-scoped and released on
+            # commit or rollback.
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(novel_id),)
+            )
+            # Replay on this cursor so the reads and the rebuild see one
+            # consistent snapshot of the delta log.
+            snapshots, location_facts, possession_facts = self.replay.replay(
+                novel_id, through_chapter, cur=cur
+            )
             snapshots_written = self._write_character_states(cur, novel_id, snapshots)
             location_edges_written = self._write_location_edges(
                 cur, novel_id, location_facts
@@ -144,7 +155,7 @@ class StateMaterializer:
         for entity_id, entity_facts in by_entity.items():
             inserted_ids: list[str] = []
             for fact in entity_facts:
-                row = cur.execute(
+                cur.execute(
                     """
                     INSERT INTO located_in_edges (
                         entity_id, location_id, since_chapter, until_chapter,
