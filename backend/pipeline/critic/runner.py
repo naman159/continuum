@@ -31,7 +31,9 @@ class ContinuityCritic:
         )
 
         report.findings.extend(
-            check_entity_mentions(self.db, draft.novel_id, draft.mentions)
+            check_entity_mentions(
+                self.db, draft.novel_id, draft.mentions, draft.chapter_number
+            )
         )
         report.findings.extend(
             check_location_possession(

@@ -123,3 +123,72 @@ def test_movement_pickup_and_inference_do_not_false_flag(db: DBClient):
     assert location_possession_warns == []
 
     db.execute("DELETE FROM novels WHERE id = %s", (novel_id,))
+
+
+def test_mcp_claims_collapse_to_one_location_per_character(db: DBClient, seeded):
+    """build_draft_chapter used to emit one location claim per LLM assertion.
+
+    check_location_possession FAILs a character with >1 distinct location in a
+    chapter, so a character who simply walked from one place to another failed
+    the MCP pre-save gate — the one path where a FAIL actually blocks a save.
+    The claim that matters is where they end up.
+    """
+    from pipeline.critic.adapter import build_draft_chapter
+
+    resolver = EntityResolver(db, novel_id=seeded, chapter_number=2)
+    resolver.resolve_location("The Old Mill", {})
+
+    draft = build_draft_chapter(
+        db,
+        novel_id=seeded,
+        chapter_number=2,
+        text="Aelric left the harbour for the mill.",
+        raw_claims={
+            "location_claims": [
+                {"character_name": "Aelric", "location_name": "Pellis Harbor"},
+                {"character_name": "Aelric", "location_name": "The Old Mill"},
+            ],
+        },
+        planned_thread_ids=[],
+        planned_commitment_ids=[],
+    )
+
+    assert len(draft.location_claims) == 1
+    report = ContinuityCritic(db).critique(draft)
+    assert not [f for f in report.findings if f.severity is Severity.FAIL], (
+        "a character moving within one chapter must not FAIL the gate"
+    )
+
+
+def test_location_claims_collapse_on_resolved_id_not_surface_name(db: DBClient, seeded):
+    """Two surface forms of one character must collapse to a single claim.
+
+    Keying the collapse on the raw name let an alias the resolver already
+    knows produce two claims that both resolved to the same character_id,
+    which the check then read as 'asserted in 2 locations'.
+    """
+    from pipeline.critic.adapter import build_draft_chapter
+
+    db.execute(
+        "UPDATE characters SET aliases = %s WHERE novel_id = %s AND name = %s",
+        (["Lord Aelric"], seeded, "Aelric"),
+    )
+    resolver = EntityResolver(db, novel_id=seeded, chapter_number=2)
+    resolver.resolve_location("The Old Mill", {})
+
+    draft = build_draft_chapter(
+        db,
+        novel_id=seeded,
+        chapter_number=2,
+        text="...",
+        raw_claims={
+            "location_claims": [
+                {"character_name": "Aelric", "location_name": "Pellis Harbor"},
+                {"character_name": "Lord Aelric", "location_name": "The Old Mill"},
+            ],
+        },
+        planned_thread_ids=[],
+        planned_commitment_ids=[],
+    )
+
+    assert len(draft.location_claims) == 1

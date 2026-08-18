@@ -95,13 +95,31 @@ def normalize_text(text: str) -> str:
     return " ".join((text or "").lower().split())
 
 
+# Function words carry no evidence of subject-matter overlap. Without this,
+# "The blade will return to the sea" and "the ship will sail to the harbor"
+# match on {the, will, to} alone and the finding cites those three words as
+# its evidence.
+_STOPWORDS = frozenset(
+    """a an the and or but if then than that this these those of in on at to
+    for from by with without into onto over under again further once is are
+    was were be been being am do does did doing have has had having will would
+    shall should can could may might must it its he she they them his her
+    their there here as not no nor so too very just about after before""".split()
+)
+
+
+def content_words(text: str) -> set[str]:
+    """Words from a normalize_text'd fragment that carry subject matter."""
+    return {w for w in text.split() if w not in _STOPWORDS}
+
+
 def words_overlap(a: str, b: str, *, min_words: int, ratio: float) -> set[str]:
     """Shared fuzzy match between two normalize_text'd prose fragments: when
-    the word overlap reaches max(min_words, ratio * |words(a)|), return the
-    overlapping words (the evidence); otherwise return an empty set.
+    the content-word overlap reaches max(min_words, ratio * |content(a)|),
+    return the overlapping words (the evidence); otherwise return an empty set.
     Thresholds are tuned per check (commitments vs knowledge state)."""
-    a_words = set(a.split())
-    b_words = set(b.split())
+    a_words = content_words(a)
+    b_words = content_words(b)
     if not a_words or not b_words:
         return set()
     overlap = a_words & b_words

@@ -135,7 +135,18 @@ def build_draft_chapter(
             "quote": k.get("quote"),
         })
 
-    location_claims: list[dict] = []
+    # One claim per character: the LAST location the draft puts them in.
+    # check_location_possession FAILs when a character has >1 distinct location
+    # claim in a chapter, so emitting one claim per LLM assertion failed every
+    # character who simply walked somewhere — which is most chapters. The
+    # claim that matters is where the character ends up, since that is what
+    # gets compared against prior state. build_draft_from_extraction already
+    # collapsed this way; this path was missed.
+    #
+    # Keyed on the RESOLVED character_id, not the surface name: two spellings
+    # that resolve to one character (an alias the resolver already knows) must
+    # collapse together, or the check FAILs on a name variant.
+    location_by_char: dict[str, dict] = {}
     for c in raw_claims.get("location_claims", []):
         if not isinstance(c, dict):
             continue
@@ -143,7 +154,10 @@ def build_draft_chapter(
         loc = _find("location", str(c.get("location_name", "")))
         if cid is None or loc is None:
             continue
-        location_claims.append({"character_id": cid, "location_id": loc[0], "quote": c.get("quote")})
+        location_by_char[str(cid)] = {
+            "character_id": cid, "location_id": loc[0], "quote": c.get("quote"),
+        }
+    location_claims: list[dict] = list(location_by_char.values())
 
     possession_claims: list[dict] = []
     for c in raw_claims.get("possession_claims", []):

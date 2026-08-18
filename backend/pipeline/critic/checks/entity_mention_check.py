@@ -13,14 +13,32 @@ flag any mention that contradicts a locked fact. Mention payload shape:
 
 from __future__ import annotations
 
-from pipeline.critic.types import Finding, Severity
+import re
+
+from pipeline.critic.types import Finding, Severity, normalize_text
 from pipeline.db.client import DBClient
+
+
+def _canon_equivalent(a: str, b: str) -> bool:
+    """Compare two canon values for practical equality.
+
+    This check emits Severity.FAIL, so exact string equality made it fail a
+    chapter on punctuation alone — canon "storm-grey" versus a draft's "storm
+    grey" is not a continuity violation. Fold separators and surrounding
+    punctuation before comparing.
+    """
+    def fold(value: str) -> str:
+        collapsed = re.sub(r"[-_/]+", " ", normalize_text(value))
+        return " ".join(re.sub(r"[^\w\s]", "", collapsed).split())
+
+    return fold(a) == fold(b)
 
 
 def check_entity_mentions(
     db: DBClient,
     novel_id: str,
     mentions: list[dict],
+    chapter_number: int | None = None,
 ) -> list[Finding]:
     if not mentions:
         return []
@@ -29,13 +47,19 @@ def check_entity_mentions(
     if not entity_ids:
         return []
 
+    # Compare against canon established BEFORE this chapter. On the ingestion
+    # spine persist_canon_facts has already written this chapter's own facts by
+    # the time the critique runs, so without this bound every mention is
+    # compared against the row it just produced and the check can never
+    # disagree with itself.
     rows = db.fetchall(
         """
         SELECT subject_entity_id, predicate, value, locked, source_chapter, confidence
           FROM canon_facts
          WHERE novel_id = %s AND subject_entity_id = ANY(%s::uuid[])
+           AND (%s::int IS NULL OR source_chapter IS NULL OR source_chapter < %s::int)
         """,
-        (novel_id, entity_ids),
+        (novel_id, entity_ids, chapter_number, chapter_number),
         dict_rows=True,
     )
 
@@ -57,7 +81,7 @@ def check_entity_mentions(
         canonical = fact_index.get(key)
         if canonical is None:
             continue
-        if claimed.lower() == str(canonical["value"]).strip().lower():
+        if _canon_equivalent(claimed, str(canonical["value"])):
             continue
         # Mismatch.
         sev = Severity.FAIL if canonical["locked"] else Severity.WARN

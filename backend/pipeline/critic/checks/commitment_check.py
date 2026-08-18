@@ -64,14 +64,19 @@ def check_commitments(
     # pending commitment that was NOT in the plan?
     event_texts = [_normalize(e.get("description", "")) for e in events]
     if event_texts:
+        # foreshadow_chapter <= this chapter: a commitment planted in a LATER
+        # chapter does not exist yet in story time, so a draft event cannot
+        # accidentally pay it off. Without this bound, re-processing an early
+        # chapter warns about foreshadows from the end of the book.
         pending = db.fetchall(
             """
             SELECT id, foreshadow_text
               FROM commitments
              WHERE novel_id = %s
                AND status = 'pending'
+               AND (foreshadow_chapter IS NULL OR foreshadow_chapter <= %s)
             """,
-            (novel_id,),
+            (novel_id, chapter_number),
             dict_rows=True,
         )
         planned_set = {str(p) for p in (planned_commitment_ids or [])}
