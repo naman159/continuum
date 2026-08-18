@@ -100,6 +100,34 @@ def init_db(schema_path: str | None = None) -> None:
                 "INSERT INTO schema_version (version) VALUES (%s)",
                 (SCHEMA_VERSION,),
             )
+        _assert_embedding_dimension_matches(db)
+
+
+def _assert_embedding_dimension_matches(db: DBClient) -> None:
+    """Fail loudly when EMBEDDING_DIMENSIONS drifts from the live schema.
+
+    Vector columns are created with the configured size baked in, but every
+    CREATE TABLE is IF NOT EXISTS, so re-running init-db against a populated
+    database silently leaves the old width in place. Every subsequent chapter
+    then dies on `%s::vector` with an error that never mentions the config
+    change that caused it.
+    """
+    live = db.fetchval(
+        """
+        SELECT atttypmod
+        FROM pg_attribute
+        WHERE attrelid = 'chapters'::regclass AND attname = 'embedding'
+        """
+    )
+    if live is None:
+        return
+    if int(live) != settings.embedding_dimensions:
+        raise SystemExit(
+            f"EMBEDDING_DIMENSIONS is {settings.embedding_dimensions} but "
+            f"chapters.embedding is vector({int(live)}). CREATE TABLE IF NOT "
+            "EXISTS cannot widen an existing column: either restore the old "
+            "value, or migrate the vector columns and re-embed."
+        )
 
 
 def create_novel(title: str, author: str | None, language: str) -> str:

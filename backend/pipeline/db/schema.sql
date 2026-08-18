@@ -431,6 +431,18 @@ CREATE INDEX IF NOT EXISTS idx_chapters_tsv ON chapters USING GIN (search_tsv);
 CREATE INDEX IF NOT EXISTS idx_scenes_tsv   ON scenes   USING GIN (search_tsv);
 CREATE INDEX IF NOT EXISTS idx_events_tsv   ON events   USING GIN (search_tsv);
 
+-- ---- Embedding provenance ----
+-- Which model produced each stored vector. Without this, a hash vector (from
+-- a USE_MOCK_LLM ingest) is indistinguishable from a real embedding forever,
+-- and a store that mixes the two silently returns near-random dense results.
+-- Mixing is the normal case, not an exotic one: ingesting with mock and later
+-- switching to a real model is the default development path.
+-- NULL means "written before this column existed" — provenance unknown.
+ALTER TABLE chapters    ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+ALTER TABLE events      ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+ALTER TABLE scenes      ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+ALTER TABLE commitments ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+
 CREATE OR REPLACE FUNCTION chapters_tsv_update() RETURNS trigger AS $$
 BEGIN
   NEW.search_tsv :=
