@@ -791,7 +791,14 @@ def _find_related_event_id(
             if lowered in candidate or candidate in lowered:
                 return row["id"]
 
-    return event_rows[0]["id"]
+    # No match: return None rather than falling back to the chapter's first
+    # event. That fallback welded every unidentifiable thread update to
+    # whatever event happened to be extracted first, and thread_events rows are
+    # read as evidence that a thread was advanced — so it invented links the
+    # text never supported, and surfaced a blade-sharpening as the evidence for
+    # a succession crisis. An unlinked thread update is merely incomplete;
+    # a wrongly-linked one is false.
+    return None
 
 
 def build_parser() -> argparse.ArgumentParser:
