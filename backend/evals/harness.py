@@ -109,17 +109,35 @@ def read_projections(db: DBClient, novel_id: str) -> dict[str, Any]:
     }
 
 
-def run_retrieval_eval(db: DBClient, novel_id: str, k: int = 8) -> dict[str, Any]:
+def run_retrieval_eval(
+    db: DBClient, novel_id: str, k: int = 8, *, use_real_embeddings: bool = False
+) -> dict[str, Any]:
     """recall@k over the golden queries, via the production reads.search path.
 
-    The retriever is injected with mock (hash) embeddings so the eval is
-    offline and deterministic regardless of the environment's USE_MOCK_LLM:
-    the fixture was ingested with hash embeddings, so real query embeddings
-    would mismatch anyway. This grades the BM25/keyword half plus the full
-    RRF/MMR plumbing.
+    Two modes, deliberately named apart, because they do not measure the same
+    thing and the difference is not a detail:
+
+    ``use_real_embeddings=False`` (default) is the offline regression gate. The
+    fixture is ingested with mock embeddings, so both sides are hash vectors.
+    Those carry **no** semantic signal — two strings differing only by a
+    trailing period measure about -0.016 cosine against each other, while two
+    unrelated texts measure about -0.001 — and they are fused into RRF as three
+    of six ranked lists at equal weight. So the dense channel is not merely
+    uninformative here, it is active noise, and the resulting number is BM25
+    recall degraded by a random channel. It is a legitimate *regression* signal
+    (it moves when the plumbing breaks) and a meaningless *quality* one, so it
+    is reported as ``bm25_recall_at_k`` and must never be quoted as hybrid
+    retrieval quality.
+
+    ``use_real_embeddings=True`` calls the configured embedding model for the
+    queries and requires a fixture ingested with the same model. This is the
+    only mode whose number describes the system users actually run; gate it
+    behind RUN_LLM_EVALS=1 like the other real-model evals.
     """
     key = load_answer_key()
-    retriever = HybridRetriever(db, EmbeddingService(use_mock=True))
+    retriever = HybridRetriever(
+        db, EmbeddingService(use_mock=not use_real_embeddings)
+    )
     per_query: list[dict[str, Any]] = []
     for q in key["queries"]:
         got = search(db, novel_id, q["text"], up_to_chapter=None, k=k, retriever=retriever)
@@ -134,5 +152,17 @@ def run_retrieval_eval(db: DBClient, novel_id: str, k: int = 8) -> dict[str, Any
             "got": result_chapters[:k],
             "recall_at_k": score,
         })
+    if not per_query:
+        return {"metric": "recall_at_k", "k": k, "per_query": [], "mean_recall_at_k": 0.0}
     mean = sum(p["recall_at_k"] for p in per_query) / len(per_query)
-    return {"mean_recall_at_k": mean, "k": k, "per_query": per_query}
+    metric = "hybrid_recall_at_k" if use_real_embeddings else "bm25_recall_at_k"
+    return {
+        "metric": metric,
+        metric: mean,
+        # Retained under the old key so existing callers and the regression
+        # assertion keep working; read `metric` to know what it measured.
+        "mean_recall_at_k": mean,
+        "dense_channel": "real" if use_real_embeddings else "hash (noise)",
+        "k": k,
+        "per_query": per_query,
+    }
