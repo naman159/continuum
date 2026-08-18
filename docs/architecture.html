@@ -627,15 +627,91 @@ graph LR
         <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for each event description, plus the chapter summary only when no medium summary exists (otherwise <code>persist_multi_summaries()</code> embeds the chapter from <code>summary_medium</code>, so the extra call is skipped).
       </li>
       <li>
-        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_canon_facts()</code> fill the newer tables added in the SOTA branch. Canon facts upsert unless locked — a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) rather than an overwrite.
+        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_canon_facts()</code> fill the newer tables added in the SOTA branch. Canon facts upsert unless locked — a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) rather than an overwrite. The per-row "log and continue" blocks in <code>persist_extras.py</code> each run inside a <code>SAVEPOINT</code> (<code>_row_savepoint()</code>) — see the callout below for why that is load-bearing.
       </li>
       <li>
         <strong>4 · MATERIALIZE</strong> — runs outside the persistence transaction, after it commits: <code>StateMaterializer</code> replays <code>state_deltas</code> through the novel's latest chapter. A failure here is caught and logged, not raised — the already-committed chapter stays saved, and the result dict's <code>"materialized"</code> flag tells the caller a manual re-run (<code>python -m pipeline.state.cli</code>) is needed.
       </li>
       <li>
-        <strong>5 · CRITIQUE — persisted per chapter</strong> — <code>build_draft_from_extraction()</code> (<code>pipeline/critic/adapter.py</code>) reuses this chapter's already-extracted claims to build a <code>DraftChapter</code> (no second LLM pass), <code>ContinuityCritic</code> runs its five typed checks against it, and <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the result to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter. Like phase 4, this is derived-and-idempotent: a failure is caught and logged, and the result dict's <code>"critique"</code> key is <code>None</code> rather than raising. Because the checks compare this chapter's claims against the world state <em>entering</em> this chapter, running critique after the chapter is committed and materialized is correct by design, not a temporal bug. <strong>Caveat:</strong> this holds precisely for the location/possession and knowledge-state checks, which cut off their comparison state by chapter number — but Phase 5 runs <em>after</em> this chapter's canon facts were upserted, so the entity-mention/canon check only detects contradictions against <em>locked</em> facts; an unlocked fact is compared against the value this same chapter just wrote, which is vacuously consistent.
+        <strong>5 · CRITIQUE — optional, decoupled, re-runnable</strong> — skipped entirely when <code>CRITIC_ENABLED=false</code> or the request passes <code>run_critic: false</code>. The critic is a judgement <em>about</em> a chapter, not part of getting it into the memory layer, so it lives behind <code>pipeline/critic/service.py::critique_chapter()</code> and reads only committed data. That means a chapter ingested with the critic off is fully queryable and can be critiqued later — <code>python -m pipeline.critic.cli --novel-id &lt;uuid&gt; [--chapter N]</code> re-runs it over one chapter or a whole back catalogue without paying for re-extraction, which is also the recovery path after a transient failure or a change to a check. <code>build_draft()</code> assembles a <code>DraftChapter</code> (see <code>CRITIQUE_CLAIMS</code>), <code>ContinuityCritic</code> runs its five typed checks, and <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the result to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter — so re-running is idempotent. Like phase 4, this is derived-and-idempotent: a failure is caught and logged, and the result dict's <code>"critique"</code> key is <code>None</code> rather than raising. Because the checks compare this chapter's claims against the world state <em>entering</em> this chapter, running critique after the chapter is committed and materialized is correct by design, not a temporal bug. The entity-mention check used to be the exception — it ran after this chapter's canon facts were upserted and so compared each claim against the row it had just written — but it now bounds its comparison to <code>source_chapter &lt; chapter_number</code>, so unlocked facts are checked against prior canon like everything else.
       </li>
     </ol>
+
+    <div class="callout warn">
+      <strong>Relationship reads mean "in force at the cutoff" (fixed 2026-08-17).</strong>
+      Two defects made relationship answers wrong rather than merely incomplete.
+      <code>reads/characters.py</code> required <code>entity_type = 'character'</code> on
+      <em>both</em> endpoints, so every character↔object/location/faction edge was invisible from
+      the character's side — <code>GET /objects/{id}</code> showed "Aelric wields Duskbrand" while
+      <code>GET /characters/{aelric}</code> and the MCP <code>get_character</code> tool showed
+      nothing, and <code>rel_to_row</code>'s <code>other_entity_type</code> resolution was
+      unreachable code. Separately, <code>relationships.to_chapter</code> appeared in <em>zero</em>
+      WHERE clauses repo-wide, so every read meant "started before N", never "still true at N" — an
+      alliance that broke in chapter 6 was still reported as current at chapter 20. All five
+      relationship reads now filter <code>to_chapter</code> and <code>superseded_by_id</code>, and
+      <code>list_location_edges</code>/<code>list_possession_edges</code> filter
+      <code>superseded_by_id</code> under <code>active_only</code> so a character who moves twice in
+      one chapter no longer reads as being in two places at once.
+    </div>
+
+    <div class="callout warn">
+      <strong>Entity identity is additive-only (fixed 2026-08-17).</strong> Two resolver defects
+      could silently and permanently corrupt identity, which for a memory layer is worse than a
+      missing answer — a wrong merge is unrecoverable without manual repair and poisons every later
+      chapter. The partial-name branch used <code>LIMIT 1</code> with no <code>ORDER BY</code>, so a
+      bare "Elizabeth" bound to whichever of Elizabeth Bennet / Elizabeth Elliot the planner
+      happened to return, <em>and then persisted that guess as an alias</em>. It now returns every
+      candidate and refuses to bind when more than one matches. Alias writes are also gated on
+      <code>create=True</code>: reference-only passes (scene POV, knows-edges, event actors, state
+      deltas) resolve for lookup and must not mutate identity. Conversely,
+      <code>_merge_aliases()</code> now folds extractor-supplied aliases into entities that already
+      exist — previously they were written only on create, so a nickname established in a later
+      chapter was discarded and its next bare use minted a duplicate character.
+    </div>
+
+    <div class="callout warn">
+      <strong>Best-effort persistence requires savepoints (fixed 2026-08-16).</strong>
+      <code>persist_scenes()</code>, <code>persist_knows_edges()</code> and
+      <code>persist_commitments()</code> catch per-row failures so one bad scene doesn't cost the
+      chapter. That intent was inverted in practice: PostgreSQL aborts the whole transaction on
+      any statement error, and <code>DBSession</code> issued no savepoints, so after the first
+      failure every later statement raised <code>InFailedSqlTransaction</code> — swallowed in turn
+      by the next handler. Two outcomes followed, both losing the entire chapter. If a later
+      unguarded step (<code>persist_canon_facts()</code> or <code>persist_state_deltas()</code>,
+      neither of which catches) issued a statement, it raised and rolled back, reporting
+      "current transaction is aborted" while the real cause appeared only as a lone
+      <code>WARNING scene insert failed</code>. If neither had rows to write, nothing raised at all:
+      <code>COMMIT</code> on an aborted transaction is silently converted to <code>ROLLBACK</code>
+      by PostgreSQL, so <code>analyze_chapter</code> returned a success payload carrying a
+      <code>chapter_id</code> for a row that no longer existed. Every one of those handlers was
+      marked <code>#&nbsp;pragma:&nbsp;no&nbsp;cover</code>, which is why a green suite never caught it.
+      <code>DBSession.savepoint()</code> now wraps each block, and
+      <code>pipeline/db/tests/test_session_savepoint_integration.py</code> pins both the fix and a
+      characterization of the old silent-discard behaviour.
+    </div>
+
+    <div class="callout warn">
+      <strong>Embedding failures now raise instead of substituting a hash vector.</strong>
+      <code>EmbeddingService.embed_text()</code> used to catch every failure — rate limit, timeout,
+      missing key, wrong <code>dimensions</code> — and return <code>_hash_embedding()</code>, whose
+      SHA-256 output carries no semantic signal whatsoever: two strings differing only by a trailing
+      period measure ≈ −0.016 cosine against each other, while two entirely unrelated texts measure
+      ≈ −0.001. Those vectors were written to <code>chapters</code>, <code>events</code>,
+      <code>scenes</code> and <code>commitments</code> and indexed by HNSW, permanently and
+      undetectably degrading dense retrieval for whatever they touched. Outside explicit mock mode
+      the service now raises <code>EmbeddingError</code>, and asserts the returned vector width
+      matches <code>EMBEDDING_DIMENSIONS</code> before handing it back.
+      <br><br>
+      Those four tables also carry an <code>embedding_model</code> column recording what produced
+      each vector (<code>mock:hash</code> for mock runs, otherwise the configured model). This is
+      not only about the historical rows: <code>USE_MOCK_LLM</code> writes hash vectors
+      <em>legitimately</em>, so ingesting with mock and later switching to a real model is the
+      normal development path and produces a silently mixed store. To find rows that no longer match
+      the current configuration:
+      <pre><code>SELECT embedding_model, count(*) FROM chapters GROUP BY 1;</code></pre>
+      Rows with <code>NULL</code> predate the column; rows tagged <code>mock:hash</code> carry no
+      semantic content and should be re-ingested before dense retrieval is trusted.
+    </div>
 
     <div class="callout warn">
       <strong>Note on idempotency:</strong> Re-processing a chapter requires passing <code>replace=True</code> (API: <code>"replace": true</code> in the <code>ProcessRequest</code> body). Without it, ingest rejects duplicate chapter numbers. With <code>replace=True</code>, <code>delete_chapter_data()</code> removes the following chapter-scoped derived rows before re-processing begins:
@@ -1572,7 +1648,7 @@ flowchart LR
         <tr><th>Check</th><th>File</th><th>What It Validates</th></tr>
       </thead>
       <tbody>
-        <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN</td></tr>
+        <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN. Compares only against canon with <code>source_chapter &lt; chapter_number</code> — on the ingestion spine <code>persist_canon_facts()</code> has already written this chapter's own facts by the time the critique runs, so without that bound every mention was compared against the row it had just produced and the check could never disagree with itself. Values are compared with separators and punctuation folded, so canon <code>"storm-grey"</code> vs. a draft's <code>"storm grey"</code> is not a FAIL.</td></tr>
         <tr><td>Location &amp; possession</td><td><code>location_possession_check.py</code></td><td>Character location/possession claims don't contradict active bitemporal edges</td></tr>
         <tr><td>Knowledge state</td><td><code>knowledge_state_check.py</code></td><td>Knows-edges don't contradict existing theory-of-mind state. Claims the draft marks as learned this chapter (<code>learned_this_chapter</code>, an explicit boolean from the claims extractor) are exempt; the rest are matched against <code>knows_edges</code> by word overlap, since the stored and claimed phrasings come from independent LLM calls</td></tr>
         <tr><td>Commitments</td><td><code>commitment_check.py</code></td><td>Pending commitments are either advanced or acknowledged</td></tr>
@@ -1622,6 +1698,21 @@ flowchart LR
       source deltas have since been removed or edited (e.g. a chapter re-processed with
       <code>replace=true</code>) disappear instead of surviving as stale rows.
     </p>
+
+    <div class="callout warn">
+      <strong>Serialized per novel since 2026-08-16.</strong> Because <code>materialize()</code> is
+      a novel-wide DELETE-then-rebuild, two concurrent runs were a data-loss race, not merely a
+      stale read: <code>jobs.py</code> allows two chapters of one novel in flight, and the run that
+      replayed first could commit last, wiping the other's projections and leaving nothing to
+      re-derive them — <code>analyze_chapter</code> had already returned <code>materialized: true</code>.
+      Recovery required a manual <code>python -m pipeline.state.cli</code>. Two changes close it:
+      <code>materialize()</code> now takes a transaction-scoped
+      <code>pg_advisory_xact_lock(novel_id)</code> before touching anything, and
+      <code>StateReplay.replay()</code> accepts the transaction's own cursor so its four reads see
+      one consistent snapshot. Previously each read checked out a separate pooled connection, so a
+      chapter committed between them produced deltas whose <code>chapter_id</code> was missing from
+      the map built by the first read — and those deltas were dropped with no log line.
+    </div>
 
     <p>
       Each run is logged to <code>materialized_state_runs</code> for auditability.

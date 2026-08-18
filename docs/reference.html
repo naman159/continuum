@@ -318,7 +318,22 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><code>EMBEDDING_DIMENSIONS</code></td>
           <td><code>1536</code></td>
-          <td>Vector dimensions. Must match what pgvector HNSW index was created with.</td>
+          <td>Vector dimensions. Must match what pgvector HNSW index was created with — <code>init-db</code> now asserts this against the live <code>chapters.embedding</code> column and exits with an explanatory error on drift, rather than letting every subsequent chapter die on an opaque <code>::vector</code> cast failure.</td>
+        </tr>
+        <tr>
+          <td><code>CRITIC_ENABLED</code></td>
+          <td><code>true</code></td>
+          <td>Whether ingestion runs the continuity critic. The critic is a separate post-ingest judgement, not part of getting a chapter into the memory layer — set <code>false</code> for ingest-only deployments and run <code>python -m pipeline.critic.cli</code> later if you want the reports. Overridable per request via <code>run_critic</code> on <code>POST /chapters/process</code>.</td>
+        </tr>
+        <tr>
+          <td><code>CRITIQUE_CLAIMS</code></td>
+          <td><code>extract</code></td>
+          <td>Where the critique phase gets its claims. <code>extract</code> spends one extra LLM call per chapter reading the chapter text via <code>extract_draft_claims()</code>, which is what gives the knowledge and location/possession checks anything to test — the extraction passes describe what characters <em>learned</em> and <em>gained</em>, never what they act on as already-known. <code>reuse</code> reuses the existing passes and skips the call, at the cost of those two checks never firing. Mock runs always fall back to <code>reuse</code>, since <code>extract_draft_claims</code> returns empty claims without a real LLM and an empty draft passes the critic vacuously.</td>
+        </tr>
+        <tr>
+          <td><code>DB_MAX_CONNECTIONS</code></td>
+          <td><code>20</code></td>
+          <td>Connection-pool ceiling. Every API route handler is a plain <code>def</code>, so Starlette runs them on its 40-slot threadpool; the previous hardcoded <code>5</code> made concurrent requests queue and then fail with <code>PoolTimeout</code> after psycopg's 30s default, surfacing as an unhandled 500.</td>
         </tr>
         <tr>
           <td><code>LLM_TEMPERATURE</code></td>
@@ -477,11 +492,22 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </p>
 
     <div class="callout tip">
-      <strong>Cutoff-aware by default.</strong> Every lookup below takes a <code>writing_chapter</code>
-      and returns only facts from chapters strictly before it — an agent drafting chapter N sees the
-      world as of N−1. The exceptions are <code>list_novels</code> and <code>list_chapters</code>
-      (no cutoff parameter at all) and <code>canon_facts</code>, whose <code>writing_chapter</code> is
-      optional — omit it to see every canon fact regardless of when it was established.
+      <strong>Cutoff-aware, with no exceptions.</strong> Every lookup below takes a
+      <code>writing_chapter</code> and returns only facts from chapters strictly before it — an
+      agent drafting chapter N sees the world as of N−1. <code>list_novels</code> is the sole
+      tool without a cutoff, because it is not chapter-anchored.
+    </div>
+
+    <div class="callout warn">
+      <strong><code>list_chapters</code> and <code>canon_facts</code> leaked unwritten chapters
+      prior to 2026-08-16.</strong> <code>list_chapters</code> accepted no <code>writing_chapter</code>
+      at all and passed <code>up_to_chapter=None</code>, which resolves to <code>MAX(number)</code>;
+      since <code>reads.chapters.list_chapters</code> selects <code>summary_long</code>, an agent
+      calling it "for orientation" on chapter 12 of a 40-chapter novel received long-form summaries
+      of the entire remaining plot. <code>canon_facts</code> had the same defect one notch softer —
+      its <code>writing_chapter</code> was optional and defaulted to the unsafe value. Both now
+      require the parameter and cap at <code>writing_chapter − 1</code>, matching every other tool.
+      Regression guards live in <code>mcp_server/tests/test_server.py</code>.
     </div>
 
     <div class="callout warn">
@@ -499,7 +525,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       </thead>
       <tbody>
         <tr><td><code>list_novels</code></td><td>—</td><td>—</td><td>List all novels: id, title, author, highest chapter number <span class="badge blue">orientation</span></td></tr>
-        <tr><td><code>list_chapters</code></td><td><code>novel_id</code></td><td>—</td><td>Every chapter (number, title, summary, <code>critique: {passed, fails, warns} | null</code>) for orientation <span class="badge blue">orientation</span></td></tr>
+        <tr><td><code>list_chapters</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Chapters written before <code>writing_chapter</code> (number, title, summary, <code>critique: {passed, fails, warns} | null</code>) for orientation <span class="badge blue">orientation</span>. <strong>Fixed 2026-08-16</strong> — previously took no cutoff and passed <code>None</code>, returning <code>summary_long</code> for every unwritten chapter and handing the drafting agent the rest of the book.</td></tr>
         <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Hybrid (semantic + keyword) search over prose and extracted facts — "has X happened yet?"</td></tr>
         <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character. State history rows dropped the broken <code>relationships</code> column and gained <code>appearance</code>; event rows gained involved-character/location/object/faction name arrays. A character whose <code>first_appearance_chapter</code> is beyond the cutoff is reported not-found — same existence semantics as <code>list_characters</code>, so a writing agent never sees a character who hasn't been introduced yet.</td></tr>
         <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history <span class="badge orange">SOTA</span></td></tr>
@@ -507,7 +533,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads whose <code>status_at_cutoff</code> is not <code>closed</code> as of <code>writing_chapter − 1</code>, each with capped event history. Point-in-time accurate for any chapter, not just the next unwritten one. Spoiler masking: for any thread not yet closed at the cutoff, <code>closed_chapter</code> is nulled and <code>status</code> is overwritten with <code>status_at_cutoff</code> so a later real closure never leaks.</td></tr>
         <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing whose <code>status_at_cutoff</code> is <code>pending</code> as of <code>writing_chapter − 1</code>. Point-in-time accurate for any chapter, not just the next unwritten one <span class="badge orange">SOTA</span>. Spoiler masking: <code>payoff_text</code>/<code>payoff_chapter</code> are nulled and <code>status</code> is forced to <code>"pending"</code> so a later real payoff never leaks.</td></tr>
         <tr><td><code>timeline_events</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Story events grouped by chapter, from chapters before <code>writing_chapter</code> (fixed 2026-07-12 — previously non-functional, see callout above)</td></tr>
-        <tr><td><code>canon_facts</code></td><td><code>novel_id, locked_only=False, writing_chapter=None</code></td><td>optional</td><td>Established world facts; <code>locked_only=True</code> limits to hard-continuity facts. <code>writing_chapter</code> is optional — when given, facts sourced at or after it are excluded <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>canon_facts</code></td><td><code>novel_id, writing_chapter, locked_only=False</code></td><td>yes</td><td>Established world facts as of <code>writing_chapter − 1</code>; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span>. <strong>Fixed 2026-08-16</strong> — <code>writing_chapter</code> was optional and defaulted to <code>None</code>, which resolves to <code>MAX(number)</code> and leaked facts sourced from unwritten chapters.</td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. Always run before <code>save_chapter</code> <span class="badge purple">GEN</span></td></tr>
         <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code> through the full extraction pipeline; refuses to overwrite an existing chapter (<code>replace=False</code>). Returns <code>{ingested, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run <span class="badge purple">GEN</span></td></tr>

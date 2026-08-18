@@ -766,22 +766,53 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ CRITIC SCORECARD ════════════════ -->
   <section id="critic-scorecard">
   <h2>Critic Check Scorecard</h2>
-  <p>The critic is more nuanced than "all hollow." All five checks now have live producers and run for real
-     on every analyzed chapter — the sixth, <code>temporal_consistency</code>, queried tables that nothing
-     populated and was deleted 2026-07-12 rather than left hollow; this is the order the surviving five
-     went live.</p>
+  <p>All five checks have live producers, but <strong>having a producer and being able to fire are
+     different things</strong>, and this table used to conflate them. A 2026-08-16 audit traced each
+     check end-to-end from <code>pipeline.py</code> and found that on the ingestion spine three of
+     the five were structurally incapable of emitting a finding, because
+     <code>build_draft_from_extraction()</code> hardcoded the very fields they gate on:
+     <code>learned_this_chapter: True</code>, <code>possession_claims: []</code>,
+     <code>planned_thread_ids: []</code>, <code>planned_commitment_ids: []</code>. Each hardcode was a
+     defensible fix for a real false positive; cumulatively they removed the signal with the noise.</p>
+
+  <p><strong>Resolved 2026-08-17 by <code>CRITIQUE_CLAIMS</code> (default <code>extract</code>).</strong>
+     The missing inputs never needed a new extraction pass — <code>extract_draft_claims()</code>
+     already produced exactly them for the MCP path, at one LLM call per chapter rather than per
+     chunk. The spine now uses it by default, so knowledge and location/possession claims are real
+     rather than hardcoded. Set <code>CRITIQUE_CLAIMS=reuse</code> to trade those two checks back for
+     the saved call; mock runs fall back to <code>reuse</code> automatically, since empty claims
+     would pass the critic vacuously. Columns below score the spine at each setting.</p>
+
+  <div class="callout warn">
+    <strong>Prerequisite fixed in the same change.</strong> <code>build_draft_chapter()</code>
+    emitted one location claim per LLM assertion with no per-character collapse, while
+    <code>check_location_possession</code> FAILs a character with more than one distinct location in
+    a chapter — so any character who simply walked somewhere failed the MCP pre-save gate, the one
+    path where a FAIL actually blocks a save. Claims now collapse to the character's last location,
+    keyed on the <em>resolved</em> character id, so a known alias cannot split one character into two
+    claimants. That keying also retired a separate spine defect, since
+    <code>build_draft_from_extraction</code> routes its raw claims through the same function.
+  </div>
 
   <table>
-    <thead><tr><th>Check</th><th>Reads</th><th>Producer exists?</th><th>Effective now that it's wired?</th></tr></thead>
+    <thead><tr><th>Check</th><th>Reads</th><th>Spine — <code>CRITIQUE_CLAIMS=extract</code> (default)</th><th>Spine — <code>reuse</code></th><th>MCP pre-save</th></tr></thead>
     <tbody>
-      <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">yes</span> — knowledge_state_deltas pass</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>commitments</code></td><td><code>commitments</code></td><td><span class="badge green">yes</span> — commitments pass</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge green">yes</span> — thread_updates pass</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">yes</span> — materializer auto-runs after each chapter</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">yes</span> — canon_facts pass (pass 13)</td><td><span class="badge green">Yes</span></td></tr>
-      <tr><td><code>temporal_consistency</code> (deleted 2026-07-12)</td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">no</span> (both removed from the schema)</td><td><span class="badge red">N/A</span> — check itself removed, not just hollow</td></tr>
+      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">Fires</span> — bounds comparison to <code>source_chapter &lt; chapter_number</code> rather than comparing against the row this chapter just wrote (fixed 2026-08-16)</td><td><span class="badge green">Fires</span></td><td><span class="badge green">Fires</span></td></tr>
+      <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">Fires</span> — real <code>learned_this_chapter</code> booleans from the claims extractor</td><td><span class="badge red">No</span> — every claim is flagged learned-this-chapter and skipped</td><td><span class="badge green">Fires</span></td></tr>
+      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">Fires</span> — real possession claims; location claims collapsed per resolved character</td><td><span class="badge red">No</span> — <code>possession_claims</code> is <code>[]</code> and locations collapse to one per character</td><td><span class="badge green">Fires</span></td></tr>
+      <tr><td><code>commitments</code></td><td><code>commitments</code></td><td colspan="2"><span class="badge yellow">Partly</span> — the "planned foreshadow was planted" half is gated on <code>planned_commitment_ids=[]</code> and never runs. The accidental-payoff half does, and since 2026-08-16 ignores stopwords and only considers commitments foreshadowed at or before this chapter.</td><td><span class="badge yellow">Partly</span> — same gating</td></tr>
+      <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td colspan="3"><span class="badge red">No</span> — <code>planned_thread_ids=[]</code> makes the check return <code>[]</code> on its first line, on every path. Awaits a planner integration; this is the one check with no live caller.</td></tr>
+      <tr><td><code>temporal_consistency</code> (deleted 2026-07-12)</td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td colspan="3"><span class="badge red">N/A</span> — check itself removed, not just hollow</td></tr>
     </tbody>
   </table>
+
+  <p><strong>What this means for <code>critique_reports.passed</code>:</strong> before 2026-08-16 it
+     was effectively a constant <code>true</code> for ingested chapters. At the current default it
+     carries real signal for canon contradictions, knowledge violations, and location/possession
+     contradictions. <code>thread_coverage</code> and the planned half of <code>commitments</code>
+     remain dormant pending a planner that supplies <code>planned_*_ids</code> — they are dormant by
+     design rather than broken, since nothing in an analyzer-only system produces a plan to check
+     against.</p>
   </section>
 
   <!-- ════════════════ DUAL TRUTH ════════════════ -->
@@ -857,6 +888,20 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     on clean exit and rolls back the whole phase on any exception (see
     <a href="reference.html#db-client">Reference: DBClient / DBSession</a>). A failure inside that block
     now leaves <em>no</em> partial chapter, not a partially-written one.
+  </p>
+  <p>
+    <strong>Amended 2026-08-16.</strong> The single-transaction claim above was correct, but until
+    this date the best-effort <code>try/except</code> blocks inside <code>persist_extras.py</code>
+    undermined it from the other direction. Catching a statement error and continuing on the same
+    connection does not recover anything — PostgreSQL has already aborted the transaction, so every
+    later statement fails with <code>InFailedSqlTransaction</code>, and a <code>COMMIT</code> issued
+    against an aborted transaction is silently downgraded to <code>ROLLBACK</code> rather than
+    raising. One bad scene row therefore cost the whole chapter, either loudly with a misleading
+    "current transaction is aborted" error, or — when no later statement happened to run —
+    <em>silently</em>, with <code>analyze_chapter</code> returning a success payload whose
+    <code>chapter_id</code> pointed at nothing. Each block now runs inside a <code>SAVEPOINT</code>
+    via <code>DBSession.savepoint()</code>, so a failed row rolls back alone and the chapter survives,
+    which is what the "log and continue" comments always intended.
   </p>
   <p>
     The two phases that run <em>after</em> that commit — MATERIALIZE and CRITIQUE — are deliberately
@@ -1146,6 +1191,31 @@ flowchart TB
      by the analyzer-only decision (see <a href="#fork">The Decision</a>), not left as a future phase.</p>
 
   <ul class="steps">
+    <li>
+      <span class="phase-tag">Critic precision is not a precision measurement</span><br>
+      <strong><code>critic_eval</code>'s precision cannot fall below 0.8 by construction.</strong>
+      It scores 4 positive cases and 1 negative, and only the single clean draft can produce a false
+      positive; a positive case where the critic emits findings from the <em>wrong</em> check counts
+      as a false negative, never a false positive. So a degenerate "flag everything" critic scores
+      precision 0.8 / recall 1.0. Deliberately left until after the 2026-08-17
+      <code>CRITIQUE_CLAIMS</code> change, so the rescoring is done against checks that can actually
+      fire rather than tuned against three inert ones.<br>
+      <em>Done when:</em> scoring is per finding — each emitted finding a TP if it matches a seeded
+      violation on <code>(check, character, quote)</code> and an FP otherwise — against a negative
+      set materially larger than one clean draft.
+    </li>
+    <li>
+      <span class="phase-tag">Planner-dependent checks</span><br>
+      <strong><code>thread_coverage</code> and the planned half of <code>commitments</code> have no
+      live caller.</strong> Both gate on <code>planned_thread_ids</code> /
+      <code>planned_commitment_ids</code>, which every current caller passes as <code>[]</code>.
+      This is dormancy by design, not breakage: an analyzer-only system produces no plan to check a
+      draft against. Note <code>thread_coverage</code> also builds <code>event_ids</code> from an
+      <code>id</code> field neither adapter attaches, so if a planner were wired up today it would
+      warn on every thread unconditionally — fix that at the same time.<br>
+      <em>Done when:</em> either a planner supplies the ids and the <code>id</code> plumbing is
+      fixed, or both branches are deleted rather than left as latent false positives.
+    </li>
     <li>
       <span class="phase-tag">Cross-type duplicate prevention</span><br>
       <strong><code>EntityCanonicalizer._load_roster</code> loads candidates one <code>entity_type</code>
