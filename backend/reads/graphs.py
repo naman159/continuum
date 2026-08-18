@@ -53,9 +53,13 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
         JOIN characters cb ON cb.entity_id = eb.id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE COALESCE(r.from_chapter, rch.number, 0) <= %s
+          -- Active at the cutoff: a relationship that ended before it is not
+          -- a current relationship.
+          AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
+          AND r.superseded_by_id IS NULL
         ORDER BY r.from_chapter NULLS LAST, r.created_at
         """,
-        (novel_id, cutoff),
+        (novel_id, cutoff, cutoff),
         dict_rows=True,
     )
     edges = [
@@ -155,8 +159,10 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         JOIN entities eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE COALESCE(r.from_chapter, rch.number, 0) <= %s
+          AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
+          AND r.superseded_by_id IS NULL
         """,
-        (novel_id, novel_id, cutoff),
+        (novel_id, novel_id, cutoff, cutoff),
         dict_rows=True,
     )
     edges = [dict(r) for r in edge_rows]

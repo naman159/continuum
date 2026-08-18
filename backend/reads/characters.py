@@ -107,15 +107,25 @@ def get_character_detail(
         """
         SELECT r.id, r.entity_a_id, r.entity_b_id, r.rel_type, r.symmetric,
                r.from_chapter, r.to_chapter, r.notes
+        -- Endpoints are deliberately untyped. The `c.entity_id = ...` join
+        -- already anchors one side to this character, so requiring
+        -- entity_type='character' on BOTH sides only ever dropped the far
+        -- endpoint — silently hiding every character↔object/location/faction
+        -- relationship (a character's own sword, their faction membership).
+        -- rel_to_row below already resolves the other endpoint's type for
+        -- exactly this reason; that code was unreachable until now.
         FROM relationships r
-        JOIN entities ea ON ea.id = r.entity_a_id AND ea.entity_type = 'character'
-        JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
+        JOIN entities ea ON ea.id = r.entity_a_id
+        JOIN entities eb ON eb.id = r.entity_b_id
         JOIN characters c ON c.entity_id = ea.id OR c.entity_id = eb.id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE c.id = %s
           AND COALESCE(r.from_chapter, rch.number, 0) <= %s
+          -- Still in force at the cutoff, not merely started before it.
+          AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
+          AND r.superseded_by_id IS NULL
         """,
-        (character_id, cutoff),
+        (character_id, cutoff, cutoff),
         dict_rows=True,
     )
 

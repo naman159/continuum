@@ -255,9 +255,12 @@ def get_object_detail(
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id)
           AND COALESCE(r.from_chapter, rch.number, 0) <= %s
+          -- Active at the cutoff, not merely started before it.
+          AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
+          AND r.superseded_by_id IS NULL
         ORDER BY r.from_chapter NULLS LAST
         """,
-        (object_id, novel_id, novel_id, cutoff),
+        (object_id, novel_id, novel_id, cutoff, cutoff),
         dict_rows=True,
     )
     relationships = [dict(r) for r in rel_rows]
@@ -438,8 +441,10 @@ def get_custom_entity_detail(
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = %s OR r.entity_b_id = %s)
           AND COALESCE(r.from_chapter, rch.number, 0) <= %s
+          AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
+          AND r.superseded_by_id IS NULL
         """,
-        (entity_id, entity_id, cutoff),
+        (entity_id, entity_id, cutoff, cutoff),
         dict_rows=True,
     )
     relationships = []

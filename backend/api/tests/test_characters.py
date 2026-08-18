@@ -47,8 +47,11 @@ def test_character_detail_includes_events_and_relationships_beyond_cap(seed_nove
     assert response.status_code == 200
     body = response.json()
     assert [e["chapter_number"] for e in body["events"]] == [1, 3]
-    assert len(body["relationships"]) == 1
-    assert body["relationships"][0]["other_entity_name"] == seeded["char_b_name"]
+    by_name = {r["other_entity_name"]: r for r in body["relationships"]}
+    assert seeded["char_b_name"] in by_name
+    # Cross-type edges surface here too — see reads/tests/test_characters.py
+    # for why this used to be silently dropped.
+    assert by_name["Iron Compass"]["other_entity_type"] == "object"
     assert len(body["dynamics"]) == 1
     assert body["dynamics"][0]["other_entity_name"] == seeded["char_b_name"]
 

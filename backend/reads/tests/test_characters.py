@@ -97,8 +97,20 @@ def test_character_detail_relationships_and_dynamics_respect_cutoff(db, seed_nov
     after = characters_reads.get_character_detail(
         db, seeded["novel_id"], seeded["char_a_id"], up_to_chapter=3
     )
-    assert len(after["relationships"]) == 1
-    assert after["relationships"][0]["other_entity_name"] == seeded["char_b_name"]
+    by_name = {r["other_entity_name"]: r for r in after["relationships"]}
+    assert seeded["char_b_name"] in by_name
+
+    # The character↔object relationship must appear here too. test_world.py
+    # asserts the same edge from the object's side; requiring entity_type =
+    # 'character' on BOTH endpoints used to hide it from the character's side,
+    # so /objects/{id} and /characters/{id} disagreed about the same edge and
+    # the MCP get_character tool reported a character as unrelated to their
+    # own possessions.
+    assert "Iron Compass" in by_name, (
+        "cross-type relationships must be visible from the character side"
+    )
+    assert by_name["Iron Compass"]["other_entity_type"] == "object"
+
     assert len(after["dynamics"]) == 1
     assert after["dynamics"][0]["other_entity_name"] == seeded["char_b_name"]
 

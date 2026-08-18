@@ -69,6 +69,13 @@ def list_location_edges(
     where = ["e.novel_id = %s", "le.since_chapter <= %s"]
     params: list[Any] = [novel_id, cutoff]
     if active_only:
+        # superseded_by_id is how the materializer marks an edge replaced by a
+        # later one. Without this the materializer's own output contradicts
+        # itself: a character who moves twice within one chapter has the old
+        # edge closed at [N, N] and the new one open at [N, NULL], so both
+        # match "active at N" and the character reads as being in two places
+        # at once — the exact contradiction the critic exists to catch.
+        where.append("le.superseded_by_id IS NULL")
         where.append("(le.until_chapter IS NULL OR le.until_chapter >= %s)")
         params.append(cutoff)
     rows = db.fetchall(
@@ -108,6 +115,7 @@ def list_possession_edges(
     where = ["c.novel_id = %s", "pe.since_chapter <= %s"]
     params: list[Any] = [novel_id, cutoff]
     if active_only:
+        where.append("pe.superseded_by_id IS NULL")
         where.append("(pe.until_chapter IS NULL OR pe.until_chapter >= %s)")
         params.append(cutoff)
     rows = db.fetchall(
