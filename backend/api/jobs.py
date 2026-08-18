@@ -90,7 +90,10 @@ def get_job(job_id: str) -> JobRecord | None:
     return _job_store.get(job_id)
 
 
-def submit_job(*, novel_id: str, chapter_number: int, text: str, replace: bool = False) -> str:
+def submit_job(
+    *, novel_id: str, chapter_number: int, text: str, replace: bool = False,
+    run_critic: bool | None = None,
+) -> str:
     from pipeline.config import settings
     from pipeline.extraction.chunker import sliding_window_chunks
     from pipeline.extraction.prompts import PASS_ORDER
@@ -116,6 +119,7 @@ def submit_job(*, novel_id: str, chapter_number: int, text: str, replace: bool =
                 chunk_overlap=settings.chunk_overlap,
                 progress=tracker,
                 replace=replace,
+                run_critic=run_critic,
             )
             _job_store.mark_done(job_id, result)
         except Exception as exc:

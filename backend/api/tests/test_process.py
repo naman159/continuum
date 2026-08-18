@@ -41,6 +41,8 @@ def test_submit_job_returns_202_with_job_id():
         chapter_number=2,
         text="Chapter text here.",
         replace=False,
+        # None defers to CRITIC_ENABLED; callers can force it per request.
+        run_critic=None,
     )
 
 

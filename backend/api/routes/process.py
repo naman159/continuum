@@ -30,6 +30,7 @@ def process_chapter(novel_id: UUID, body: ProcessRequest) -> dict:
         chapter_number=body.number,
         text=body.text,
         replace=body.replace,
+        run_critic=body.run_critic,
     )
     return {"job_id": job_id}
 

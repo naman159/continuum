@@ -41,6 +41,24 @@ class Settings:
     db_max_connections: int = field(
         default_factory=lambda: int(os.getenv("DB_MAX_CONNECTIONS", "20"))
     )
+    # Whether ingestion runs the continuity critic at all. The critic is a
+    # separate post-ingest judgement, not part of getting a chapter into the
+    # memory layer — turn it off for ingest-only deployments and run
+    # `python -m pipeline.critic.cli` later if you ever want the reports.
+    critic_enabled: bool = field(default_factory=lambda: _bool_env("CRITIC_ENABLED", True))
+    # How the critique phase gets its claims.
+    #   "extract" — one extra LLM call per chapter against the chapter text,
+    #               producing real learned_this_chapter flags and possession
+    #               claims. All five checks can fire.
+    #   "reuse"   — reuse the chapter's already-extracted passes, no extra
+    #               call. Cheaper, but the spine has no "acts on prior
+    #               knowledge" or possession claim to offer, so the knowledge
+    #               and location/possession checks cannot produce a finding.
+    # Mock runs always fall back to "reuse": extract_draft_claims returns empty
+    # claims without a real LLM, which would make the critic pass vacuously.
+    critique_claims: str = field(
+        default_factory=lambda: os.getenv("CRITIQUE_CLAIMS", "extract").strip().lower()
+    )
     llm_temperature: float = field(default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.1")))
     chunk_size: int = field(default_factory=lambda: int(os.getenv("CHUNK_SIZE", "2000")))
     chunk_overlap: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "200")))

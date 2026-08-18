@@ -8,9 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.config import settings
-from pipeline.critic.adapter import build_draft_from_extraction
-from pipeline.critic.persist import persist_critique
-from pipeline.critic.runner import ContinuityCritic
+from pipeline.critic.service import critique_chapter
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
@@ -272,6 +270,7 @@ def analyze_chapter(
     db: DBClient | None = None,
     replace: bool = False,
     source: str = "human",
+    run_critic: bool | None = None,
 ) -> dict[str, Any]:
     owned = db is None
     client = db if db is not None else DBClient()
@@ -448,19 +447,26 @@ def analyze_chapter(
             materialized = True
         except Exception:
             logger.exception("materialize failed for novel %s; re-run pipeline.state.cli", novel_id)
-        try:
-            draft = build_draft_from_extraction(
-                client,
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                text=raw_text,
-                extracted=extracted,
-            )
-            report = ContinuityCritic(client).critique(draft)
-            persist_critique(client, chapter_id=chapter_id, report=report)
-            critique_summary = report.summary()
-        except Exception:
-            logger.exception("critique failed for chapter %s of novel %s", chapter_number, novel_id)
+        # The critic is optional and fully decoupled: it reads only committed
+        # data, so skipping it here costs nothing that
+        # `python -m pipeline.critic.cli` cannot supply later.
+        want_critic = settings.critic_enabled if run_critic is None else run_critic
+        if want_critic:
+            try:
+                critique_summary = critique_chapter(
+                    client,
+                    novel_id=novel_id,
+                    chapter_number=chapter_number,
+                    chapter_id=chapter_id,
+                    raw_text=raw_text,
+                    extracted=extracted,
+                    use_mock_llm=use_mock_llm,
+                )
+            except Exception:
+                logger.exception(
+                    "critique failed for chapter %s of novel %s; re-run "
+                    "pipeline.critic.cli", chapter_number, novel_id,
+                )
 
         return {
             "chapter_id": chapter_id,

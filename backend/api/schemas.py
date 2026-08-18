@@ -247,9 +247,14 @@ class EntityGraph(BaseModel):
 
 
 class ProcessRequest(BaseModel):
-    number: int
+    number: int = Field(ge=1)
     text: str
     replace: bool = False
+    # None defers to CRITIC_ENABLED. The critic is a separate post-ingest
+    # judgement, so turning it off here changes nothing about what lands in
+    # the memory layer — `python -m pipeline.critic.cli` can supply the report
+    # afterwards.
+    run_critic: bool | None = None
 
 
 class JobStatusResponse(BaseModel):
