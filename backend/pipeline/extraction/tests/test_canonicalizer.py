@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from pipeline.extraction.canonicalizer import (
-    CharacterCanonicalizer,
     EntityCanonicalizer,
     IntraExtractionDeduplicator,
     apply_merges_to_extraction,

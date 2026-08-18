@@ -1,4 +1,4 @@
-from pipeline.extraction.prompts import build_system_prompt, build_user_prompt
+from pipeline.extraction.prompts import build_system_prompt
 from pipeline.extraction.extractor import empty_extraction, _normalize_extraction, merge_extractions
 
 
