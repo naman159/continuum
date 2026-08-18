@@ -34,6 +34,13 @@ class Settings:
     embedding_dimensions: int = field(
         default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
     )
+    # Connection-pool ceiling. Every API route handler is a plain `def`, so
+    # Starlette runs them on its 40-slot threadpool; a pool smaller than that
+    # makes concurrent requests queue and then fail with PoolTimeout after
+    # psycopg's 30s default, surfacing as an unhandled 500.
+    db_max_connections: int = field(
+        default_factory=lambda: int(os.getenv("DB_MAX_CONNECTIONS", "20"))
+    )
     llm_temperature: float = field(default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.1")))
     chunk_size: int = field(default_factory=lambda: int(os.getenv("CHUNK_SIZE", "2000")))
     chunk_overlap: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "200")))

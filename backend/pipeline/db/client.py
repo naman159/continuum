@@ -11,12 +11,12 @@ from pipeline.config import settings
 
 class DBClient:
     def __init__(
-        self, dsn: str | None = None, minconn: int = 1, maxconn: int = 5
+        self, dsn: str | None = None, minconn: int = 1, maxconn: int | None = None
     ) -> None:
         self._pool = ConnectionPool(
             conninfo=dsn or settings.database_url,
             min_size=minconn,
-            max_size=maxconn,
+            max_size=maxconn if maxconn is not None else settings.db_max_connections,
             open=True,
         )
 
