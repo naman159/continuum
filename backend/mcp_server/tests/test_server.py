@@ -49,8 +49,37 @@ def test_writing_chapter_converts_to_inclusive_cap(monkeypatch):
 
 
 def test_bad_uuid_is_an_error_dict_not_an_exception():
-    out = server.canon_facts("not-a-uuid")
+    out = server.canon_facts("not-a-uuid", 3)
     assert "error" in out
+
+
+def test_list_chapters_caps_below_the_chapter_being_written(monkeypatch):
+    """Regression guard: list_chapters took no writing_chapter and passed
+    up_to_chapter=None, so it returned summary_long for every unwritten
+    chapter — handing the drafting agent the rest of the book."""
+    seen = {}
+
+    def fake_list(db, novel_id, up_to_chapter=None):
+        seen["cap"] = up_to_chapter
+        return []
+
+    monkeypatch.setattr(server.chapters_reads, "list_chapters", fake_list)
+    server.list_chapters("00000000-0000-0000-0000-000000000000", 12)
+    assert seen["cap"] == 11
+
+
+def test_canon_facts_caps_below_the_chapter_being_written(monkeypatch):
+    """writing_chapter used to default to None, which resolves to MAX(number)
+    — leaking facts sourced from chapters the agent has not written."""
+    seen = {}
+
+    def fake_list(db, novel_id, up_to_chapter, locked_only):
+        seen["cap"] = up_to_chapter
+        return []
+
+    monkeypatch.setattr(server.knowledge_reads, "list_canon_facts", fake_list)
+    server.canon_facts("00000000-0000-0000-0000-000000000000", 5)
+    assert seen["cap"] == 4
 
 
 def test_timeline_events_requires_writing_chapter_and_converts_to_cap(monkeypatch):

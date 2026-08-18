@@ -41,11 +41,15 @@ def list_novels() -> Any:
 
 
 @mcp.tool()
-def list_chapters(novel_id: str) -> Any:
-    """List every chapter of a novel (number, title, summary, critique summary)
-    for orientation."""
+def list_chapters(novel_id: str, writing_chapter: int) -> Any:
+    """List the chapters written *before* writing_chapter (number, title,
+    summary, critique summary) for orientation. Chapters from writing_chapter
+    onward are withheld: returning them would hand the drafting agent the plot
+    of the book it has not written yet."""
     return _call(
-        lambda: chapters_reads.list_chapters(reads_db.get_db(), UUID(novel_id), None)
+        lambda: chapters_reads.list_chapters(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1
+        )
     )
 
 
@@ -164,17 +168,16 @@ def timeline_events(novel_id: str, writing_chapter: int) -> Any:
 
 @mcp.tool()
 def canon_facts(
-    novel_id: str, locked_only: bool = False, writing_chapter: int | None = None
+    novel_id: str, writing_chapter: int, locked_only: bool = False
 ) -> Any:
-    """Established world facts. locked_only=True limits to facts whose
-    contradiction is a hard continuity failure. writing_chapter is optional; when
-    given, facts sourced from writing_chapter or later are excluded (cutoff =
+    """Established world facts as of the chapter before writing_chapter.
+    locked_only=True limits to facts whose contradiction is a hard continuity
+    failure. Facts sourced from writing_chapter or later are excluded (cutoff =
     writing_chapter - 1), matching the other cutoff-aware tools."""
 
     def run() -> Any:
-        cap = writing_chapter - 1 if writing_chapter is not None else None
         return knowledge_reads.list_canon_facts(
-            reads_db.get_db(), UUID(novel_id), cap, locked_only
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1, locked_only
         )
 
     return _call(run)
