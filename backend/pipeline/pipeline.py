@@ -29,6 +29,7 @@ from pipeline.extraction.persist_extras import (
     persist_scenes,
 )
 from pipeline.extraction.resolver import EntityResolver
+from pipeline.gate import gate_agent_draft
 from pipeline.style import compute_style_fingerprint
 from pipeline.ingestion.ingest import delete_chapter_data, ingest_chapter
 from pipeline.state.materializer import StateMaterializer
@@ -271,6 +272,7 @@ def analyze_chapter(
     replace: bool = False,
     source: str = "human",
     run_critic: bool | None = None,
+    _gate_bypass: bool = False,
 ) -> dict[str, Any]:
     owned = db is None
     client = db if db is not None else DBClient()
@@ -285,6 +287,31 @@ def analyze_chapter(
                 f"Chapter {chapter_number} already exists for novel {novel_id}. "
                 "Pass replace=True to re-process it."
             )
+
+        # ---- phase 0: GATE (agent writes only) ----
+        # A chapter row means it passed continuity. Runs before EXTRACT so a
+        # refused draft costs one claim-extraction call instead of 13 passes,
+        # and so contradictory material never reaches the extraction tier.
+        # Independent of `replace`: re-processing is exactly when a
+        # contradiction is most likely.
+        if source == "agent" and not _gate_bypass:
+            verdict = gate_agent_draft(
+                client,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                title=chapter_title,
+                raw_text=raw_text,
+                use_mock_llm=use_mock_llm,
+            )
+            if not verdict.passed:
+                return {
+                    "ingested": False,
+                    "status": "pending_review",
+                    "submission_id": verdict.submission_id,
+                    "reason": verdict.reason,
+                    "fails": verdict.fails or [],
+                    "warns": verdict.warns or [],
+                }
 
         custom_entity_types = [
             dict(r)
