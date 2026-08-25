@@ -59,3 +59,17 @@ def test_get_submission_returns_row_and_none_for_missing(db, seed_novel):
     assert drafts_reads.get_submission(
         db, "00000000-0000-0000-0000-000000000000"
     ) is None
+
+
+def test_count_pending_counts_only_pending_and_zero_when_none(db, seed_novel):
+    seeded = seed_novel(db)
+    novel_id = seeded["novel_id"]
+
+    assert drafts_reads.count_pending(db, novel_id) == 0
+
+    _park(db, novel_id, 90)
+    _park(db, novel_id, 91)
+    _park(db, novel_id, 92, status="rejected")
+    _park(db, novel_id, 93, status="accepted")
+
+    assert drafts_reads.count_pending(db, novel_id) == 2
