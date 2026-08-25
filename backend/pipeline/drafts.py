@@ -27,8 +27,12 @@ def _load_pending(db: Any, submission_id: str) -> dict[str, Any]:
     return row
 
 
-def _write_findings_through(db: Any, chapter_id: str, findings: dict[str, Any]) -> int:
-    """Record the blocking findings against the accepted chapter."""
+def _write_findings_through(cur: Any, chapter_id: str, findings: dict[str, Any]) -> int:
+    """Record the blocking findings against the accepted chapter.
+
+    Takes a cursor (not a DBClient) so the caller can run this in the same
+    transaction as the submission's status update.
+    """
     rows = [
         (
             chapter_id,
@@ -38,13 +42,12 @@ def _write_findings_through(db: Any, chapter_id: str, findings: dict[str, Any]) 
         )
         for f in findings.get("fails", [])
     ]
-    if not rows:
-        return 0
-    db.execute_many(
-        "INSERT INTO continuity_flags (chapter_id, description, flag_type)"
-        " VALUES (%s, %s, %s)",
-        rows,
-    )
+    for row in rows:
+        cur.execute(
+            "INSERT INTO continuity_flags (chapter_id, description, flag_type)"
+            " VALUES (%s, %s, %s)",
+            row,
+        )
     return len(rows)
 
 
@@ -55,7 +58,18 @@ def accept_submission(
     note: str | None = None,
     edited_text: str | None = None,
 ) -> dict[str, Any]:
-    """Ingest a parked draft as canon, bypassing the gate (human override)."""
+    """Ingest a parked draft as canon, bypassing the gate (human override).
+
+    `analyze_chapter` commits the chapter in its own internal transaction, so
+    it cannot be joined with the writes below — that commit point is final
+    the moment it returns. The findings write-through and the submission's
+    status update, however, are made atomic with each other: both land or
+    neither does, so a mid-write failure never leaves flags recorded against
+    a submission that still reads 'pending'. If that second transaction
+    fails, the chapter still exists but the submission is stranded at
+    'pending' with no flags — see the re-raise below, which names the
+    situation so a human can resolve it by hand instead of retrying blindly.
+    """
     row = _load_pending(db, submission_id)
     text = edited_text if edited_text is not None else row["raw_text"]
     resolution_note = note
@@ -76,17 +90,29 @@ def accept_submission(
         _gate_bypass=True,
     )
     chapter_id = str(outcome["chapter_id"])
-    flags_written = _write_findings_through(db, chapter_id, row["findings"] or {})
 
-    db.execute(
-        """
-        UPDATE draft_submissions
-           SET status = 'accepted', resolved_at = now(),
-               resolution_note = %s, raw_text = %s
-         WHERE id = %s
-        """,
-        (resolution_note, text, submission_id),
-    )
+    try:
+        with db.transaction() as cur:
+            flags_written = _write_findings_through(cur, chapter_id, row["findings"] or {})
+            cur.execute(
+                """
+                UPDATE draft_submissions
+                   SET status = 'accepted', resolved_at = now(),
+                       resolution_note = %s, raw_text = %s
+                 WHERE id = %s
+                """,
+                (resolution_note, text, submission_id),
+            )
+    except Exception as exc:
+        raise RuntimeError(
+            f"chapter {chapter_id} was ingested for draft submission "
+            f"{submission_id}, but recording the continuity-flag write-through "
+            "and marking the submission accepted failed and rolled back; "
+            f"submission {submission_id} is still 'pending' with chapter "
+            f"{chapter_id} already on record — this needs manual resolution, "
+            "not a retry (a retry will hit the duplicate-chapter guard)"
+        ) from exc
+
     return {
         "accepted": True,
         "chapter_id": chapter_id,

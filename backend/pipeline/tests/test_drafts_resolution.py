@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 
 import pytest
 
@@ -101,6 +102,57 @@ def test_accept_with_edits_ingests_the_edited_text(db, seed_novel):
     row = drafts_reads.get_submission(db, submission_id)
     assert row["raw_text"] == "Kael walked in."
     assert "edited" in row["resolution_note"]
+
+
+def test_accept_rolls_back_flags_if_the_status_update_fails(db, seed_novel, monkeypatch):
+    """The findings write-through and the status UPDATE are one transaction:
+    if the UPDATE fails, the INSERTs into continuity_flags must not survive
+    either, even though the chapter itself (committed inside analyze_chapter,
+    which cannot be joined to this transaction) does.
+    """
+    novel_id = seed_novel(db)["novel_id"]
+    submission_id = _park(db, novel_id)
+
+    real_transaction = db.transaction
+
+    class _RaisingCursor:
+        def __init__(self, real_cur):
+            self._real = real_cur
+
+        def execute(self, query, params=None):
+            if "UPDATE draft_submissions" in query:
+                raise RuntimeError("boom: status update failed")
+            return self._real.execute(query, params)
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    @contextmanager
+    def _boom_transaction():
+        with real_transaction() as cur:
+            yield _RaisingCursor(cur)
+
+    monkeypatch.setattr(db, "transaction", _boom_transaction)
+
+    with pytest.raises(RuntimeError, match="still 'pending'") as excinfo:
+        drafts_mod.accept_submission(db, submission_id, note="deliberate retcon")
+
+    assert submission_id in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, RuntimeError)
+    assert "boom: status update failed" in str(excinfo.value.__cause__)
+
+    chapter_id = db.fetchval(
+        "SELECT id FROM chapters WHERE novel_id = %s AND number = 90", (novel_id,)
+    )
+    assert chapter_id is not None  # analyze_chapter's own commit isn't rolled back
+
+    flags = db.fetchall(
+        "SELECT id FROM continuity_flags WHERE chapter_id = %s", (str(chapter_id),)
+    )
+    assert flags == []  # rolled back together with the failed status update
+
+    row = drafts_reads.get_submission(db, submission_id)
+    assert row["status"] == "pending"  # never got marked accepted
 
 
 def test_reject_marks_rejected_and_writes_no_chapter(db, seed_novel):
