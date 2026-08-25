@@ -428,3 +428,33 @@ class SearchResultRow(BaseModel):
 
 class SearchResults(BaseModel):
     results: list[SearchResultRow]
+
+
+class DraftSummary(BaseModel):
+    id: str
+    novel_id: str
+    chapter_number: int
+    title: str | None = None
+    status: str
+    fail_count: int
+    warn_count: int
+    submitted_at: datetime | None = None
+    resolved_at: datetime | None = None
+    resolution_note: str | None = None
+
+
+class DraftDetail(DraftSummary):
+    raw_text: str
+    findings: dict[str, Any]
+
+
+class PendingCount(BaseModel):
+    pending: int
+
+
+class ResolveRequest(BaseModel):
+    note: str | None = None
+
+
+class AcceptRequest(ResolveRequest):
+    edited_text: str | None = None

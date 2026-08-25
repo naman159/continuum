@@ -13,6 +13,7 @@ from api.routes import (
     characters,
     commitments,
     continuity,
+    drafts,
     dynamics,
     entity_graph,
     entity_types,
@@ -50,6 +51,7 @@ app.include_router(canon.router)
 app.include_router(knowledge.router)
 app.include_router(entity_types.router)
 app.include_router(search.router)
+app.include_router(drafts.router)
 
 
 @app.get("/api/health")
