@@ -21,6 +21,7 @@
 - Severity is an enum: `Severity.FAIL` / `Severity.WARN` / `Severity.INFO` (`pipeline/critic/types.py:8`). `CritiqueReport.passed` is `len(self.fails) == 0` — WARNs never block.
 - **Name trap:** there are two different `critique_chapter` functions. `pipeline/critic/service.py::critique_chapter(db, novel_id=…, chapter_number=…, chapter_id=…, raw_text=…, extracted=…)` is the post-commit one used at `pipeline.py:456`. `pipeline/critic/runner.py::critique_chapter(draft, db)` takes a `DraftChapter`. This plan uses **neither** directly — the gate calls `ContinuityCritic(db).critique(draft)`, matching `mcp_server/queries.py:50`.
 - Schema changes go in `pipeline/db/schema.sql` as idempotent `IF NOT EXISTS` statements. There is no migration tool: `init_db` (`pipeline.py:88`) re-runs the whole file, so existing databases are upgraded by re-running `uv run novel-pipeline init-db`.
+- **`DBClient` commit semantics — read before writing any SQL.** `execute()` and `execute_many()` commit. `fetchone()`, `fetchall()`, and `fetchval()` default to `commit=False`, and that path calls `conn.rollback()` (`pipeline/db/client.py:39`) — so an `INSERT ... RETURNING id` issued through `fetchval` **silently discards the row and still returns the id**. For a write that returns a value, either pass `commit=True` explicitly or use `with db.transaction() as cur:`, which commits on success. Use `transaction()` whenever two statements must land together.
 
 ---
 
@@ -65,6 +66,7 @@ def _park(db: DBClient, novel_id: str, number: int, status: str = "pending") -> 
             """,
             (novel_id, number, f"Ch {number}", "draft text", status,
              json.dumps({"fails": [], "warns": []})),
+            commit=True,
         )
     )
 
@@ -542,21 +544,28 @@ def _park(
 ) -> str:
     """Supersede any pending row for this chapter, then park a new one.
 
+    Both statements run in ONE transaction: superseding the old row without
+    parking the new one would drop the author's draft on the floor.
+
+    Note `DBClient.fetchval` defaults to commit=False and ROLLS BACK, so an
+    `INSERT ... RETURNING` through it silently discards the row. `transaction()`
+    commits on success, which is why the insert goes through its cursor.
+
     Not wrapped in try/except: refusing an agent write without recording the
     draft would lose the author's work, so a failed park is a hard error.
     """
-    db.execute(
-        """
-        UPDATE draft_submissions
-           SET status = 'rejected',
-               resolved_at = now(),
-               resolution_note = 'superseded by resubmission'
-         WHERE novel_id = %s AND chapter_number = %s AND status = 'pending'
-        """,
-        (str(novel_id), chapter_number),
-    )
-    return str(
-        db.fetchval(
+    with db.transaction() as cur:
+        cur.execute(
+            """
+            UPDATE draft_submissions
+               SET status = 'rejected',
+                   resolved_at = now(),
+                   resolution_note = 'superseded by resubmission'
+             WHERE novel_id = %s AND chapter_number = %s AND status = 'pending'
+            """,
+            (str(novel_id), chapter_number),
+        )
+        cur.execute(
             """
             INSERT INTO draft_submissions
                 (novel_id, chapter_number, title, raw_text, status, findings)
@@ -565,7 +574,7 @@ def _park(
             """,
             (str(novel_id), chapter_number, title, raw_text, json.dumps(findings)),
         )
-    )
+        return str(cur.fetchone()[0])
 
 
 def gate_agent_draft(
@@ -1116,6 +1125,7 @@ def _park(db, novel_id: str, number: int = 90, text: str = "Elara walked in.") -
             RETURNING id
             """,
             (novel_id, number, text, json.dumps(findings)),
+            commit=True,
         )
     )
 
@@ -1389,6 +1399,7 @@ def _park(db, novel_id: str, number: int = 90) -> str:
             RETURNING id
             """,
             (novel_id, number, json.dumps(findings)),
+            commit=True,
         )
     )
 
