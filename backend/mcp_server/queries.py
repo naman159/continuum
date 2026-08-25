@@ -84,6 +84,11 @@ def save_chapter(
         )
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
+    # A gate refusal is a normal outcome, not an error: pass it through
+    # verbatim so the agent gets the findings and can revise. The presence of
+    # an "ingested" key means analyze_chapter refused before writing.
+    if "ingested" in outcome:
+        return outcome
     # materialized/critique are the caller's only signal that the best-effort
     # MATERIALIZE/CRITIQUE phases failed (see analyze_chapter's result dict).
     return {

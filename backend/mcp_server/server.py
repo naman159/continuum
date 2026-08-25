@@ -197,8 +197,9 @@ def scene_list(novel_id: str, writing_chapter: int, chapter: int | None = None) 
 @mcp.tool()
 def check_continuity(novel_id: str, chapter_number: int, draft_text: str) -> Any:
     """Run the continuity critic on a draft WITHOUT saving it. Returns
-    passed/fails/warns with quotes and suggested fixes. Always run this
-    before save_chapter."""
+    passed/fails/warns with quotes and suggested fixes. Use this while
+    revising: save_chapter runs the same checks and will refuse a draft that
+    fails them."""
     return _call(lambda: queries.check_continuity(novel_id, chapter_number, draft_text))
 
 
@@ -206,8 +207,14 @@ def check_continuity(novel_id: str, chapter_number: int, draft_text: str) -> Any
 def save_chapter(
     novel_id: str, chapter_number: int, text: str, title: str | None = None
 ) -> Any:
-    """Ingest a finished draft into the novel as a generated chapter. Runs the
-    full extraction pipeline. Refuses to overwrite an existing chapter."""
+    """Ingest a finished draft into the novel as a generated chapter.
+
+    Drafts are gated: the continuity critic runs BEFORE extraction, and a
+    draft with any FAIL finding is refused and parked for human review.
+    A refusal returns {"ingested": false, "status": "pending_review",
+    "submission_id", "reason", "fails", "warns"} — revise against `fails` and
+    resubmit; a resubmission supersedes the parked draft. Warnings do not
+    block. Refuses to overwrite an existing chapter."""
     return _call(lambda: queries.save_chapter(novel_id, chapter_number, text, title))
 
 

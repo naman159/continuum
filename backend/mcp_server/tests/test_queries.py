@@ -112,3 +112,41 @@ def test_save_chapter_surfaces_best_effort_phase_failures(monkeypatch):
 def test_save_chapter_rejects_empty_text():
     out = queries.save_chapter("novel-1", 9, "   ")
     assert "error" in out
+
+
+def test_save_chapter_passes_refusal_through(monkeypatch):
+    """A gate refusal reaches the agent as ingested:False, not a raised error."""
+    from mcp_server import queries as queries_mod
+
+    refusal = {
+        "ingested": False,
+        "status": "pending_review",
+        "submission_id": "11111111-1111-1111-1111-111111111111",
+        "reason": "fail",
+        "fails": [{"check": "knowledge_state", "message": "nope"}],
+        "warns": [],
+    }
+    monkeypatch.setattr(queries_mod, "analyze_chapter", lambda **kw: refusal)
+
+    result = queries_mod.save_chapter("n", 90, "draft text")
+
+    assert result["ingested"] is False
+    assert result["status"] == "pending_review"
+    assert result["submission_id"] == "11111111-1111-1111-1111-111111111111"
+    assert result["reason"] == "fail"
+    assert result["fails"][0]["check"] == "knowledge_state"
+    assert "chapter_id" not in result
+
+
+def test_save_chapter_still_reports_success_on_ingest(monkeypatch):
+    from mcp_server import queries as queries_mod
+
+    monkeypatch.setattr(
+        queries_mod, "analyze_chapter",
+        lambda **kw: {"chapter_id": "abc", "materialized": True, "critique": {"passed": True}},
+    )
+
+    result = queries_mod.save_chapter("n", 90, "draft text")
+
+    assert result["ingested"] is True
+    assert result["chapter_id"] == "abc"
