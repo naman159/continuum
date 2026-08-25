@@ -10,6 +10,22 @@ from pipeline import drafts as drafts_mod
 from reads import drafts as drafts_reads
 
 
+@pytest.fixture(autouse=True)
+def _force_mock_llm(monkeypatch):
+    """accept_submission hardcodes use_mock_llm=None (correct for production,
+    where a real extraction should run). In tests that would make live LLM
+    calls, so wrap analyze_chapter to force mock mode — everything else in
+    the path stays real.
+    """
+    real = drafts_mod.analyze_chapter
+
+    def _forced(**kwargs):
+        kwargs["use_mock_llm"] = True
+        return real(**kwargs)
+
+    monkeypatch.setattr(drafts_mod, "analyze_chapter", _forced)
+
+
 def _park(db, novel_id: str, number: int = 90, text: str = "Elara walked in.") -> str:
     findings = {
         "fails": [{"check": "knowledge_state", "severity": "FAIL",
