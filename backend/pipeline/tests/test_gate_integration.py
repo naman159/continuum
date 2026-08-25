@@ -119,6 +119,11 @@ def test_human_source_is_not_gated(db, seed_novel, refusing_gate):
 
     assert "ingested" not in result
     assert _chapter_count(db, novel_id, 90) == 1
+    # Positive control: this path DOES extract, so the counting patch must
+    # have fired at least once — otherwise the zero-extraction assertion in
+    # test_agent_fail_never_runs_extraction would pass vacuously even if the
+    # patch stopped intercepting ChapterExtractor entirely.
+    assert refusing_gate["extract"] >= 1
 
 
 def test_gate_bypass_ingests_a_would_fail_draft(db, seed_novel, refusing_gate):
