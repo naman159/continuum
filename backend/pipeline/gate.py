@@ -118,6 +118,13 @@ def gate_agent_draft(
             planned_commitment_ids=[],
         )
         report = ContinuityCritic(db).critique(draft)
+        # Converting the report is part of what can go wrong with the critic:
+        # a report that can't be turned into findings is a critic error, not
+        # a clean pass, so this stays inside the try alongside the critique
+        # call itself.
+        fails = [_finding_dict(f) for f in report.fails]
+        warns = [_finding_dict(f) for f in report.warns]
+        passed = report.passed
     except Exception as exc:
         logger.exception(
             "critic errored on agent draft for novel %s ch %s; parking",
@@ -136,10 +143,7 @@ def gate_agent_draft(
             reason="critic_error",
         )
 
-    fails = [_finding_dict(f) for f in report.fails]
-    warns = [_finding_dict(f) for f in report.warns]
-
-    if report.passed:
+    if passed:
         return GateVerdict(passed=True, fails=fails, warns=warns)
 
     submission_id = _park(

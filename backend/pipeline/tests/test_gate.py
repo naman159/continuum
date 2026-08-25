@@ -119,6 +119,37 @@ def test_critic_exception_parks_rather_than_passing(db, seed_novel, stub_critic)
     assert "extraction failed" in parked["findings"]["error"]
 
 
+def test_malformed_report_parks_as_critic_error(db, seed_novel, stub_critic):
+    """A report that can't be turned into findings is a critic error, not a
+    clean pass — and, like every other outcome, must never raise."""
+    novel_id = seed_novel(db)["novel_id"]
+
+    class _BadFinding:
+        """Looks like a Finding but `severity` is a plain str with no
+        `.value`, so `_finding_dict` blows up converting it."""
+
+        check = "knowledge_state"
+        severity = "FAIL"
+        message = "malformed"
+        quote = None
+        suggested_fix = None
+        context: dict = {}
+
+    bad_report = CritiqueReport(novel_id="n", chapter_number=1, findings=[_BadFinding()])
+    stub_critic(report=bad_report)
+
+    verdict = gate_mod.gate_agent_draft(
+        db, novel_id=novel_id, chapter_number=90, title=None,
+        raw_text="the draft", use_mock_llm=True,
+    )
+
+    assert verdict.passed is False
+    assert verdict.reason == "critic_error"
+    parked = drafts_reads.get_submission(db, verdict.submission_id)
+    assert parked["status"] == "pending"
+    assert "AttributeError" in parked["findings"]["error"]
+
+
 def test_disabled_critic_refuses_without_parking(db, seed_novel, stub_critic, monkeypatch):
     novel_id = seed_novel(db)["novel_id"]
     stub_critic(report=_report())
