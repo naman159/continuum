@@ -39,8 +39,10 @@ Open these in a browser — they are the onboarding path, in order:
    prevention, per-chapter cost accounting, embedding-dimension migration,
    in-memory job state).
 
-`docs/research/` holds background research; `docs/superpowers/` holds the
-specs and plans the redesign was executed from.
+`docs/blog/` is an eleven-part narrative walkthrough of the whole system, written
+from first principles — start at `docs/blog/README.md` if you want the reasoning
+rather than the reference. `docs/research/` holds background research;
+`docs/superpowers/` holds the specs and plans the redesign was executed from.
 
 ## Setup
 
