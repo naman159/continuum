@@ -285,6 +285,8 @@ Create `backend/pipeline/tests/test_gate.py`:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from pipeline import gate as gate_mod
@@ -403,7 +405,12 @@ def test_critic_exception_parks_rather_than_passing(db, seed_novel, stub_critic)
 def test_disabled_critic_refuses_without_parking(db, seed_novel, stub_critic, monkeypatch):
     novel_id = seed_novel(db)["novel_id"]
     stub_critic(report=_report())
-    monkeypatch.setattr(gate_mod.settings, "critic_enabled", False)
+    # `Settings` is a frozen dataclass (pipeline/config.py:25), so the
+    # attribute cannot be set in place — setattr raises FrozenInstanceError.
+    # Rebind gate.py's module-level `settings` to a copy with the flag off.
+    monkeypatch.setattr(
+        gate_mod, "settings", replace(gate_mod.settings, critic_enabled=False)
+    )
 
     verdict = gate_mod.gate_agent_draft(
         db, novel_id=novel_id, chapter_number=90, title=None,
