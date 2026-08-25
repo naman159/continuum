@@ -287,7 +287,6 @@ import pytest
 
 from pipeline import gate as gate_mod
 from pipeline.critic.types import CritiqueReport, Finding, Severity
-from pipeline.db.client import DBClient
 from reads import drafts as drafts_reads
 
 
@@ -701,13 +700,18 @@ def refusing_gate(monkeypatch):
 
     monkeypatch.setattr(pipeline_mod, "gate_agent_draft", _fake_gate)
 
-    original = pipeline_mod.extract_chapter
+    # Extraction runs as ChapterExtractor(use_mock=…).extract_chapter(…)
+    # (pipeline.py:22 import, :307 call) — there is no module-level
+    # extract_chapter to patch. Subclass so the human-source and bypass tests
+    # still get real extraction behavior.
+    original_cls = pipeline_mod.ChapterExtractor
 
-    def _counting_extract(*a, **kw):
-        calls["extract"] += 1
-        return original(*a, **kw)
+    class _CountingExtractor(original_cls):  # type: ignore[misc,valid-type]
+        def extract_chapter(self, *a, **kw):
+            calls["extract"] += 1
+            return super().extract_chapter(*a, **kw)
 
-    monkeypatch.setattr(pipeline_mod, "extract_chapter", _counting_extract)
+    monkeypatch.setattr(pipeline_mod, "ChapterExtractor", _CountingExtractor)
     return calls
 
 
@@ -822,16 +826,24 @@ def test_agent_pass_ingests_normally(db, seed_novel, passing_gate):
     assert _chapter_count(db, novel_id, 90) == 1
 ```
 
-- [ ] **Step 2: Confirm the extraction symbol name**
+- [ ] **Step 2: Confirm the extraction patch target**
 
-The `refusing_gate` fixture monkeypatches `pipeline_mod.extract_chapter`. Verify that is the actual name `analyze_chapter` calls:
+The `refusing_gate` fixture subclasses `pipeline_mod.ChapterExtractor`. Confirm that is still how `analyze_chapter` reaches extraction:
 
 ```bash
-cd /Users/naman/Desktop/gitprojs/continuum/backend
-grep -n "^from\|^import\|extract" pipeline/pipeline.py | sed -n '1,40p'
+cd backend
+grep -n "ChapterExtractor" pipeline/pipeline.py
 ```
 
-If the extraction entry point is imported under a different name, update both the fixture's `monkeypatch.setattr` target and `original = pipeline_mod.<name>` to match. Do not proceed until the name is right — a typo here makes `test_agent_fail_never_runs_extraction` vacuously pass.
+Expected: an import at the top and an instantiation inside `analyze_chapter` (`extractor = ChapterExtractor(use_mock=use_mock_llm)` followed by `extractor.extract_chapter(...)`). If extraction has moved behind a different symbol, update the fixture to wrap whatever `analyze_chapter` actually calls.
+
+Then verify the counter is actually wired — a patch target that never fires makes `test_agent_fail_never_runs_extraction` pass vacuously:
+
+```bash
+.venv/bin/python -m pytest pipeline/tests/test_gate_integration.py::test_human_source_is_not_gated -v
+```
+
+That test takes the human path, which DOES extract, so it only passes if the subclass is really in the call path. Do not proceed while it fails.
 
 - [ ] **Step 3: Run the tests to verify they fail**
 
