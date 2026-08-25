@@ -35,7 +35,7 @@ from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _normalize_custom_entities(

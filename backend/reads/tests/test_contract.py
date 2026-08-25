@@ -30,6 +30,11 @@ CUTOFF_EXEMPT = {
     # already fetched under their own cutoff.
     ("reads.relationship_types", "is_symmetric"),
     ("reads.relationship_types", "resolve_symmetric"),
+    # Review-queue reads: a parked draft is not canon and has no
+    # point-in-time semantics, so there is nothing to cut off.
+    ("reads.drafts", "list_submissions"),
+    ("reads.drafts", "get_submission"),
+    ("reads.drafts", "count_pending"),
 }
 
 

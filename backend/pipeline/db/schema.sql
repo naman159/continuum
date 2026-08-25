@@ -417,6 +417,25 @@ CREATE TABLE IF NOT EXISTS critique_findings (
 );
 CREATE INDEX IF NOT EXISTS idx_critique_findings_report ON critique_findings(report_id);
 
+-- ---- Agent draft submissions parked for human review ----
+CREATE TABLE IF NOT EXISTS draft_submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    chapter_number INTEGER NOT NULL,
+    title TEXT,
+    raw_text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending','accepted','rejected')),
+    findings JSONB NOT NULL,
+    submitted_at TIMESTAMPTZ DEFAULT now(),
+    resolved_at TIMESTAMPTZ,
+    resolution_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_draft_submissions_pending
+    ON draft_submissions(novel_id, chapter_number) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_draft_submissions_novel
+    ON draft_submissions(novel_id, submitted_at DESC);
+
 -- ---- Schema version (single row, stamped by init-db) ----
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL,
