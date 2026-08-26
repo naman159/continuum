@@ -195,6 +195,7 @@
   <a href="#dual-truth">Dual Source of Truth</a>
   <a href="#heuristics">Typed State Deltas</a>
   <a href="#atomicity">Atomicity</a>
+  <a href="#write-gate">Agent Write Gate</a>
 
   <div class="sidebar-section">Engineering Foundations</div>
   <a href="#evals">Eval Harness</a>
@@ -223,7 +224,7 @@
 
   <h1>State of the System</h1>
   <div class="subtitle">The redesign is complete. This page is both the retrospective on how Continuum got here and the honest list of what's still genuinely open.</div>
-  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14) · updated 2026-07-17 — Plan 3 Task 7: README rewritten for the two-spine architecture, repo-root architecture.md and architecture-recommendations.html retired, continuity-arch-deep-research.md moved to docs/research/ · <strong>updated 2026-08-06 — branch main, 384 backend tests passed + 2 skipped; entity resolution is now measured (pairwise ER eval + ground-truth-free duplicate count), <code>entity_merge</code> can reclassify across entity types, and cross-type duplicates are the one newly-opened gap below</strong></div>
+  <div class="meta">branch: teardown-evals-docs (redesign work; merges to main) · 361 backend tests passed + 1 skipped · assessed 2026-06-10 · updated 2026-07-07 (state materializer wired in) · updated 2026-07-11 (write-spine: temporal_constraints, events SVO/story-time columns, and knows_edges.fact_id removed from the schema — references below to those elements are historical) · updated 2026-07-12 (temporal_consistency check deleted — five checks, not six; EventReplay renamed StateReplay; dual-writer character_states tension resolved, materializer is sole writer) · updated 2026-07-14 — analyzer-architecture redesign (spec 2026-07-11) complete: Plan 1 (write spine, 2026-07-13), Plan 2 (read layer + search + critique surfacing, 2026-07-13), Plan 3 (chapter-authoring teardown + eval harness + docs, 2026-07-14) · updated 2026-07-17 — Plan 3 Task 7: README rewritten for the two-spine architecture, repo-root architecture.md and architecture-recommendations.html retired, continuity-arch-deep-research.md moved to docs/research/ · updated 2026-08-06 — branch main, 384 backend tests passed + 2 skipped; entity resolution is now measured (pairwise ER eval + ground-truth-free duplicate count), <code>entity_merge</code> can reclassify across entity types, and cross-type duplicates are the one newly-opened gap below · <strong>updated 2026-08-24 — branch agent-write-gate, 450 backend tests passed + 3 skipped; the "no hard bounds on agent writes" gap this page used to carry is resolved (<a href="#write-gate">Agent Write Gate</a>), and three new items are open: <code>knowledge_state_check</code>'s word-overlap matching, <code>save_chapter</code>'s hardcoded <code>use_mock_llm=None</code>, and write-gate test-fixture duplication — see <a href="#roadmap">Known Gaps</a></strong></div>
 
   <p class="lead">
     Continuum is a <strong>continuity analyzer</strong>, not a chapter generator — and, as of this
@@ -408,6 +409,16 @@ flowchart TB
         <td>5 checks + runner; <code>analyze_chapter</code> builds a <code>DraftChapter</code> from the
           chapter's own extraction and persists the report for every chapter</td>
         <td>Findings render in the UI (<code>Continuity.tsx</code>) and are measured by the critic precision/recall eval (both exactly 1.0, deterministic)</td>
+      </tr>
+      <tr>
+        <td><strong>Agent Write Gate + Review Queue</strong></td>
+        <td><span class="badge green">Wired</span></td>
+        <td><code>pipeline/gate.py</code> critiques an agent draft before extraction and refuses/parks
+          on FAIL, critic error, or a disabled critic; the wiki's Review page
+          (<code>/novels/{id}/review</code>) lists parked drafts and lets a human accept (findings
+          written through to <code>continuity_flags</code>) or reject</td>
+        <td>Closes the gap this page used to carry as open — see
+          <a href="#write-gate">Agent Write Gate</a></td>
       </tr>
       <tr>
         <td><strong>State Materializer</strong></td>
@@ -926,6 +937,62 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   </div>
   </section>
 
+  <!-- ════════════════ WRITE GATE ════════════════ -->
+  <section id="write-gate">
+  <h2>Data Integrity — Agent Write Gate <span class="badge green">Resolved 2026-08-24</span></h2>
+  <p><strong>Resolved.</strong> This page used to carry an unwritten but real gap: Continuum had no
+     hard bounds on writing agents. Every continuity control in the system was advisory only —
+     <code>check_continuity</code>'s enforcement mechanism was a sentence in its docstring telling an
+     agent to call it before <code>save_chapter</code>, nothing stopped an agent from skipping straight
+     to <code>save_chapter</code>, the critic ran <em>after</em> the extraction transaction had already
+     committed (so by the time it had a verdict the contradictory chapter was already canon), and a
+     FAIL finding changed nothing — <code>save_chapter</code> returned <code>{"ingested": True, ...}</code>
+     with the critique attached as data, the same shape whether the critique passed, failed, or threw.
+     <code>settings.critic_enabled = False</code> could also disable the critic entirely with no
+     replacement check. The only actual hard bound was <code>replace=False</code>, which only prevents
+     overwriting an existing chapter.</p>
+  <p>
+    <code>pipeline/gate.py::gate_agent_draft()</code> now sits in front of extraction for every
+    <code>source == 'agent'</code> write. It runs the cheap draft-claims critic path — one LLM call for
+    <code>extract_draft_claims()</code>, then <code>ContinuityCritic.critique()</code> — against the
+    raw text before any of the 13-pass extractor runs. A FAIL parks the draft in a new
+    <code>draft_submissions</code> table and refuses the write; a critic exception is treated the same
+    way (<code>reason: "critic_error"</code>), and a disabled critic refuses outright without parking
+    anything, since there's no verdict to park (<code>reason: "critic_disabled"</code>) — an outage
+    cannot become a free pass. <code>save_chapter</code>'s return contract now reflects this:
+    <code>{"ingested": false, "status": "pending_review", "submission_id", "reason", "fails", "warns"}</code>
+    on refusal, the pre-existing success shape otherwise. Human writes are completely untouched — the
+    gate is keyed strictly on <code>source</code>.
+  </p>
+  <p>
+    The human is the only override, and it is not a silent one. The wiki's Review page
+    (<code>/novels/{id}/review</code>) lists parked drafts; accepting one re-runs the full pipeline
+    with a bypass flag that only <code>pipeline/drafts.py::accept_submission</code> is allowed to set
+    (it is not exposed as a request field, CLI flag, or MCP parameter anywhere else), and writes the
+    draft's blocking findings through to <code>continuity_flags</code> — a human-blessed contradiction
+    stays visible in the Continuity view rather than being silently absolved. Rejecting just marks the
+    row; the agent has to revise and resubmit, which supersedes the earlier parked row for that
+    chapter.
+  </p>
+
+  <div class="nn">
+    <div class="stand">
+      <h4>Where we stood</h4>
+      <p>Every continuity control an agent could reach was advisory: a docstring telling it to
+         self-check, a post-commit critique that couldn't stop anything, and a success response that
+         looked identical whether the draft passed, failed, or the critic errored.</p>
+    </div>
+    <div class="need">
+      <h4>Where we are now</h4>
+      <p>A chapter row in <code>chapters</code> means it passed continuity, full stop. Refusal happens
+         before extraction, fails closed on any critic problem, and the only path around it is a human
+         acting through the Review queue — recorded, not absorbed. <code>knowledge_state_check</code>'s
+         word-overlap matching still bounds how precise the gate can be; see
+         <a href="#roadmap">Known Gaps / Next Steps</a>.</p>
+    </div>
+  </div>
+  </section>
+
   <!-- ════════════════ EVALS ════════════════ -->
   <section id="evals">
   <h2>Foundations — Eval Harness <span class="badge green">Built 2026-07-14</span></h2>
@@ -1253,6 +1320,43 @@ flowchart TB
       papered over.<br>
       <em>Done when:</em> job state moves to the database or a queue, if multi-worker deployment is ever
       needed.
+    </li>
+    <li>
+      <span class="phase-tag">The write gate's precision is bounded by word-overlap matching</span><br>
+      <strong><code>knowledge_state_check</code> matches a draft's knowledge claims against stored
+      <code>knows_edges</code> facts by word overlap</strong>, not embedding similarity — its own
+      docstring names the fix. The stored <code>fact_description</code> and the draft-claim's
+      <code>fact_description</code> come from two independent LLM calls that rarely agree verbatim, so
+      this is the check that decides whether an agent write gets refused for "knowing" something it
+      shouldn't. New as of the agent write gate (2026-08-24) — before this, the check ran but nothing
+      downstream of it could refuse a write, so its precision ceiling was invisible in practice.
+      See <a href="#write-gate">Agent Write Gate</a>.<br>
+      <em>Done when:</em> <code>check_knowledge_state</code> matches on embedding similarity (or
+      another semantic measure) instead of <code>words_overlap()</code>.
+    </li>
+    <li>
+      <span class="phase-tag">The MCP write path can't be exercised without live LLM calls</span><br>
+      <strong><code>mcp_server/queries.py::save_chapter</code> hardcodes <code>use_mock_llm=None</code></strong>
+      on its call into <code>analyze_chapter</code> — there's no parameter to force mock mode from the
+      MCP tool surface. Every accept-path test that needs to avoid spending real API credits (the
+      write-gate refusal tests, the Review-page accept/reject tests) has to monkeypatch around it
+      rather than pass a flag.<br>
+      <em>Done when:</em> <code>save_chapter</code> either accepts a mock-mode override, or reads one
+      from settings the way the CLI path does, so exercising the MCP write path in a test doesn't
+      require monkeypatching <code>analyze_chapter</code>.
+    </li>
+    <li>
+      <span class="phase-tag">Test-fixture duplication</span><br>
+      <strong>The write gate's tests copy fixtures instead of sharing them.</strong> The
+      <code>_force_mock_llm</code> autouse fixture that wraps <code>analyze_chapter</code> to avoid live
+      LLM calls is defined identically in both <code>pipeline/tests/test_drafts_resolution.py</code>
+      and <code>api/tests/test_drafts.py</code>, and the <code>db</code>/<code>seed_novel</code>
+      conftest pair — copied to stand up Postgres-backed drafts tests — now exists in three places:
+      <code>reads/tests/conftest.py</code> (original), <code>pipeline/tests/conftest.py</code>, and
+      <code>mcp_server/tests/conftest.py</code>, each one explicitly commented as mirroring the others
+      rather than importing from one.<br>
+      <em>Done when:</em> both fixtures move to one shared location (a top-level <code>conftest.py</code>
+      or a small shared test-support module) and the copies are deleted.
     </li>
   </ul>
   </section>

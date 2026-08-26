@@ -17,7 +17,12 @@ ground truth while drafting and saves finished chapters back.
   PERSIST (one transaction, immutable extraction tier) → MATERIALIZE
   (`StateReplay` folds deltas into projections; sole writer of
   `character_states` and the bitemporal edge tables) → CRITIQUE
-  (5 deterministic continuity checks, persisted per chapter).
+  (5 deterministic continuity checks, persisted per chapter). Agent writes
+  (`source='agent'`) run a **GATE** phase first: the continuity critic
+  critiques the raw draft before extraction, and a FAIL — or a critic
+  error, or a disabled critic — refuses the write and parks it in
+  `draft_submissions` for human review instead of ingesting it. A row in
+  `chapters` means it passed continuity; human writes are unaffected.
 - **Read layer** — `backend/reads/`: every public function takes
   `up_to_chapter` (None = whole novel) so both the wiki and MCP serve
   spoiler-safe, point-in-time views. API routes and MCP tools contain no
@@ -37,7 +42,9 @@ Open these in a browser — they are the onboarding path, in order:
 3. `docs/state-of-the-system.html` — how it got here, what is wired, and the
    honest list of what's still open (currently: cross-type duplicate
    prevention, per-chapter cost accounting, embedding-dimension migration,
-   in-memory job state).
+   in-memory job state, the write gate's word-overlap knowledge check,
+   `save_chapter`'s hardcoded `use_mock_llm=None`, and some test-fixture
+   duplication).
 
 `docs/blog/` is an eleven-part narrative walkthrough of the whole system, written
 from first principles — start at `docs/blog/README.md` if you want the reasoning
@@ -106,6 +113,15 @@ earlier chapters, so an agent drafting chapter N sees the world as of N−1.
 Suggested agent workflow: `open_threads` + `unresolved_commitments` +
 `get_character` → draft → `check_continuity` → revise → `save_chapter`.
 The full tool table is in `docs/reference.html`.
+
+`save_chapter` is gated: it refuses a draft that fails the continuity
+critic and routes it to `draft_submissions` for human review instead of
+ingesting it (`check_continuity` is a self-check an agent can run first,
+but it isn't the enforcement point — `save_chapter` runs the same checks
+itself). A refusal returns `{ingested: false, status: "pending_review",
+submission_id, reason, fails, warns}`; revise against `fails` and
+resubmit — a resubmission supersedes the earlier parked draft. Only a
+human, via the wiki's Review page, can accept a failing draft anyway.
 
 ## Tests and evals
 
