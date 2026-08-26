@@ -40,6 +40,7 @@ const NAV_ICONS: Record<string, ReactNode> = {
   "Entity Graph": <Share2 />,
   Continuity: <ShieldCheck />,
   "Process Chapter": <Zap />,
+  "Review Queue": <Zap />,
 };
 
 function navIcon(label: string): ReactNode {
@@ -94,7 +95,10 @@ function buildNavGroups(novelId: string, customLinks: [string, string][]): NavGr
 
   groups.push({
     label: "Tools",
-    links: [["Process Chapter", `/novels/${novelId}/process`]],
+    links: [
+      ["Process Chapter", `/novels/${novelId}/process`],
+      ["Review Queue", `/novels/${novelId}/review`],
+    ],
   });
 
   return groups;

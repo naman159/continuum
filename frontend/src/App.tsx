@@ -21,6 +21,7 @@ import ObjectDetail from "./routes/ObjectDetail";
 import Objects from "./routes/Objects";
 import Process from "./routes/Process";
 import Relationships from "./routes/Relationships";
+import Review from "./routes/Review";
 import Scenes from "./routes/Scenes";
 import Search from "./routes/Search";
 import SharedDynamics from "./routes/SharedDynamics";
@@ -59,6 +60,7 @@ export default function App() {
           <Route path="/novels/:novelId/canon" element={<Layout><Canon /></Layout>} />
           <Route path="/novels/:novelId/knowledge" element={<Layout><Knowledge /></Layout>} />
           <Route path="/novels/:novelId/process" element={<Layout><Process /></Layout>} />
+          <Route path="/novels/:novelId/review" element={<Layout><Review /></Layout>} />
           <Route path="/novels/:novelId/entity-types/:typeName/entities" element={<Layout><CustomEntityList /></Layout>} />
           <Route path="/novels/:novelId/custom-entities/:entityId" element={<Layout><CustomEntityDetail /></Layout>} />
           {/* A bare /novels/:novelId has no page of its own; send it to the

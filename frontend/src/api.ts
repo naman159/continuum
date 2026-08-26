@@ -338,6 +338,33 @@ export type CustomEntityDetail = {
   relationships: CustomEntityRelationship[];
 };
 
+export interface DraftFinding {
+  check: string;
+  severity: string;
+  message: string;
+  quote: string | null;
+  suggested_fix: string | null;
+  context: Record<string, unknown>;
+}
+
+export interface DraftSummary {
+  id: string;
+  novel_id: string;
+  chapter_number: number;
+  title: string | null;
+  status: string;
+  fail_count: number;
+  warn_count: number;
+  submitted_at: string | null;
+  resolved_at: string | null;
+  resolution_note: string | null;
+}
+
+export interface DraftDetail extends DraftSummary {
+  raw_text: string;
+  findings: { fails?: DraftFinding[]; warns?: DraftFinding[]; error?: string };
+}
+
 // Surface FastAPI's {detail} payload — a string on HTTPException, an array
 // of {loc, msg, ...} objects on 422 validation errors.
 async function throwHttpError(res: Response): Promise<never> {
@@ -490,4 +517,17 @@ export const api = {
   customEntity: (novelId: string, entityId: string, cap: number | null) =>
     fetchJson<CustomEntityDetail>(`/api/novels/${novelId}/custom-entities/${entityId}${capParam(cap)}`),
   deleteNovel: (id: string) => deleteRequest(`/api/novels/${id}`),
+  drafts: (novelId: string, status = "pending") =>
+    fetchJson<DraftSummary[]>(`/api/novels/${novelId}/drafts?status=${status}`),
+  pendingDrafts: (novelId: string) =>
+    fetchJson<{ pending: number }>(`/api/novels/${novelId}/drafts/pending-count`),
+  draft: (submissionId: string) =>
+    fetchJson<DraftDetail>(`/api/drafts/${submissionId}`),
+  acceptDraft: (submissionId: string, note: string, editedText?: string) =>
+    postJson<{ accepted: boolean; chapter_id: string; flags_written: number }>(
+      `/api/drafts/${submissionId}/accept`,
+      { note, edited_text: editedText ?? null }
+    ),
+  rejectDraft: (submissionId: string, note: string) =>
+    postJson<{ rejected: boolean }>(`/api/drafts/${submissionId}/reject`, { note }),
 };
