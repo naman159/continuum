@@ -19,10 +19,13 @@ ground truth while drafting and saves finished chapters back.
   `character_states` and the bitemporal edge tables) → CRITIQUE
   (5 deterministic continuity checks, persisted per chapter). Agent writes
   (`source='agent'`) run a **GATE** phase first: the continuity critic
-  critiques the raw draft before extraction, and a FAIL — or a critic
-  error, or a disabled critic — refuses the write and parks it in
-  `draft_submissions` for human review instead of ingesting it. A row in
-  `chapters` means it passed continuity; human writes are unaffected.
+  critiques the raw draft before extraction, and a FAIL or a critic error
+  refuses the write and parks it in `draft_submissions` for human review;
+  a disabled critic refuses outright with nothing parked (there's no
+  verdict to record). A row in `chapters` with `source='agent'` therefore
+  either passed continuity or was human-overridden through the Review
+  queue with the blocking findings recorded on it — human writes never
+  face the gate at all, so that invariant doesn't extend to them.
 - **Read layer** — `backend/reads/`: every public function takes
   `up_to_chapter` (None = whole novel) so both the wiki and MCP serve
   spoiler-safe, point-in-time views. API routes and MCP tools contain no

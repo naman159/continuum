@@ -58,6 +58,8 @@ export default function Review() {
     setSelectedId(id);
   }
 
+  if (listQuery.isLoading) return <p className="muted">Loading…</p>;
+
   return (
     <div>
       <div className="page-header">
@@ -70,7 +72,7 @@ export default function Review() {
 
       {error && <p className="status-error">{error}</p>}
 
-      {rows.length === 0 && (
+      {!error && rows.length === 0 && (
         <div className="empty-state">
           <p>No drafts awaiting review.</p>
         </div>

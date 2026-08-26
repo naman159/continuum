@@ -41,6 +41,23 @@ def _finding_dict(finding: Any) -> dict[str, Any]:
     }
 
 
+def _supersede_pending(
+    cur: Any, *, novel_id: str, chapter_number: int, note: str
+) -> None:
+    """Mark any pending row for this chapter 'rejected'. Takes a cursor (not a
+    DBClient) so the caller can run this inside its own transaction."""
+    cur.execute(
+        """
+        UPDATE draft_submissions
+           SET status = 'rejected',
+               resolved_at = now(),
+               resolution_note = %s
+         WHERE novel_id = %s AND chapter_number = %s AND status = 'pending'
+        """,
+        (note, str(novel_id), chapter_number),
+    )
+
+
 def _park(
     db: Any,
     *,
@@ -63,15 +80,11 @@ def _park(
     draft would lose the author's work, so a failed park is a hard error.
     """
     with db.transaction() as cur:
-        cur.execute(
-            """
-            UPDATE draft_submissions
-               SET status = 'rejected',
-                   resolved_at = now(),
-                   resolution_note = 'superseded by resubmission'
-             WHERE novel_id = %s AND chapter_number = %s AND status = 'pending'
-            """,
-            (str(novel_id), chapter_number),
+        _supersede_pending(
+            cur,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            note="superseded by resubmission",
         )
         cur.execute(
             """
@@ -83,6 +96,21 @@ def _park(
             (str(novel_id), chapter_number, title, raw_text, json.dumps(findings)),
         )
         return str(cur.fetchone()[0])
+
+
+def _supersede_on_pass(db: Any, *, novel_id: str, chapter_number: int) -> None:
+    """A passing resubmission still has to clear the stale pending row left by
+    an earlier failing draft for the same chapter — otherwise the queue holds
+    a 'pending' row for text that the agent has since fixed, and a reviewer
+    who opens it hits the duplicate-chapter 409 the moment they try to accept.
+    No new row is inserted on this path; there is nothing to park."""
+    with db.transaction() as cur:
+        _supersede_pending(
+            cur,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            note="superseded by a passing resubmission",
+        )
 
 
 def gate_agent_draft(
@@ -144,6 +172,7 @@ def gate_agent_draft(
         )
 
     if passed:
+        _supersede_on_pass(db, novel_id=novel_id, chapter_number=chapter_number)
         return GateVerdict(passed=True, fails=fails, warns=warns)
 
     submission_id = _park(

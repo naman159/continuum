@@ -5,7 +5,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pipeline.config import settings
 from pipeline.critic.service import critique_chapter
@@ -270,7 +270,7 @@ def analyze_chapter(
     progress: Any | None = None,
     db: DBClient | None = None,
     replace: bool = False,
-    source: str = "human",
+    source: Literal["human", "agent"] = "human",
     run_critic: bool | None = None,
     _gate_bypass: bool = False,
 ) -> dict[str, Any]:
@@ -294,7 +294,7 @@ def analyze_chapter(
         # and so contradictory material never reaches the extraction tier.
         # Independent of `replace`: re-processing is exactly when a
         # contradiction is most likely.
-        if source == "agent" and not _gate_bypass:
+        if source != "human" and not _gate_bypass:
             verdict = gate_agent_draft(
                 client,
                 novel_id=novel_id,
@@ -304,9 +304,17 @@ def analyze_chapter(
                 use_mock_llm=use_mock_llm,
             )
             if not verdict.passed:
+                # Only "critic_disabled" leaves nothing parked (submission_id
+                # is None): there is no row for a human to review, so telling
+                # the agent "pending_review" would be a lie — the draft was
+                # dropped, not queued. Every other refusal reason parks a row.
                 return {
                     "ingested": False,
-                    "status": "pending_review",
+                    "status": (
+                        "pending_review"
+                        if verdict.submission_id is not None
+                        else "refused"
+                    ),
                     "submission_id": verdict.submission_id,
                     "reason": verdict.reason,
                     "fails": verdict.fails or [],

@@ -190,3 +190,32 @@ def test_resubmission_supersedes_the_pending_row(db, seed_novel, stub_critic):
 
     pending = drafts_reads.list_submissions(db, novel_id)
     assert [r["id"] for r in pending] == [second.submission_id]
+
+
+def test_resubmission_that_passes_supersedes_the_pending_row(db, seed_novel, stub_critic):
+    """The core loop this feature exists for: agent submits, FAILs, parks,
+    revises, and PASSES. The v1 row must not be left at 'pending' forever —
+    that would leave the queue holding a stale row a reviewer can never
+    accept (the chapter it names now exists once the pass ingests)."""
+    novel_id = seed_novel(db)["novel_id"]
+
+    stub_critic(report=_report(_fail()))
+    first = gate_mod.gate_agent_draft(
+        db, novel_id=novel_id, chapter_number=90, title=None,
+        raw_text="v1 fails", use_mock_llm=True,
+    )
+    assert first.passed is False
+
+    stub_critic(report=_report())
+    second = gate_mod.gate_agent_draft(
+        db, novel_id=novel_id, chapter_number=90, title=None,
+        raw_text="v2 passes", use_mock_llm=True,
+    )
+    assert second.passed is True
+    assert second.submission_id is None  # nothing new is parked on a pass
+
+    superseded = drafts_reads.get_submission(db, first.submission_id)
+    assert superseded["status"] == "rejected"
+    assert superseded["resolution_note"] == "superseded by a passing resubmission"
+
+    assert drafts_reads.list_submissions(db, novel_id) == []

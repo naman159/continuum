@@ -151,3 +151,46 @@ def test_agent_pass_ingests_normally(db, seed_novel, passing_gate):
 
     assert "ingested" not in result
     assert _chapter_count(db, novel_id, 90) == 1
+
+
+def test_non_human_source_is_still_gated(db, seed_novel, refusing_gate):
+    """The predicate is `source != "human"`, not `source == "agent"`: any
+    value that isn't the literal string "human" must still hit the gate,
+    so a future caller with a typo'd or new source value fails closed
+    rather than silently bypassing it."""
+    novel_id = seed_novel(db)["novel_id"]
+
+    result = pipeline_mod.analyze_chapter(
+        novel_id=novel_id, chapter_number=90, raw_text="bad draft",
+        chapter_title=None, use_mock_llm=True, chunk_size=1000,
+        chunk_overlap=100, db=db, source="Agent",  # not the literal "human"
+    )
+
+    assert result["ingested"] is False
+    assert _chapter_count(db, novel_id, 90) == 0
+    assert refusing_gate["extract"] == 0
+
+
+def test_critic_disabled_status_is_refused_not_pending_review(db, seed_novel, monkeypatch):
+    """critic_disabled parks nothing (submission_id is None), so telling the
+    caller "pending_review" would claim a human is looking at a row that
+    doesn't exist. It must report "refused" instead."""
+    monkeypatch.setattr(
+        pipeline_mod, "gate_agent_draft",
+        lambda db, **kw: GateVerdict(
+            passed=False, submission_id=None, fails=[], warns=[],
+            reason="critic_disabled",
+        ),
+    )
+    novel_id = seed_novel(db)["novel_id"]
+
+    result = pipeline_mod.analyze_chapter(
+        novel_id=novel_id, chapter_number=90, raw_text="bad draft",
+        chapter_title=None, use_mock_llm=True, chunk_size=1000,
+        chunk_overlap=100, db=db, source="agent",
+    )
+
+    assert result["ingested"] is False
+    assert result["status"] == "refused"
+    assert result["submission_id"] is None
+    assert result["reason"] == "critic_disabled"

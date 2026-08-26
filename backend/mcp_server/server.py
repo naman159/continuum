@@ -211,10 +211,19 @@ def save_chapter(
 
     Drafts are gated: the continuity critic runs BEFORE extraction, and a
     draft with any FAIL finding is refused and parked for human review.
-    A refusal returns {"ingested": false, "status": "pending_review",
-    "submission_id", "reason", "fails", "warns"} — revise against `fails` and
-    resubmit; a resubmission supersedes the parked draft. Warnings do not
-    block. Refuses to overwrite an existing chapter."""
+    A refusal returns {"ingested": false, "status", "submission_id", "reason",
+    "fails", "warns"}. Two different refusals look alike but need different
+    responses:
+      - status "pending_review" (reason "fail" or "critic_error"):
+        `submission_id` is set — the draft is parked and waiting on a human.
+        Revise against `fails` and resubmit; a resubmission supersedes the
+        parked draft.
+      - status "refused" (reason "critic_disabled"): `submission_id` is null
+        — nothing was parked because there was no verdict to record. This is
+        an outage, not a verdict on the draft. Hold the text and retry
+        `save_chapter` later rather than revising against `fails` (which will
+        be empty) or resubmitting into the queue.
+    Warnings do not block. Refuses to overwrite an existing chapter."""
     return _call(lambda: queries.save_chapter(novel_id, chapter_number, text, title))
 
 

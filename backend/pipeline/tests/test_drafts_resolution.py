@@ -104,6 +104,48 @@ def test_accept_with_edits_ingests_the_edited_text(db, seed_novel):
     assert "edited" in row["resolution_note"]
 
 
+def test_accept_with_edits_labels_flags_as_edited_not_still_failing(db, seed_novel):
+    """Editing before accepting is most often an attempt to fix the flagged
+    contradiction. The write-through must not claim the (unre-critiqued)
+    edited text still has the problem — it should only say the original
+    draft failed."""
+    novel_id = seed_novel(db)["novel_id"]
+    submission_id = _park(db, novel_id, text="original text")
+
+    result = drafts_mod.accept_submission(
+        db, submission_id, note="fixed it", edited_text="Kael walked in."
+    )
+
+    flags = db.fetchall(
+        "SELECT description FROM continuity_flags WHERE chapter_id = %s",
+        (result["chapter_id"],),
+        dict_rows=True,
+    )
+    assert len(flags) == 1
+    assert flags[0]["description"].startswith(
+        "[accepted after edit; original draft FAILed]"
+    )
+    assert "[accepted despite continuity FAIL]" not in flags[0]["description"]
+
+
+def test_accept_without_edits_still_uses_the_despite_fail_label(db, seed_novel):
+    """The un-edited path is unchanged: the reviewer accepted the draft
+    exactly as submitted, so the original label — the chapter as accepted
+    still has the flagged problem — is accurate."""
+    novel_id = seed_novel(db)["novel_id"]
+    submission_id = _park(db, novel_id)
+
+    result = drafts_mod.accept_submission(db, submission_id, note="deliberate retcon")
+
+    flags = db.fetchall(
+        "SELECT description FROM continuity_flags WHERE chapter_id = %s",
+        (result["chapter_id"],),
+        dict_rows=True,
+    )
+    assert len(flags) == 1
+    assert flags[0]["description"].startswith("[accepted despite continuity FAIL]")
+
+
 def test_accept_rolls_back_flags_if_the_status_update_fails(db, seed_novel, monkeypatch):
     """The findings write-through and the status UPDATE are one transaction:
     if the UPDATE fails, the INSERTs into continuity_flags must not survive
@@ -171,6 +213,49 @@ def test_reject_marks_rejected_and_writes_no_chapter(db, seed_novel):
             (novel_id,),
         )
     ) == 0
+
+
+def test_reject_loses_a_race_to_a_concurrent_accept(db, seed_novel, monkeypatch):
+    """Two reviewers can both pass `_load_pending`'s read before either
+    writes. Simulate that by having the reject call operate on a stale
+    'pending' snapshot (captured before a concurrent accept actually
+    resolves the row) — the CAS on the UPDATE itself, not the earlier read,
+    must be what stops the second writer from clobbering the first one's
+    resolution."""
+    novel_id = seed_novel(db)["novel_id"]
+    submission_id = _park(db, novel_id)
+    stale_row = drafts_mod._load_pending(db, submission_id)
+
+    drafts_mod.accept_submission(db, submission_id, note="reviewer A accepts first")
+
+    monkeypatch.setattr(drafts_mod, "_load_pending", lambda db, sid: stale_row)
+    with pytest.raises(ValueError, match="already resolved"):
+        drafts_mod.reject_submission(db, submission_id, note="reviewer B (stale) rejects")
+
+    # The winner's resolution must survive untouched.
+    row = drafts_reads.get_submission(db, submission_id)
+    assert row["status"] == "accepted"
+    assert row["resolution_note"] == "reviewer A accepts first"
+
+
+def test_accept_loses_a_race_to_a_concurrent_reject(db, seed_novel, monkeypatch):
+    """Mirror of the above: a stale-read accept must not flip an
+    already-rejected submission back to 'accepted', even though the chapter
+    it ingests (analyze_chapter's own commit, which cannot be joined to this
+    transaction) cannot be un-ingested at this point."""
+    novel_id = seed_novel(db)["novel_id"]
+    submission_id = _park(db, novel_id)
+    stale_row = drafts_mod._load_pending(db, submission_id)
+
+    drafts_mod.reject_submission(db, submission_id, note="reviewer A rejects first")
+
+    monkeypatch.setattr(drafts_mod, "_load_pending", lambda db, sid: stale_row)
+    with pytest.raises(ValueError, match="already resolved"):
+        drafts_mod.accept_submission(db, submission_id, note="reviewer B (stale) accepts")
+
+    row = drafts_reads.get_submission(db, submission_id)
+    assert row["status"] == "rejected"
+    assert row["resolution_note"] == "reviewer A rejects first"
 
 
 def test_resolving_a_missing_or_resolved_submission_raises(db, seed_novel):

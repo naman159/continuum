@@ -952,17 +952,25 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      replacement check. The only actual hard bound was <code>replace=False</code>, which only prevents
      overwriting an existing chapter.</p>
   <p>
-    <code>pipeline/gate.py::gate_agent_draft()</code> now sits in front of extraction for every
-    <code>source == 'agent'</code> write. It runs the cheap draft-claims critic path — one LLM call for
-    <code>extract_draft_claims()</code>, then <code>ContinuityCritic.critique()</code> — against the
+    <code>pipeline/gate.py::gate_agent_draft()</code> now sits in front of extraction for every write
+    whose <code>source</code> is not <code>'human'</code> (in practice, <code>source == 'agent'</code> —
+    the only other value any caller passes). It runs the cheap draft-claims critic path — one LLM call
+    for <code>extract_draft_claims()</code>, then <code>ContinuityCritic.critique()</code> — against the
     raw text before any of the 13-pass extractor runs. A FAIL parks the draft in a new
     <code>draft_submissions</code> table and refuses the write; a critic exception is treated the same
-    way (<code>reason: "critic_error"</code>), and a disabled critic refuses outright without parking
-    anything, since there's no verdict to park (<code>reason: "critic_disabled"</code>) — an outage
-    cannot become a free pass. <code>save_chapter</code>'s return contract now reflects this:
-    <code>{"ingested": false, "status": "pending_review", "submission_id", "reason", "fails", "warns"}</code>
-    on refusal, the pre-existing success shape otherwise. Human writes are completely untouched — the
-    gate is keyed strictly on <code>source</code>.
+    way (<code>reason: "critic_error"</code>) — both set <code>status: "pending_review"</code> with a
+    real <code>submission_id</code>. A disabled critic refuses outright without parking anything, since
+    there's no verdict to park (<code>reason: "critic_disabled"</code>) — an outage cannot become a
+    free pass, but it also isn't a queued review, so it gets its own status:
+    <code>save_chapter</code>'s return contract is
+    <code>{"ingested": false, "status", "submission_id", "reason", "fails", "warns"}</code> on refusal
+    with <code>status</code> either <code>"pending_review"</code> (parked, revise and resubmit) or
+    <code>"refused"</code> (nothing parked, <code>submission_id: null</code>, hold the text and retry
+    once the critic is back), and the pre-existing success shape otherwise. A resubmission for the same
+    chapter always supersedes the prior pending row, whether the resubmission fails again or passes —
+    a passing one just clears the stale row rather than parking a new one, so a chapter that failed once
+    and later passed doesn't leave an unacceptable "pending" row behind it forever. Human writes are
+    completely untouched — the gate never runs for <code>source == 'human'</code>.
   </p>
   <p>
     The human is the only override, and it is not a silent one. The wiki's Review page
@@ -970,9 +978,13 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     with a bypass flag that only <code>pipeline/drafts.py::accept_submission</code> is allowed to set
     (it is not exposed as a request field, CLI flag, or MCP parameter anywhere else), and writes the
     draft's blocking findings through to <code>continuity_flags</code> — a human-blessed contradiction
-    stays visible in the Continuity view rather than being silently absolved. Rejecting just marks the
-    row; the agent has to revise and resubmit, which supersedes the earlier parked row for that
-    chapter.
+    stays visible in the Continuity view rather than being silently absolved. If the human edited the
+    text before accepting, that flag reads <code>[accepted after edit; original draft FAILed]</code>
+    instead of <code>[accepted despite continuity FAIL]</code>, since the edit is not re-critiqued and
+    the original label would otherwise misstate an edited, possibly-now-clean chapter as still failing.
+    Rejecting just marks the row; the agent has to revise and resubmit. Both accept and reject are
+    compare-and-swap updates (matched against <code>status = 'pending'</code>) so two reviewers racing
+    on the same submission can't silently clobber each other's resolution.
   </p>
 
   <div class="nn">
@@ -984,9 +996,14 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     </div>
     <div class="need">
       <h4>Where we are now</h4>
-      <p>A chapter row in <code>chapters</code> means it passed continuity, full stop. Refusal happens
-         before extraction, fails closed on any critic problem, and the only path around it is a human
-         acting through the Review queue — recorded, not absorbed. <code>knowledge_state_check</code>'s
+      <p>A chapter row in <code>chapters</code> with <code>source='agent'</code> either passed
+         continuity or was human-overridden through the Review queue with the blocking findings
+         recorded against it. Refusal happens before extraction and fails closed on any critic
+         problem; the Review queue's accept flow is the only way an agent-authored draft that FAILed
+         reaches <code>chapters</code> at all. That invariant covers agent writes only — it says
+         nothing about human-authored rows, which come in through the Process page/CLI and never face
+         the gate to begin with, continuity-checked or not.
+         <code>knowledge_state_check</code>'s
          word-overlap matching still bounds how precise the gate can be; see
          <a href="#roadmap">Known Gaps / Next Steps</a>.</p>
     </div>

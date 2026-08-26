@@ -599,7 +599,7 @@ graph LR
 
     <ol class="steps">
       <li>
-        <strong>0 · GATE — agent writes only</strong> — runs before anything else, and only when <code>source == 'agent'</code> (i.e. the MCP <code>save_chapter</code> path; human writes from the Process page/CLI never hit it). <code>gate_agent_draft()</code> (<code>pipeline/gate.py</code>) runs the cheap draft-claims critic path — <code>extract_draft_claims()</code> (one LLM call) → <code>build_draft_chapter()</code> → <code>ContinuityCritic.critique()</code> — against the raw, unextracted text. A FAIL, a critic exception, or <code>CRITIC_ENABLED=false</code> all refuse the write: the draft is parked in <code>draft_submissions</code> (superseding any prior pending row for the same chapter, in one transaction) and <code>analyze_chapter</code> returns <code>{"ingested": false, "status": "pending_review", "submission_id", "reason", "fails", "warns"}</code> instead of raising or writing anything to <code>chapters</code>. Because this runs <em>before</em> chunking and the 13-pass extractor, a refused draft costs one LLM call instead of thirteen, and contradictory material never reaches the extraction tier at all. See <a href="#agent-write-gate">The Agent Write Gate</a> below.
+        <strong>0 · GATE — agent writes only</strong> — runs before anything else, whenever <code>source != 'human'</code> (i.e. the MCP <code>save_chapter</code> path, which passes <code>source="agent"</code>; human writes from the Process page/CLI, the only callers that pass <code>source="human"</code>, never hit it). <code>gate_agent_draft()</code> (<code>pipeline/gate.py</code>) runs the cheap draft-claims critic path — <code>extract_draft_claims()</code> (one LLM call) → <code>build_draft_chapter()</code> → <code>ContinuityCritic.critique()</code> — against the raw, unextracted text. A FAIL, a critic exception, or <code>CRITIC_ENABLED=false</code> all refuse the write, returning <code>{"ingested": false, "status", "submission_id", "reason", "fails", "warns"}</code> instead of raising or writing anything to <code>chapters</code>. A FAIL or a critic exception additionally parks the draft in <code>draft_submissions</code> (superseding any prior pending row for the same chapter, in one transaction — a passing resubmission supersedes it the same way) and sets <code>"status": "pending_review"</code> with a real <code>submission_id</code>; a disabled critic parks nothing (there is no verdict to record) and sets <code>"status": "refused"</code> with <code>submission_id: null</code> instead. Because this runs <em>before</em> chunking and the 13-pass extractor, a refused draft costs one LLM call instead of thirteen, and contradictory material never reaches the extraction tier at all. See <a href="#agent-write-gate">The Agent Write Gate</a> below.
       </li>
       <li>
         <strong>Ingest raw text</strong> — <code>ingest_chapter()</code> inserts the raw chapter text into the <code>chapters</code> table. Duplicate (novel_id, chapter_number) is rejected.
@@ -650,7 +650,11 @@ graph LR
       was purely advisory for agent writes: <code>check_continuity</code> was a tool an agent could
       call and ignore, and <code>save_chapter</code> ingested a draft regardless of what the critic
       said about it — the critique came back attached to a successful response either way.
-      <strong>The invariant now is that a row in <code>chapters</code> means it passed continuity.</strong>
+      <strong>The invariant now is that a row in <code>chapters</code> with <code>source='agent'</code>
+      either passed continuity or was human-overridden through the Review queue, with the findings
+      that blocked it recorded on the chapter.</strong> Human writes never face the gate at all — see
+      "Human writes are untouched" below — so the invariant only constrains agent rows; it says
+      nothing about how a human-authored row got in.
       A FAIL is refused at the write door (phase 0 · GATE above) rather than surfaced as data the
       caller is free to ignore, and the refused text is never lost — it lands in
       <code>draft_submissions</code>, a table that is deliberately <em>not</em> canon and is never
@@ -659,26 +663,44 @@ graph LR
       <ul>
         <li><strong>Fail-closed, not fail-open.</strong> If the critic itself throws — a bad prompt,
           a malformed <code>CritiqueReport</code>, anything — <code>gate_agent_draft()</code> catches
-          it, parks the draft with <code>reason: "critic_error"</code>, and refuses. A disabled
-          critic (<code>CRITIC_ENABLED=false</code>) refuses agent writes outright
+          it, parks the draft with <code>reason: "critic_error"</code>, and refuses
+          (<code>status: "pending_review"</code>). A disabled critic
+          (<code>CRITIC_ENABLED=false</code>) refuses agent writes outright
           (<code>reason: "critic_disabled"</code>) without parking anything, since there is no
-          verdict to record — the agent still holds the text and can resubmit once the critic is
-          back. Nothing about the gate lets an outage become a free pass.</li>
+          verdict to record — the response's <code>status</code> is <code>"refused"</code> and
+          <code>submission_id</code> is <code>null</code>, distinguishing it from a parked refusal.
+          The agent still holds the text and can resubmit once the critic is back. Nothing about the
+          gate lets an outage become a free pass.</li>
+        <li><strong>Resubmission always clears the stale row.</strong> A pending row for a chapter is
+          superseded (marked <code>rejected</code>) the moment a new draft is gated for that same
+          chapter — whether the new draft fails again or passes cleanly. A passing resubmission does
+          not insert a row of its own; it only clears the one left by the earlier failure. Without
+          this, a chapter that failed once and then passed would leave a stale <code>pending</code>
+          row in the queue forever, pointing at superseded text a reviewer can no longer accept (the
+          chapter it names already exists).</li>
         <li><strong>The human is the only override.</strong> A parked draft sits in the wiki's
           Review Queue (<code>/novels/{id}/review</code>, <code>routes/Review.tsx</code>) until a
           human accepts or rejects it. Rejecting just marks the row; the agent must revise and
-          resubmit (a resubmission supersedes the earlier parked row for that chapter). Accepting
-          re-runs <code>analyze_chapter</code> with a bypass flag that only
+          resubmit. Accepting re-runs <code>analyze_chapter</code> with a bypass flag that only
           <code>pipeline/drafts.py::accept_submission</code> is allowed to set — it is not a request
           field, CLI flag, or MCP parameter anywhere else — and, critically, does <em>not</em>
           discard the findings that blocked the draft: they are written through to
           <code>continuity_flags</code> as <code>accepted_override:&lt;check&gt;</code> rows, so a
           human-blessed contradiction stays visible in the Continuity view instead of being silently
-          absolved.</li>
-        <li><strong>Human writes are untouched.</strong> The gate is keyed strictly on
-          <code>source == 'agent'</code>; the Process page and CLI ingest path run the same five
-          phases they always did, with no gate and no <code>draft_submissions</code> row ever
-          created for them.</li>
+          absolved. If the human edited the text before accepting, the flag is labelled
+          <code>[accepted after edit; original draft FAILed]</code> rather than
+          <code>[accepted despite continuity FAIL]</code> — the edit is not re-critiqued, so this
+          only records that the <em>original</em> draft failed, not that the accepted text still
+          has the problem.</li>
+        <li><strong>Human writes are untouched, and only human writes are untouched.</strong> The
+          gate runs for anything other than <code>source == 'human'</code> (not just
+          <code>source == 'agent'</code> specifically — see <code>Literal["human", "agent"]</code> on
+          <code>analyze_chapter</code>'s <code>source</code> parameter), so the Process page and CLI
+          ingest path — the only callers that pass <code>source="human"</code> — run the same five
+          phases they always did, with no gate and no <code>draft_submissions</code> row ever created
+          for them. Every other write path Continuum has is either a human write (ungated) or an
+          agent write through this gate; there is no third, silently-ungated route to
+          <code>chapters</code> besides the human-operated Review queue accept flow above.</li>
       </ul>
       See <a href="reference.html#schema-drafts"><code>draft_submissions</code> schema</a> and
       <a href="reference.html#api-drafts">the review-queue API</a> in the Reference for the exact
@@ -1919,7 +1941,7 @@ flowchart LR
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
           <td>901</td>
-          <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · GATE runs before everything else and only for <code>source == 'agent'</code> (unless <code>_gate_bypass</code>), resolvers run before persistence, extras run after core persist, materialize (phase 4) and critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 2) also lives here.</td>
+          <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · GATE runs before everything else whenever <code>source != 'human'</code> (unless <code>_gate_bypass</code>), resolvers run before persistence, extras run after core persist, materialize (phase 4) and critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 2) also lives here.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/gate.py</code></td>
