@@ -1726,56 +1726,57 @@ And inside the exported `api` object:
 Create `frontend/src/routes/Review.tsx`:
 
 ```tsx
-import { useCallback, useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { api, type DraftDetail, type DraftSummary } from "../api";
+import { api, type DraftDetail } from "../api";
 
 export default function Review() {
   const { novelId = "" } = useParams();
-  const [rows, setRows] = useState<DraftSummary[]>([]);
-  const [selected, setSelected] = useState<DraftDetail | null>(null);
+  const queryClient = useQueryClient();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [edited, setEdited] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setRows(await api.drafts(novelId));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [novelId]);
+  const listQuery = useQuery({
+    queryKey: ["drafts", novelId],
+    queryFn: () => api.drafts(novelId),
+  });
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  const detailQuery = useQuery({
+    queryKey: ["draft", selectedId],
+    queryFn: () => api.draft(selectedId!),
+    enabled: selectedId !== null,
+  });
 
-  async function open(id: string) {
-    setError(null);
+  const resolveMutation = useMutation({
+    mutationFn: (action: "accept" | "reject") =>
+      action === "accept"
+        ? api.acceptDraft(selectedId!, note, edited ?? undefined)
+        : api.rejectDraft(selectedId!, note),
+    onSuccess: () => {
+      setSelectedId(null);
+      setNote("");
+      setEdited(null);
+      void queryClient.invalidateQueries({ queryKey: ["drafts", novelId] });
+    },
+  });
+
+  const rows = listQuery.data ?? [];
+  const selected: DraftDetail | null = detailQuery.data ?? null;
+  const busy = resolveMutation.isPending;
+  const failure = listQuery.error ?? detailQuery.error ?? resolveMutation.error;
+  const error = failure
+    ? failure instanceof Error
+      ? failure.message
+      : String(failure)
+    : null;
+
+  function open(id: string) {
     setNote("");
     setEdited(null);
-    setSelected(await api.draft(id));
-  }
-
-  async function resolve(action: "accept" | "reject") {
-    if (!selected) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (action === "accept") {
-        await api.acceptDraft(selected.id, note, edited ?? undefined);
-      } else {
-        await api.rejectDraft(selected.id, note);
-      }
-      setSelected(null);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
+    setSelectedId(id);
   }
 
   return (
@@ -1793,7 +1794,7 @@ export default function Review() {
       <ul className="draft-list">
         {rows.map((r) => (
           <li key={r.id}>
-            <button type="button" onClick={() => void open(r.id)}>
+            <button type="button" onClick={() => open(r.id)}>
               Chapter {r.chapter_number}
               {r.title ? ` — ${r.title}` : ""}
               <span className="badge badge-fail">{r.fail_count} fail</span>
@@ -1844,13 +1845,13 @@ export default function Review() {
           />
 
           <div className="actions">
-            <button type="button" disabled={busy} onClick={() => void resolve("accept")}>
+            <button type="button" disabled={busy} onClick={() => resolveMutation.mutate("accept")}>
               {edited === null ? "Accept" : "Accept with edits"}
             </button>
-            <button type="button" disabled={busy} onClick={() => void resolve("reject")}>
+            <button type="button" disabled={busy} onClick={() => resolveMutation.mutate("reject")}>
               Reject
             </button>
-            <button type="button" disabled={busy} onClick={() => setSelected(null)}>
+            <button type="button" disabled={busy} onClick={() => setSelectedId(null)}>
               Cancel
             </button>
           </div>
@@ -1886,7 +1887,7 @@ and add the link to the same group as `"Process Chapter"` (~line 97):
     ],
 ```
 
-If the sidebar has an existing badge mechanism, wire `api.pendingDrafts(novelId)` into it. If it does not, skip the badge — do not restructure the sidebar to add one. The count is visible on the Review page itself.
+**Skip the badge.** `Sidebar.tsx` builds its nav from `[label, path]` tuples with no slot for a count, so adding one means changing that shape and every group that uses it — out of scope here. `api.pendingDrafts` still ships (Task 6 exposes the endpoint and Task 7 adds the client method) so a later task can wire a badge without touching the API. The pending count is visible on the Review page itself.
 
 - [ ] **Step 5: Verify the build passes**
 
