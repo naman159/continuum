@@ -106,7 +106,7 @@ apply_schema() {
     local py="$BACKEND_DIR/.venv/bin/python"
     [[ -x "$py" ]] || py="$BACKEND_DIR/venv/bin/python"
     [[ -x "$py" ]] || py="python3"
-    ( cd "$BACKEND_DIR" && DATABASE_URL="$dburl" "$py" -m pipeline.pipeline init-db )
+    ( cd "$BACKEND_DIR" && DATABASE_URL="$dburl" "$py" -m pipeline.cli init-db )
   fi
 }
 

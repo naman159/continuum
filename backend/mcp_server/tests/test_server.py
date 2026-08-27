@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from pipeline.db.client import DBClient
-from reads.tests import seeding
+from testing import seeding
 
 from mcp_server import server
 

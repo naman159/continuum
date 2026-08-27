@@ -34,15 +34,6 @@ from the armory and tucked it into his belt before heading to the gates.
 
 
 @pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
-
-
-@pytest.fixture
 def novel_id(db: DBClient):
     nid = str(uuid.uuid4())
     with db.transaction() as cur:

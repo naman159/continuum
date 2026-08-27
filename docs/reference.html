@@ -404,7 +404,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><th>Script</th><th>Target</th><th>Description</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>novel-pipeline</code></td><td><code>pipeline.pipeline:main</code></td><td>Main pipeline CLI: <code>init-db</code>, <code>create-novel</code>, <code>list-novels</code>, <code>process-chapter</code></td></tr>
+        <tr><td><code>novel-pipeline</code></td><td><code>pipeline.cli:main</code></td><td>Main pipeline CLI: <code>init-db</code>, <code>create-novel</code>, <code>list-novels</code>, <code>process-chapter</code></td></tr>
         <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
         <tr><td><code>novel-mcp</code></td><td><code>mcp_server.server:main</code></td><td>Run the MCP stdio server exposing 13 tools to writing agents — see <a href="#mcp-server">MCP Server</a></td></tr>
       </tbody>
@@ -1482,8 +1482,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   <section id="schema-write-spine">
     <h2>Schema: state_deltas, critique_reports, critique_findings, schema_version</h2>
     <p>
-      Added by the consolidated, versioned <code>schema.sql</code>. See
-      <code>docs/superpowers/specs/2026-07-11-continuum-analyzer-architecture-design.md</code>.
+      Added by the consolidated, versioned <code>schema.sql</code> in the 2026-07
+      analyzer-architecture pass.
     </p>
 
     <pre><code><span class="sql-kw">CREATE TABLE</span> state_deltas (

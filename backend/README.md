@@ -4,7 +4,7 @@ Python backend for Continuum. Three entry points over one Postgres database:
 
 | Command | Entry point | What it is |
 |---|---|---|
-| `novel-pipeline` | `pipeline.pipeline:main` | CLI: init-db, create-novel, list-novels, process-chapter |
+| `novel-pipeline` | `pipeline.cli:main` | CLI: init-db, create-novel, list-novels, process-chapter |
 | `novel-webapp` | `api.app:run` | FastAPI server (`/api/*`, plus the built frontend with SPA fallback) |
 | `novel-mcp` | `mcp_server.server:main` | FastMCP stdio server, 13 tools for writing agents |
 

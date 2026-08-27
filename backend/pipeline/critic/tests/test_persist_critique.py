@@ -12,15 +12,6 @@ from pipeline.db.client import DBClient
 
 
 @pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
-
-
-@pytest.fixture
 def chapter(db: DBClient):
     novel_id = str(uuid.uuid4())
     db.execute("INSERT INTO novels (id, title) VALUES (%s, %s)", (novel_id, f"T-{novel_id[:8]}"))

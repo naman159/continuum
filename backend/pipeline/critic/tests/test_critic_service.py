@@ -20,7 +20,6 @@ import pytest
 import pipeline.critic.service as service
 import pipeline.pipeline as pipeline_mod
 from pipeline.config import settings
-from pipeline.db.client import DBClient
 
 
 # --------------------------------------------------------------------------
@@ -92,15 +91,6 @@ def test_extraction_failure_degrades_instead_of_losing_the_critique(monkeypatch)
 # --------------------------------------------------------------------------
 # on/off toggle + standalone re-run
 # --------------------------------------------------------------------------
-
-@pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
-
 
 @pytest.fixture
 def novel(db):

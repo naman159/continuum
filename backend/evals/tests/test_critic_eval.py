@@ -4,7 +4,7 @@ import pytest
 
 from evals.critic_eval import build_cases, run_critic_eval
 from pipeline.db.client import DBClient
-from reads.tests import seeding
+from testing import seeding
 
 
 @pytest.fixture()

@@ -42,13 +42,36 @@ function typeLabel(t: string): string {
   return TYPE_LABELS[t] ?? (t.charAt(0).toUpperCase() + t.slice(1) + "s");
 }
 
+/** Shapes handed to vis-data. Declared explicitly so the legend's
+ *  partial `update({ id, hidden })` calls stay type-checked. */
+type GraphNodeItem = {
+  id: string;
+  label: string;
+  title?: string;
+  color: string;
+  hidden?: boolean;
+};
+
+type GraphEdgeItem = {
+  id: string;
+  from: string;
+  to: string;
+  label?: string;
+  title?: string;
+  arrows?: string;
+  dashes: boolean;
+  color: { color: string; opacity: number };
+  width: number;
+  hidden?: boolean;
+};
+
 export default function EntityGraph() {
   const { novelId } = useParams();
   const [cap] = useChapterCap();
   const navigate = useNavigate();
   const containerRef = useRef<HTMLDivElement>(null);
-  const nodesRef = useRef<DataSet<any> | null>(null);
-  const edgesRef = useRef<DataSet<any> | null>(null);
+  const nodesRef = useRef<DataSet<GraphNodeItem> | null>(null);
+  const edgesRef = useRef<DataSet<GraphEdgeItem> | null>(null);
   const prevHiddenRef = useRef<Set<string>>(new Set());
   const [hiddenTypes, setHiddenTypes] = useState<Set<string>>(new Set());
 
@@ -69,7 +92,7 @@ export default function EntityGraph() {
   useEffect(() => {
     if (!data || !containerRef.current) return;
 
-    const nodes = new DataSet(
+    const nodes = new DataSet<GraphNodeItem>(
       data.nodes.map((n) => ({
         id: n.id,
         label: n.label,
@@ -77,7 +100,7 @@ export default function EntityGraph() {
         color: nodeColor(n.entity_type),
       }))
     );
-    const edges = new DataSet(
+    const edges = new DataSet<GraphEdgeItem>(
       data.edges.map((e) => ({
         id: e.id,
         from: e.from,
@@ -113,7 +136,7 @@ export default function EntityGraph() {
       }
     );
 
-    network.on("doubleClick", (params: any) => {
+    network.on("doubleClick", (params: { nodes: string[] }) => {
       if (params.nodes.length > 0) {
         const nodeId = params.nodes[0] as string;
         const node = data.nodes.find((n) => n.id === nodeId);

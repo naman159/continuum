@@ -8,20 +8,10 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 
 from pipeline.critic import ContinuityCritic
 from pipeline.critic.types import DraftChapter, Severity
 from pipeline.db.client import DBClient
-
-
-@pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
 
 
 def _make_novel(db: DBClient) -> str:

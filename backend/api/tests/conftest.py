@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from api.app import app
 from pipeline.db.client import DBClient
-from reads.tests import seeding
+from testing import seeding
 
 
 class _NovelReapingClient(TestClient):

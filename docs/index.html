@@ -316,6 +316,12 @@ critic, gate, and evals — all on a deterministic mock LLM with hash embeddings
 real Postgres. No network, no API key, no cost. Change anything in the codebase and you
 get a verdict in under 20 seconds.</p>
 
+<p>The same two commands run in CI on every push and pull request
+(<code>.github/workflows/ci.yml</code>): the backend job spins up a
+<code>pgvector/pgvector:pg16</code> service, applies the schema, and runs pytest;
+the frontend job runs <code>lint</code>, <code>typecheck</code>, and <code>build</code>.
+No provider credentials are involved — the suite is mock-LLM end to end.</p>
+
 <div class="callout info">
   <strong>Use <code>backend/.venv</code>, not the repo-root <code>.venv</code>.</strong>
   Running pytest from the repo root collects DB-integration tests that expect an
@@ -373,7 +379,7 @@ repo is a consumer of these.</p>
     <tr>
       <td class="step-n">2</td>
       <td><code>backend/pipeline/pipeline.py</code></td>
-      <td><code>analyze_chapter</code> — the phase sequence: GATE → INGEST → EXTRACT → PERSIST → MATERIALIZE → CRITIQUE.</td>
+      <td><code>analyze_chapter</code> — the phase sequence: GATE → INGEST → EXTRACT → PERSIST → MATERIALIZE → CRITIQUE. Pure library; the <code>novel-pipeline</code> CLI is in <code>pipeline/cli.py</code>.</td>
     </tr>
     <tr>
       <td class="step-n">3</td>
@@ -452,16 +458,16 @@ and <code>.html</code>.</p>
   <tbody>
     <tr>
       <td rowspan="2"><span class="badge green">Core</span></td>
-      <td><code>backend/pipeline/</code></td><td class="num">15,693</td>
+      <td><code>backend/pipeline/</code></td><td class="num">15,577</td>
       <td>Write spine: ingest, 13-pass extraction, persist, materialize, critique, gate</td>
     </tr>
     <tr>
-      <td><code>backend/reads/</code></td><td class="num">3,274</td>
+      <td><code>backend/reads/</code></td><td class="num">2,889</td>
       <td>Cutoff-aware read layer — the only place SQL lives for reads</td>
     </tr>
     <tr>
       <td rowspan="3"><span class="badge blue">Surfaces</span></td>
-      <td><code>frontend/src/</code></td><td class="num">3,773</td><td>React wiki</td>
+      <td><code>frontend/src/</code></td><td class="num">3,808</td><td>React wiki</td>
     </tr>
     <tr><td><code>backend/api/</code></td><td class="num">2,882</td><td>FastAPI routes + jobs</td></tr>
     <tr><td><code>backend/mcp_server/</code></td><td class="num">807</td><td>13 MCP tools for writing agents</td></tr>
@@ -474,7 +480,7 @@ and <code>.html</code>.</p>
   </tbody>
 </table>
 
-<p>The read of that table: <strong>the data layer is ~19k lines and it is finished.</strong>
+<p>The read of that table: <strong>the data layer is ~18.5k lines and it is finished.</strong>
 The surfaces exist because a data layer nobody can query isn't one. What grew fastest
 relative to its weight is the documentation and narrative layer — useful, but don't
 mistake its size for system complexity.</p>
@@ -489,9 +495,9 @@ commits.</p>
 
 <p>A full chapter-authoring sub-system — scene planner, prose drafter, orchestrated
 revision loop — was built, briefly wired, and then <strong>deleted in full</strong> in
-July 2026 once the product decision landed on analyzer-only. It is not on the roadmap.
-When you see <code>source='generated'</code> in old plan documents under
-<code>docs/superpowers/plans/</code>, that is history, not intent.</p>
+July 2026 once the product decision landed on analyzer-only. It is not on the roadmap,
+and any reference to <code>source='generated'</code> you find in the commit history is
+history, not intent.</p>
 
 <h3>The agent write gate</h3>
 
@@ -628,9 +634,8 @@ number must never be quoted as hybrid.</p>
 <hr>
 
 <p style="font-size:13px;color:var(--text-faint);">
-Background research lives in <code>docs/research/</code>; the specs and plans the redesign
-was executed from live in <code>docs/superpowers/</code> and are historical records, not
-current intent.
+Background research lives in <code>docs/research/</code>. The specs and plans the redesign
+was executed from are not shipped with the repo — the blog series is the narrative record.
 </p>
 
 </main>

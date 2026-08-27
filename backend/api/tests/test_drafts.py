@@ -7,22 +7,7 @@ import json
 import pytest
 
 from pipeline import drafts as drafts_mod
-
-
-@pytest.fixture(autouse=True)
-def _force_mock_llm(monkeypatch):
-    """accept_submission hardcodes use_mock_llm=None (correct for production,
-    where a real extraction should run). In tests that would make live LLM
-    calls, so wrap analyze_chapter to force mock mode — everything else in
-    the path stays real.
-    """
-    real = drafts_mod.analyze_chapter
-
-    def _forced(**kwargs):
-        kwargs["use_mock_llm"] = True
-        return real(**kwargs)
-
-    monkeypatch.setattr(drafts_mod, "analyze_chapter", _forced)
+from testing.drafts import _force_mock_llm  # noqa: F401  (autouse fixture)
 
 
 def _park(db, novel_id: str, number: int = 90) -> str:

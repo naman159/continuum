@@ -11,17 +11,7 @@ import uuid
 
 import pytest
 
-from pipeline.db.client import DBClient
 from pipeline.extraction.resolver import EntityResolver
-
-
-@pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
 
 
 @pytest.fixture

@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import { api } from "../api";
-import FieldList, { renderArray } from "../components/FieldList";
+import FieldList from "../components/FieldList";
+import { renderArray } from "../components/fieldRenderers";
 import { useChapterCap } from "../hooks/useChapterCap";
 
 export default function LocationDetail() {

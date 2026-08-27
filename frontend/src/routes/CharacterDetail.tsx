@@ -2,7 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import type { CharacterRelationshipRow } from "../api";
 import { api, type CharacterDetail as Detail } from "../api";
-import FieldList, { renderArray } from "../components/FieldList";
+import FieldList from "../components/FieldList";
+import { renderArray } from "../components/fieldRenderers";
 import { useChapterCap } from "../hooks/useChapterCap";
 
 type RelGroup = {

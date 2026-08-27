@@ -17,16 +17,6 @@ from pipeline.critic.types import Finding, Severity
 from pipeline.db.client import DBClient
 
 
-def _character_to_entity_id(db: DBClient, character_id: str) -> str | None:
-    row = db.fetchone(
-        "SELECT entity_id FROM characters WHERE id = %s",
-        (character_id,),
-    )
-    if not row or row[0] is None:
-        return None
-    return str(row[0])
-
-
 def check_location_possession(
     db: DBClient,
     novel_id: str,

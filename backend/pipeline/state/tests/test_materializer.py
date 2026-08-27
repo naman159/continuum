@@ -29,15 +29,6 @@ from pipeline.state.materializer import StateMaterializer
 
 
 @pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
-
-
-@pytest.fixture
 def seeded(db: DBClient):
     """Seed a small novel with 3 chapters, 2 characters, 2 locations, 1 object,
     and typed state_deltas rows telling a story of movement, a possession

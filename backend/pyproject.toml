@@ -19,7 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-novel-pipeline = "pipeline.pipeline:main"
+novel-pipeline = "pipeline.cli:main"
 novel-webapp = "api.app:run"
 novel-mcp = "mcp_server.server:main"
 

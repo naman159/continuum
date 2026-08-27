@@ -49,14 +49,12 @@ The reference docs, in the order that page walks you through them:
 3. `docs/state-of-the-system.html` — how it got here, what is wired, and the
    honest list of what's still open (currently: cross-type duplicate
    prevention, per-chapter cost accounting, embedding-dimension migration,
-   in-memory job state, the write gate's word-overlap knowledge check,
-   `save_chapter`'s hardcoded `use_mock_llm=None`, and some test-fixture
-   duplication).
+   in-memory job state, the write gate's word-overlap knowledge check, and
+   `save_chapter`'s hardcoded `use_mock_llm=None`).
 
 `docs/blog/` is an eleven-part narrative walkthrough of the whole system, written
 from first principles — start at `docs/blog/README.md` if you want the reasoning
-rather than the reference. `docs/research/` holds background research;
-`docs/superpowers/` holds the specs and plans the redesign was executed from.
+rather than the reference. `docs/research/` holds background research.
 
 ## Setup
 
@@ -140,7 +138,9 @@ cd frontend && npm run build                    # frontend gate
 ```
 
 Use `backend/.venv` (not a repo-root venv) — the DB-integration tests
-resolve their connection from `backend/.env`.
+resolve their connection from `backend/.env`. Note that `backend/.env.branch`,
+if present, overrides `DATABASE_URL` from `.env`; `backend/scripts/branch_db.sh
+show` tells you which database you are actually on.
 
 The eval harness (`backend/evals/`) grades the system against a
 hand-written golden novel: extraction fidelity, retrieval recall@k, critic
@@ -155,3 +155,21 @@ and an object in the next) are not caught at ingest. They can be found
 (`GET /api/novels/{id}/entities/duplicates`) and repaired
 (`POST .../entities/merge`, which reclassifies across types), but not yet
 prevented — see `docs/state-of-the-system.html#entity-resolution`.
+
+## Contributing
+
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: the
+backend job stands up a `pgvector/pgvector:pg16` service, applies the schema,
+and runs pytest; the frontend job runs lint, typecheck, and build. The suite
+is mock-LLM end to end, so it needs no provider credentials.
+
+Before opening a PR, run what CI runs:
+
+```bash
+cd backend  && .venv/bin/python -m pytest -q
+cd frontend && npm run lint && npm run typecheck && npm run build
+```
+
+## License
+
+Apache-2.0 — see [LICENSE](LICENSE).

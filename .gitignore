@@ -1,10 +1,23 @@
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Environment / local config
 .env
 .env.branch
-.venv/
-*.egg-info/
+
+# OS
 .DS_Store
+
+# Agent tooling and local scratch
 .superpowers/
 .claude/worktrees/
-venv/
+
+# Implementation plans and specs — kept locally, not shipped
+docs/superpowers/
+
+# Personal scratch, not part of the project
+ignore/

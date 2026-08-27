@@ -1200,9 +1200,9 @@ flowchart TD
   <section id="write-spine-tables">
     <h2>Write-Spine Tables</h2>
     <p>
-      Added by the consolidated, versioned <code>schema.sql</code> (see
-      <code>docs/superpowers/specs/2026-07-11-continuum-analyzer-architecture-design.md</code>).
-      This pass also dropped never-populated surface: <code>temporal_constraints</code>, the
+      Added by the consolidated, versioned <code>schema.sql</code> in the 2026-07
+      analyzer-architecture pass.
+      That pass also dropped never-populated surface: <code>temporal_constraints</code>, the
       <code>events</code> SVO/story-time/scene columns (<code>subject_entity_id</code>,
       <code>verb</code>, <code>object_entity_id</code>, <code>story_time_ordinal</code>,
       <code>narrative_order</code>, <code>scene_id</code>), <code>knows_edges.fact_id</code>, and
@@ -1405,8 +1405,9 @@ flowchart TD
 
     <h3>Design System</h3>
     <p>
-      All styles live in <code>frontend/src/styles.css</code> (the only imported stylesheet —
-      <code>index.css</code> and <code>App.css</code> are unused). Fonts are loaded via
+      All styles live in <code>frontend/src/styles.css</code>, the only stylesheet in the
+      project (the unused <code>index.css</code> and <code>App.css</code> left over from the
+      Vite template have been removed). Fonts are loaded via
       <code>index.html</code>: <strong>Crimson Pro</strong> (serif, headings), <strong>Inter</strong>
       (body), <strong>JetBrains Mono</strong> (code/monospace).
     </p>
@@ -1930,62 +1931,72 @@ flowchart LR
       <tbody>
         <tr>
           <td><code>backend/pipeline/db/schema.sql</code></td>
-          <td>433</td>
+          <td>552</td>
           <td><strong>Source of truth for DB structure.</strong> Any new feature starts here. Watch for missing indexes, wrong types, missing chapter-cap columns.</td>
         </tr>
         <tr>
           <td><code>backend/reads/{novels,chapters,continuity,characters,world,timeline,graphs,relationship_types,threads,commitments,knowledge,search}.py</code></td>
-          <td>1,755</td>
+          <td>2,011</td>
           <td><strong>The read layer — the only presentation reader in the codebase.</strong> <code>api/queries.py</code> is deleted (dissolved into <code>reads/</code> across the read-layer migration); <code>mcp_server/queries.py</code> is down to <code>check_continuity</code> and <code>save_chapter</code> (writer-side glue, not reads). <code>api/routes/*.py</code> and <code>mcp_server/server.py</code> contain no SQL at all — enforced structurally by <code>reads/tests/test_contract.py</code>, which also asserts every public <code>reads/</code> function accepts <code>up_to_chapter</code> except a documented exemption set. SQL-only — no FakeDB <code>hasattr</code> branches. Every function takes <code>db</code> first and never returns rows past <code>up_to_chapter</code>; see <code>reads.common.resolve_cutoff</code>. <code>chapters.list_chapters</code> also folds in each chapter's critique summary (one extra grouped query, not N+1). <code>characters.get_character_page</code> (the MCP <code>get_character</code> tool's backing function) resolves name → id in SQL and then calls <code>get_character_detail</code> for every sub-query, so the wiki character page and the MCP character page can never drift apart. <code>world.py</code> covers locations, objects, factions, entity types, and custom entities; <code>list_entity_types</code> is one of the documented cutoff-exempt functions (type registry, not chapter-anchored story data). <code>timeline.py::list_timeline</code> backs both the <code>/api/novels/{id}/timeline</code> route and the MCP <code>timeline_events</code> tool (previously broken — it queried a <code>timeline</code> table that never existed; the MCP tool catalog in <code>reference.html</code> has details). <code>graphs.py::relationship_graph</code> is the single implementation that replaced the two independently-drifted copies that used to live in <code>api/queries.py</code> and <code>mcp_server/queries.py</code>; it also backs the MCP <code>relationships</code> tool, and <code>graphs.py::entity_graph</code>/<code>list_shared_dynamics</code> back the entity-graph and dynamics routes. <code>relationship_types.py</code> (moved from <code>api/</code>) is now the sole source of <code>resolve_symmetric()</code> — no more duplicated symmetry tables; its label-classification helpers (<code>is_symmetric</code>, <code>resolve_symmetric</code>) are the contract test's other exemption, since they take no <code>db</code>/<code>novel_id</code> at all. <code>threads.py::list_threads</code> and <code>commitments.py::list_commitments</code> add a derived <code>status_at_cutoff</code> alongside the raw <code>status</code> column (a thread/commitment that resolves later than the cutoff still reads as open/pending at that point) and back both the wiki routes and the MCP <code>open_threads</code>/<code>unresolved_commitments</code> tools — replacing <code>mcp_server/queries.py::list_open_threads</code>, now deleted. <code>knowledge.py</code> covers <code>knows_edges</code>, <code>located_in_edges</code>, <code>possesses_edges</code>, and <code>canon_facts</code> (the latter's cutoff is optional — <code>up_to_chapter=None</code> shows every fact). <code>search.py::search</code> wraps <code>pipeline.retrieval.HybridRetriever</code> and backs both <code>/api/search</code> and the MCP <code>search_story</code> tool. Mind the two id spaces: <code>events.involved_*</code> hold typed ids (<code>characters.id</code> etc. — the pipeline's event insert uses <code>ResolvedEntity.entity_id</code>), while <code>relationships</code>/<code>shared_dynamics</code> <code>entity_a/b_id</code> hold universal <code>entities.id</code> (<code>ResolvedEntity.universal_id</code>).</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
-          <td>901</td>
+          <td>817</td>
           <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · GATE runs before everything else whenever <code>source != 'human'</code> (unless <code>_gate_bypass</code>), resolvers run before persistence, extras run after core persist, materialize (phase 4) and critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 2) also lives here.</td>
         </tr>
         <tr>
+          <td><code>backend/pipeline/cli.py</code></td>
+          <td>111</td>
+          <td><strong>The <code>novel-pipeline</code> CLI.</strong> Split out of <code>pipeline.py</code> so the write spine imports as a library without argparse, stdin handling, or process-exit semantics. Every subcommand is a thin shell over a function in <code>pipeline.py</code>; <code>pipeline/__init__.py</code> deliberately does not re-export <code>main</code>, which is what keeps the library import clean.</td>
+        </tr>
+        <tr>
+          <td><code>backend/conftest.py</code> + <code>backend/testing/</code></td>
+          <td>400</td>
+          <td><strong>Shared test fixtures.</strong> The <code>db</code> and <code>seed_novel</code> fixtures live at the backend root, so every suite resolves them from one place; <code>testing/seeding.py</code> holds the fixture novel. Suites needing a longer-lived connection (<code>evals/tests</code>, <code>pipeline/retrieval/tests</code>, the seed-once integration tests) still declare a module-scoped <code>db</code> — a nearer fixture wins, and that scope difference is deliberate.</td>
+        </tr>
+        <tr>
           <td><code>backend/pipeline/gate.py</code></td>
-          <td>160</td>
+          <td>189</td>
           <td><strong>The agent write gate.</strong> <code>gate_agent_draft()</code> is the only thing standing between an agent and canon — refusal is always a return value (<code>GateVerdict</code>), never a raised exception, so a bug in the gate can't accidentally look like "no findings, proceed." Fail-closed on a disabled critic or a critic exception; <code>_park()</code> supersedes any prior pending row and inserts the new one in one transaction.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/drafts.py</code></td>
-          <td>136</td>
+          <td>186</td>
           <td><strong>Human adjudication of parked drafts.</strong> <code>accept_submission()</code> is the sole caller allowed to pass <code>_gate_bypass=True</code> to <code>analyze_chapter</code>; it writes the blocking findings through to <code>continuity_flags</code> rather than discarding them, and raises <code>RuntimeError</code> (naming the chapter and submission) if that write-through fails after the chapter has already committed — that state needs a human, not a retry.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/extractor.py</code></td>
-          <td>616</td>
+          <td>658</td>
           <td><strong>LLM orchestration.</strong> Pass order, merge logic, mock behavior, custom entity type handling. Changes here affect extraction quality.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/prompts.py</code></td>
-          <td>667</td>
+          <td>770</td>
           <td><strong>All prompt templates + JSON schemas.</strong> Changing prompts directly changes extraction quality. Schema changes here must match DB schema. Custom entity type injection lives here.</td>
         </tr>
         <tr>
           <td><code>backend/api/schemas.py</code></td>
-          <td>359</td>
+          <td>460</td>
           <td><strong>Pydantic response types.</strong> Frontend's <code>api.ts</code> mirrors these. Keep in sync when adding fields.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/persist_extras.py</code></td>
-          <td>200+</td>
+          <td>474</td>
           <td><strong>SOTA table persistence.</strong> Scenes, knows_edges, commitments. Watch for missing novel_id scoping, missing cap columns.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/persist_deltas.py</code></td>
-          <td>~85</td>
+          <td>98</td>
           <td><strong>Typed state_deltas persistence.</strong> Reference-only resolution per kind (possession/location/knowledge/status); a delta naming an unknown entity is dropped, never minted. <code>ordinal</code> preserves narrative order for the materializer replay.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/presets.py</code></td>
-          <td>~60</td>
+          <td>85</td>
           <td><strong>Genre presets for custom entity types.</strong> Add new genres here. Each preset is a list of <code>{name, description}</code> dicts.</td>
         </tr>
         <tr>
           <td><code>frontend/src/api.ts</code></td>
-          <td>150+</td>
+          <td>533</td>
           <td><strong>Frontend type definitions.</strong> Must stay in sync with <code>schemas.py</code>. The TypeScript type and the Pydantic model should match field for field.</td>
         </tr>
       </tbody>

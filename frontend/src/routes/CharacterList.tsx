@@ -68,7 +68,7 @@ export default function CharacterList() {
         },
       }
     );
-    network.on("doubleClick", (params: any) => {
+    network.on("doubleClick", (params: { nodes: string[] }) => {
       if (params.nodes.length > 0) {
         navigate(`/novels/${novelId}/characters/${params.nodes[0]}${window.location.search}`);
       }

@@ -8,20 +8,10 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
 
 from pipeline.db.client import DBClient
 from pipeline.extraction.resolver import EntityResolver
 from pipeline.pipeline import _persist_extraction
-
-
-@pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
 
 
 def _seed(db: DBClient) -> tuple[str, str, str]:

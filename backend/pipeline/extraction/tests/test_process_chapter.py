@@ -29,15 +29,6 @@ def test_persist_extraction_inserts_relationships_with_chapter_id():
 
 
 @pytest.fixture
-def db():
-    client = DBClient()
-    try:
-        yield client
-    finally:
-        client.close()
-
-
-@pytest.fixture
 def novel_id(db: DBClient):
     nid = str(uuid.uuid4())
     with db.transaction() as cur:

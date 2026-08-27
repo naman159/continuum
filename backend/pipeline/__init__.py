@@ -5,7 +5,6 @@ from .pipeline import (
     list_novels,
     analyze_chapter,
     load_story_context,
-    main,
 )
 
 __all__ = [
@@ -16,5 +15,4 @@ __all__ = [
     "list_novels",
     "analyze_chapter",
     "load_story_context",
-    "main",
 ]
