@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Continuum — Start Here</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #161b22;
+    --surface2: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --text-faint: #484f58;
+    --accent: #58a6ff;
+    --accent-dim: #1f6feb;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --orange: #f0883e;
+    --red: #f85149;
+    --purple: #bc8cff;
+    --pink: #ff7b72;
+    --sidebar-w: 256px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    padding: 24px 0 40px;
+    z-index: 100;
+  }
+
+  .sidebar-logo { padding: 0 20px 20px; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+  .sidebar-logo .product { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+  .sidebar-logo .tagline { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+  .sidebar-section {
+    padding: 8px 20px 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+  }
+
+  .sidebar a {
+    display: block;
+    padding: 5px 20px;
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 13px;
+    border-left: 2px solid transparent;
+    transition: all 0.12s;
+  }
+
+  .sidebar a:hover { color: var(--text); background: var(--surface2); }
+  .sidebar a.active { color: var(--accent); border-left-color: var(--accent); background: rgba(88,166,255,0.06); }
+
+  .sidebar-doc-link {
+    margin: 16px 20px 0;
+    padding: 10px 14px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .sidebar-doc-link a { padding: 0; display: inline; color: var(--accent); }
+
+  /* ── Main ── */
+  main { margin-left: var(--sidebar-w); max-width: 860px; padding: 48px 56px 96px; width: 100%; }
+
+  /* ── Typography ── */
+  h1 { font-size: 32px; font-weight: 700; letter-spacing: -0.5px; color: var(--text); margin-bottom: 8px; }
+  h2 { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); margin: 44px 0 12px; padding-top: 12px; }
+  h3 { font-size: 16px; font-weight: 600; color: var(--text); margin: 26px 0 8px; }
+  h4 { font-size: 13px; font-weight: 600; color: var(--text); margin: 18px 0 6px; }
+  p { margin-bottom: 12px; color: var(--text-muted); }
+  strong { color: var(--text); font-weight: 600; }
+  a { color: var(--accent); }
+  ul, ol { margin: 0 0 12px 20px; color: var(--text-muted); }
+  li { margin-bottom: 5px; }
+
+  .subtitle { font-size: 16px; color: var(--text-muted); margin-bottom: 28px; }
+  .lead { font-size: 15px; }
+
+  /* ── Callouts ── */
+  .callout {
+    margin: 16px 0;
+    padding: 12px 16px;
+    border-left: 3px solid var(--border);
+    border-radius: 0 6px 6px 0;
+    background: var(--surface);
+    font-size: 14px;
+  }
+  .callout.info  { background: rgba(88,166,255,0.06); border-color: var(--accent);  color: var(--text-muted); }
+  .callout.warn  { background: rgba(210,153,34,0.08); border-color: var(--yellow); color: var(--text-muted); }
+  .callout.tip   { background: rgba(63,185,80,0.06);  border-color: var(--green);  color: var(--text-muted); }
+  .callout strong { color: var(--text); }
+
+  /* ── Code ── */
+  code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 13px;
+    background: var(--surface2);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--pink);
+  }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    margin: 14px 0;
+  }
+
+  pre code { background: none; padding: 0; color: var(--text); font-size: 12.5px; line-height: 1.65; }
+  .c { color: var(--text-faint); }
+  .ok { color: var(--green); }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+    font-size: 13.5px;
+    display: block;
+    overflow-x: auto;
+  }
+  th {
+    text-align: left;
+    padding: 9px 12px;
+    background: var(--surface2);
+    color: var(--text);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text-muted); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: 12px; }
+  td.num { font-family: 'JetBrains Mono', monospace; text-align: right; white-space: nowrap; color: var(--text); }
+  .step-n { font-family: 'JetBrains Mono', monospace; color: var(--accent); font-weight: 500; }
+
+  /* ── Badges ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+  }
+  .badge.green  { background: rgba(63,185,80,0.15);  color: var(--green); }
+  .badge.blue   { background: rgba(88,166,255,0.15); color: var(--accent); }
+  .badge.orange { background: rgba(240,136,62,0.15); color: var(--orange); }
+  .badge.purple { background: rgba(188,140,255,0.15);color: var(--purple); }
+  .badge.red    { background: rgba(248,81,73,0.15);  color: var(--red); }
+  .badge.yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+  /* ── Cards ── */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 16px 0; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .card h4 { margin-top: 0; margin-bottom: 6px; color: var(--accent); font-size: 12px; }
+  .card p { margin-bottom: 0; font-size: 13px; }
+
+  .doc-card { display: block; text-decoration: none; transition: border-color 0.12s, background 0.12s; }
+  .doc-card:hover { border-color: var(--accent); background: var(--surface2); }
+  .doc-card .num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-faint); }
+  .doc-card h4 { font-size: 14px; color: var(--accent); margin: 2px 0 6px; }
+
+  .mermaid { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 18px; margin: 18px 0; text-align: center; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+  @media (max-width: 900px) {
+    .sidebar { display: none; }
+    main { margin-left: 0; padding: 32px 20px 64px; }
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════
+     SIDEBAR
+══════════════════════════════════════════════════════════ -->
+<nav class="sidebar">
+  <div class="sidebar-logo">
+    <div class="product">Continuum</div>
+    <div class="tagline">Novel Continuity Engine — Start Here</div>
+  </div>
+
+  <div class="sidebar-section">Start Here</div>
+  <a href="#what-is-this">What This Is</a>
+  <a href="#run-it">1. Run It</a>
+  <a href="#read-order">2. Read the Docs</a>
+  <a href="#the-spine">3. Read the Spine</a>
+
+  <div class="sidebar-section">Orientation</div>
+  <a href="#downstream">What's Downstream</a>
+  <a href="#scope-map">Scope Map</a>
+  <a href="#decisions">Decisions to Know</a>
+
+  <div class="sidebar-section">Setup</div>
+  <a href="#setup">Full Setup</a>
+  <a href="#gotchas">Local Gotchas</a>
+
+  <div class="sidebar-section">Next</div>
+  <a href="#where-next">Where to Go Next</a>
+
+  <div class="sidebar-doc-link">
+    Also see:<br>
+    <a href="architecture.html">Architecture Overview →</a><br>
+    <a href="reference.html">API &amp; Schema Reference →</a><br>
+    <a href="state-of-the-system.html">State of the System →</a><br>
+    <a href="blog/README.md">Blog: Building Continuum →</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════
+     MAIN CONTENT
+══════════════════════════════════════════════════════════ -->
+<main>
+
+<h1>Continuum — Start Here</h1>
+<p class="subtitle">The onboarding path, in order. Budget about 40 minutes to go from
+cold to productive.</p>
+
+<div class="callout tip">
+  <strong>The fastest orientation is the test suite.</strong> It runs offline on a mock
+  LLM in under 20 seconds with no API key. Run it first — before reading anything —
+  so you know the system works and you have a feedback loop for everything after.
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="what-is-this">What This Is</h2>
+
+<p class="lead">Continuum is a <strong>data layer for novels</strong>. Chapters go in;
+a queryable, spoiler-safe knowledge base comes out — characters, locations, objects,
+factions, relationships, plot threads, commitments, who-knows-what, and per-chapter
+continuity critiques. It is browsable as a React wiki and exposed to writing agents
+over MCP.</p>
+
+<p>Continuum <strong>analyzes</strong> prose; it does not write it. The intended writer
+is an agent (e.g. Claude over the MCP server) that queries Continuum for ground truth
+while drafting, then saves finished chapters back.</p>
+
+<p>The whole system is two spines over one database:</p>
+
+<div class="mermaid">
+flowchart LR
+  TXT["Chapter prose"] --> W["<b>Write spine</b><br/>analyze_chapter"]
+  W --> DB[("Postgres<br/>27 tables")]
+  DB --> R["<b>Read layer</b><br/>backend/reads/<br/>every fn is cutoff-aware"]
+  R --> WIKI["React wiki"]
+  R --> MCP["MCP server<br/>13 tools"]
+  classDef live fill:#13351f,stroke:#3fb950,color:#e6edf3;
+  class TXT,W,DB,R,WIKI,MCP live;
+</div>
+
+<p>If you remember one invariant, make it this one: <strong>chapter <code>raw_text</code>
+is ground truth.</strong> Every projection can be deleted and rebuilt from it, which is
+why schema changes are survivable.</p>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="run-it">1. Run It</h2>
+
+<p>Assuming the repo is already set up on this machine (if not, jump to
+<a href="#setup">Full Setup</a> and come back):</p>
+
+<pre><code>cd backend &amp;&amp; .venv/bin/python -m pytest -q</code></pre>
+
+<p>Expected, and verified on <code>main</code> as of 2026-08-26:</p>
+
+<pre><code><span class="ok">457 passed, 3 skipped in 18.18s</span></code></pre>
+
+<p>That is <strong>78 test files</strong> covering the whole write spine, read layer,
+critic, gate, and evals — all on a deterministic mock LLM with hash embeddings and a
+real Postgres. No network, no API key, no cost. Change anything in the codebase and you
+get a verdict in under 20 seconds.</p>
+
+<div class="callout info">
+  <strong>Use <code>backend/.venv</code>, not the repo-root <code>.venv</code>.</strong>
+  Running pytest from the repo root collects DB-integration tests that expect an
+  initialized database and will fail for reasons that have nothing to do with your change.
+  Always <code>cd backend</code> first.
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="read-order">2. Read the Docs</h2>
+
+<p>Three pages, in this order. They are generated HTML — open them in a browser.</p>
+
+<div class="grid-3">
+  <a class="card doc-card" href="architecture.html">
+    <div class="num">01</div>
+    <h4>Architecture &amp; Mental Model</h4>
+    <p>What the system is, the pipeline phase by phase, the DB design, and a directory map.</p>
+  </a>
+  <a class="card doc-card" href="reference.html">
+    <div class="num">02</div>
+    <h4>API &amp; Schema Reference</h4>
+    <p>Schema, API endpoints, CLI, MCP tools, env vars, eval harness. Look things up here.</p>
+  </a>
+  <a class="card doc-card" href="state-of-the-system.html">
+    <div class="num">03</div>
+    <h4>State of the System</h4>
+    <p>The honest one. Scorecard of what's wired vs. removed vs. still open, with evidence.</p>
+  </a>
+</div>
+
+<div class="callout tip">
+  <strong>If you only read one, read the third.</strong> Its Scorecard table gives a
+  per-component verdict — <span class="badge green">Wired</span>
+  <span class="badge yellow">Still Open</span> <span class="badge red">Removed</span> —
+  and cites the file or test that justifies each one. It is the fastest way to learn what
+  you can trust.
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="the-spine">3. Read the Spine</h2>
+
+<p>Six files, in data-flow order. This is the actual system. Everything else in the
+repo is a consumer of these.</p>
+
+<table>
+  <thead>
+    <tr><th>#</th><th>File</th><th>Why it matters</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="step-n">1</td>
+      <td><code>backend/pipeline/db/schema.sql</code></td>
+      <td>552 lines, 27 tables. The data model <em>is</em> the product — read this before any code.</td>
+    </tr>
+    <tr>
+      <td class="step-n">2</td>
+      <td><code>backend/pipeline/pipeline.py</code></td>
+      <td><code>analyze_chapter</code> — the phase sequence: GATE → INGEST → EXTRACT → PERSIST → MATERIALIZE → CRITIQUE.</td>
+    </tr>
+    <tr>
+      <td class="step-n">3</td>
+      <td><code>backend/pipeline/extraction/prompts.py</code></td>
+      <td><code>PASS_ORDER</code> — the 13 LLM passes, in the order they run. The heart of extraction.</td>
+    </tr>
+    <tr>
+      <td class="step-n">4</td>
+      <td><code>backend/pipeline/state/</code></td>
+      <td><code>StateReplay</code> folds typed <code>state_deltas</code> into projections. Sole writer of <code>character_states</code> and the bitemporal edge tables.</td>
+    </tr>
+    <tr>
+      <td class="step-n">5</td>
+      <td><code>backend/reads/</code></td>
+      <td>Every public function takes <code>up_to_chapter</code>. A contract test enforces it structurally, which is what makes spoiler-safety a property rather than a convention.</td>
+    </tr>
+    <tr>
+      <td class="step-n">6</td>
+      <td><code>backend/mcp_server/server.py</code></td>
+      <td>13 tools, all thin wrappers over #5. Shows you the read layer's whole surface in one screen.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>The 13 extraction passes</h3>
+
+<p>From <code>PASS_ORDER</code>, in execution order — worth skimming once so the table
+names in the schema stop being surprising:</p>
+
+<pre><code>chapter_summary      new_entities            state_deltas
+events               thread_updates          continuity_flags
+relationship_updates dynamics_updates        scene_segmentation
+multi_granularity_summaries                  knowledge_state_deltas
+commitments          canon_facts</code></pre>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="downstream">What's Downstream</h2>
+
+<p>You do <strong>not</strong> need these to understand the system. Come back to them
+when you have a reason:</p>
+
+<div class="grid-2">
+  <div class="card">
+    <h4>backend/api/routes/</h4>
+    <p>20 route modules. They contain no SQL — enforced by contract tests. Each one is a
+    thin translation of <code>?cap=</code> into <code>up_to_chapter</code>.</p>
+  </div>
+  <div class="card">
+    <h4>frontend/src/routes/</h4>
+    <p>26 wiki pages. React + react-query. Read <code>useChapterCap.ts</code> first; the
+    cap is the only concept that isn't obvious.</p>
+  </div>
+  <div class="card">
+    <h4>backend/pipeline/critic/</h4>
+    <p>5 deterministic continuity checks plus a runner. Non-blocking on human writes;
+    blocking on agent writes via the gate.</p>
+  </div>
+  <div class="card">
+    <h4>backend/evals/</h4>
+    <p>A golden 10-chapter fixture novel and an answer key. Critic precision/recall,
+    retrieval <code>recall_at_k</code>, extraction fidelity, entity resolution.</p>
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="scope-map">Scope Map</h2>
+
+<p>Where the code actually lives, so you can calibrate how much of the repo is load-bearing.
+Measured with <code>wc -l</code> over <code>.py</code>, <code>.ts</code>, <code>.tsx</code>,
+and <code>.html</code>.</p>
+
+<table>
+  <thead>
+    <tr><th>Layer</th><th>Area</th><th class="num">Lines</th><th>Role</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td rowspan="2"><span class="badge green">Core</span></td>
+      <td><code>backend/pipeline/</code></td><td class="num">15,693</td>
+      <td>Write spine: ingest, 13-pass extraction, persist, materialize, critique, gate</td>
+    </tr>
+    <tr>
+      <td><code>backend/reads/</code></td><td class="num">3,274</td>
+      <td>Cutoff-aware read layer — the only place SQL lives for reads</td>
+    </tr>
+    <tr>
+      <td rowspan="3"><span class="badge blue">Surfaces</span></td>
+      <td><code>frontend/src/</code></td><td class="num">3,773</td><td>React wiki</td>
+    </tr>
+    <tr><td><code>backend/api/</code></td><td class="num">2,882</td><td>FastAPI routes + jobs</td></tr>
+    <tr><td><code>backend/mcp_server/</code></td><td class="num">807</td><td>13 MCP tools for writing agents</td></tr>
+    <tr>
+      <td rowspan="2"><span class="badge purple">Supporting</span></td>
+      <td><code>docs/*.html</code></td><td class="num">6,362</td>
+      <td>This page plus the three reference docs (<code>docs/blog/</code> adds 11 more parts in Markdown)</td>
+    </tr>
+    <tr><td><code>backend/evals/</code></td><td class="num">938</td><td>Golden-fixture eval harness</td></tr>
+  </tbody>
+</table>
+
+<p>The read of that table: <strong>the data layer is ~19k lines and it is finished.</strong>
+The surfaces exist because a data layer nobody can query isn't one. What grew fastest
+relative to its weight is the documentation and narrative layer — useful, but don't
+mistake its size for system complexity.</p>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="decisions">Decisions to Know</h2>
+
+<p>Two choices shape the codebase in ways you'd otherwise have to reverse-engineer from
+commits.</p>
+
+<h3>Analyzer, not generator</h3>
+
+<p>A full chapter-authoring sub-system — scene planner, prose drafter, orchestrated
+revision loop — was built, briefly wired, and then <strong>deleted in full</strong> in
+July 2026 once the product decision landed on analyzer-only. It is not on the roadmap.
+When you see <code>source='generated'</code> in old plan documents under
+<code>docs/superpowers/plans/</code>, that is history, not intent.</p>
+
+<h3>The agent write gate</h3>
+
+<p>This is the one place Continuum is more than a data layer. Writes arriving over MCP
+(<code>source='agent'</code>) run a <strong>GATE</strong> phase before extraction: the
+continuity critic critiques the raw draft, and a FAIL — or a critic error — refuses the
+write and parks it in <code>draft_submissions</code> for human review in the wiki's
+Review page. A disabled critic refuses outright, with nothing parked, because there is
+no verdict to record.</p>
+
+<div class="callout info">
+  So a row in <code>chapters</code> with <code>source='agent'</code> either passed
+  continuity or was human-overridden through the Review queue with the blocking findings
+  recorded on it. <strong>Human writes never face the gate at all</strong> — that
+  invariant does not extend to them.
+</div>
+
+<p>The gate turns Continuum from "tracks novel info" into "refuses agent writes that
+fail continuity." That is a policy enforcement point, and it is deliberate.</p>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="setup">Full Setup</h2>
+
+<p>Only needed on a fresh machine. Requires Python 3.11+ and Postgres with pgvector.</p>
+
+<h3>Backend</h3>
+
+<pre><code>cd backend
+uv sync
+createdb novel_wiki
+psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
+psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+cp .env.example .env   <span class="c"># set DATABASE_URL, DEFAULT_MODEL, EMBEDDING_MODEL</span>
+uv run novel-pipeline init-db</code></pre>
+
+<h3>Frontend</h3>
+
+<pre><code>cd frontend
+npm install
+npm run dev</code></pre>
+
+<h3>Servers</h3>
+
+<table>
+  <thead><tr><th>What</th><th>Command</th></tr></thead>
+  <tbody>
+    <tr><td>API server</td><td><code>cd backend &amp;&amp; uv run novel-webapp</code></td></tr>
+    <tr><td>MCP server (for writing agents)</td><td><code>cd backend &amp;&amp; uv run novel-mcp</code></td></tr>
+  </tbody>
+</table>
+
+<h3>First chapter</h3>
+
+<pre><code>uv run novel-pipeline create-novel --title "My Novel"
+uv run novel-pipeline process-chapter --novel-id &lt;id&gt; --number 1 --file ch1.txt</code></pre>
+
+<p>Or paste chapter text into the wiki's Process page. In Claude Code, the MCP server is
+picked up automatically via <code>.mcp.json</code> at the repo root.</p>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="gotchas">Local Gotchas</h2>
+
+<p>Three things that will confuse you on day one.</p>
+
+<h3>Your active database may not be <code>novel_wiki</code></h3>
+
+<p><code>backend/scripts/branch_db.sh</code> gives each git branch its own database named
+<code>novel_wiki_&lt;branch_slug&gt;</code>, and writes a gitignored
+<code>backend/.env.branch</code> that <code>pipeline/config.py</code> loads
+<strong>after</strong> <code>.env</code> with <code>override=true</code>. So
+<code>.env</code> can say <code>novel_wiki</code> while you are actually reading and
+writing a branch database.</p>
+
+<pre><code>backend/scripts/branch_db.sh show    <span class="c"># which DB am I actually on?</span>
+backend/scripts/branch_db.sh list    <span class="c"># all novel_wiki_* databases</span>
+backend/scripts/branch_db.sh clear   <span class="c"># drop back to plain .env</span></code></pre>
+
+<div class="callout warn">
+  <strong>Check this before you conclude your data is missing.</strong> A branch database
+  can outlive the branch that created it, and <code>.env.branch</code> keeps pointing at
+  it after you switch back to <code>main</code>. The script never writes to
+  <code>novel_wiki</code>, and <code>drop</code>/<code>reset</code> refuse to operate on
+  it — but nothing stops a stale <code>.env.branch</code> from quietly redirecting you.
+</div>
+
+<h3>Use the right virtualenv</h3>
+
+<p><code>backend/.venv</code> (Python 3.11) is the project environment — that's what
+<code>uv sync</code> manages and what the test command above uses. The repo-root
+<code>.venv</code> is not it.</p>
+
+<h3>Eval numbers are plumbing checks, not quality claims</h3>
+
+<p>The eval harness runs on a deterministic mock LLM by default. The retrieval metric is
+reported as <code>bm25_recall_at_k</code> in that mode — real-embedding hybrid numbers
+only exist behind <code>RUN_LLM_EVALS=1</code>, and the harness comments say the mock
+number must never be quoted as hybrid.</p>
+
+<div class="callout warn">
+  Do not cite eval metrics from a mock run as system quality. They exist to catch
+  regressions in the plumbing. See <a href="state-of-the-system.html">State of the
+  System → Eval Metrics</a> for what each number does and does not mean.
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="where-next">Where to Go Next</h2>
+
+<div class="grid-2">
+  <div class="card">
+    <h4>I want the reasoning, not the reference</h4>
+    <p><a href="blog/README.md">docs/blog/</a> is an eleven-part narrative walkthrough
+    built from first principles — the problem, the MVP, extraction, identity, time,
+    search, the critic, serving it, measuring it, production.</p>
+  </div>
+  <div class="card">
+    <h4>I want to know what's still broken</h4>
+    <p><a href="state-of-the-system.html">State of the System → Known Gaps</a> carries the
+    live list: cross-type duplicate prevention, per-chapter cost accounting,
+    embedding-dimension migration, in-memory job state, and more.</p>
+  </div>
+  <div class="card">
+    <h4>I need an endpoint, table, or env var</h4>
+    <p><a href="reference.html">API &amp; Schema Reference</a>. Don't read it front to
+    back — search it.</p>
+  </div>
+  <div class="card">
+    <h4>I'm changing the pipeline</h4>
+    <p>Start from <a href="architecture.html#pipeline-overview">Architecture → Pipeline
+    Overview</a>, then run <code>pytest -q</code> from <code>backend/</code> after every
+    edit. 18 seconds is short enough to run constantly.</p>
+  </div>
+</div>
+
+<hr>
+
+<p style="font-size:13px;color:var(--text-faint);">
+Background research lives in <code>docs/research/</code>; the specs and plans the redesign
+was executed from live in <code>docs/superpowers/</code> and are historical records, not
+current intent.
+</p>
+
+</main>
+
+<script>
+// Active sidebar link tracking
+const sections = document.querySelectorAll('h2[id]');
+const links = document.querySelectorAll('.sidebar a[href^="#"]');
+
+const observer = new IntersectionObserver((entries) => {
+  for (const entry of entries) {
+    if (entry.isIntersecting) {
+      const id = entry.target.id;
+      links.forEach(link => {
+        link.classList.toggle('active', link.getAttribute('href') === `#${id}`);
+      });
+    }
+  }
+}, { rootMargin: '-20% 0px -70% 0px' });
+
+sections.forEach(s => observer.observe(s));
+
+// Init mermaid
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    background: '#21262d',
+    primaryColor: '#1f6feb',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#58a6ff',
+    lineColor: '#58a6ff',
+    secondaryColor: '#21262d',
+    tertiaryColor: '#21262d',
+    edgeLabelBackground: '#21262d',
+    fontFamily: 'Inter, system-ui, sans-serif'
+  }
+});
+</script>
+
+</body>
+</html>

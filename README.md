@@ -36,7 +36,11 @@ rebuilt, and novels can be re-processed after schema changes.
 
 ## Docs (start here)
 
-Open these in a browser — they are the onboarding path, in order:
+Open `docs/index.html` in a browser. It is the landing page and the onboarding
+path — run the tests, read the docs in order, read the six files that are the
+actual system — and it links out to everything below.
+
+The reference docs, in the order that page walks you through them:
 
 1. `docs/architecture.html` — what the system is, the mental model, the
    pipeline phase by phase, the DB design, and a directory map.
