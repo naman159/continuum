@@ -4,6 +4,21 @@ import json
 from textwrap import dedent
 
 
+# The canon-fact predicate vocabulary, shared by the two passes that have to
+# agree on it. `check_entity_mentions` indexes canon facts by the exact tuple
+# (subject_entity_id, predicate), so a draft claim written as "has_eye_color"
+# is never compared against a stored fact written as "eye_color" — the check
+# silently finds nothing rather than disagreeing. The canon_facts extraction
+# pass (which writes the facts) and the critic's draft-claims extractor (which
+# writes the claims checked against them) are independent LLM calls, so the
+# vocabulary lives here once instead of being described twice and drifting.
+CANON_PREDICATES = (
+    "eye_color, hair_color, height, build, species, age, title, rank, "
+    "home_town, birthplace, occupation, weapon, sibling_of, parent_of, "
+    "child_of, spouse_of, member_of, ruler_of"
+)
+
+
 PASS_ORDER = [
     "chapter_summary",
     "new_entities",
@@ -172,7 +187,7 @@ PASS_SCHEMAS = {
             {
                 "subject_name": "string  # entity the fact is about, exactly as named in the chapter",
                 "subject_type": "character|location|object|faction",
-                "predicate": "string  # stable snake_case key, e.g. eye_color, home_town, weapon, title, sibling_of",
+                "predicate": f"string  # stable snake_case key from this list where one fits: {CANON_PREDICATES}",
                 "value": "string  # the fact's value, concise",
                 "kind": "physical|relational|world_rule|backstory|other",
                 "confidence": "number 0.0-1.0",
@@ -420,9 +435,9 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         (magic costs, physical laws of the setting).
 
         Rules:
-        - predicate must be a stable snake_case key; reuse common predicates
-          (eye_color, hair_color, title, home_town, weapon, sibling_of,
-          parent_of, species, age) rather than inventing synonyms.
+        - predicate must be a stable snake_case key. Use one of these where it
+          fits, rather than inventing a synonym: {CANON_PREDICATES}
+          Do not prefix with "has_" or "is_".
         - Only facts explicitly stated or unambiguously shown in this chunk.
         - SKIP transient state (mood, current location, temporary injuries),
           opinions, and speculation. Those belong to other passes.
@@ -430,7 +445,7 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         - confidence: 1.0 for directly stated, lower for strongly implied.
 
         Return JSON only.
-        """
+        f"""
     ).strip(),
     "continuity_flags": dedent(
         """

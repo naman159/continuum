@@ -1492,7 +1492,7 @@ flowchart TD
       <tbody>
         <tr><td><code>kind</code></td><td>Category: <code>identity</code>, <code>world_rule</code>, <code>relationship</code>, <code>object_property</code>, etc.</td></tr>
         <tr><td><code>subject_entity_id</code></td><td>The entity this fact is about</td></tr>
-        <tr><td><code>predicate</code></td><td>The property or relationship (e.g., "is_heir", "has_curse")</td></tr>
+        <tr><td><code>predicate</code></td><td>The property or relationship, as a stable snake_case key (<code>eye_color</code>, <code>home_town</code>, <code>sibling_of</code>). Drawn from <code>CANON_PREDICATES</code> in <code>pipeline/extraction/prompts.py</code>, which the canon-fact pass and the critic's draft-claims extractor both quote — <code>check_entity_mentions</code> matches on the exact <code>(entity, predicate)</code> tuple, so two independently-invented synonyms make the check silently find nothing rather than disagree. No <code>has_</code>/<code>is_</code> prefixes.</td></tr>
         <tr><td><code>value</code></td><td>The fact value (e.g., "true", "Ironwood Throne")</td></tr>
         <tr><td><code>confidence</code></td><td>0.0–1.0 confidence from the extractor</td></tr>
         <tr><td><code>locked</code></td><td>If true, the <code>ContinuityCritic</code> treats violations as FAIL severity (hard error). If false, it's a WARN.</td></tr>

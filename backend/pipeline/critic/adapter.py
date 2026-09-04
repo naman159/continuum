@@ -11,6 +11,7 @@ from typing import Any
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.critic.types import DraftChapter
 from pipeline.entity_tables import TYPED_TABLES
+from pipeline.extraction.prompts import CANON_PREDICATES
 from pipeline.extraction.resolver import lookup_typed
 from pipeline.llm import load_completion as _load_completion
 from pipeline.llm import safe_json_loads
@@ -22,8 +23,15 @@ _EMPTY: dict[str, list] = {
 }
 
 _CLAIMS_SCHEMA = {
+    # The predicate vocabulary is shared with the canon_facts extraction pass
+    # (pipeline/extraction/prompts.py) on purpose: check_entity_mentions looks
+    # up canon by the exact (entity, predicate) tuple, so a claim phrased
+    # "has_eye_color" is never compared against a fact stored as "eye_color" —
+    # the check finds nothing instead of disagreeing. Two independent LLM calls
+    # will not converge on a key by themselves; they have to be told the same one.
     "mentions": [{"entity_name": "string", "entity_type": "character|location|object|faction",
-                  "predicate": "string snake_case", "claimed_value": "string", "quote": "string"}],
+                  "predicate": f"stable snake_case key from this list where one fits, no has_/is_ prefix: {CANON_PREDICATES}",
+                  "claimed_value": "string", "quote": "string"}],
     "knowledge_claims": [{"character_name": "string", "fact_description": "string",
                           "source_type": "dialogue|observation|inference|witnessed|told|assumed",
                           "learned_this_chapter": "boolean — true only if the character acquires this fact within this draft; false if they act on knowledge from before",

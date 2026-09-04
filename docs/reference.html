@@ -1294,7 +1294,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   novel_id         <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
   kind             <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- 'identity', 'world_rule', 'relationship', 'object_property'</span>
   subject_entity_id <span class="sql-type">UUID</span>       <span class="sql-constraint">REFERENCES</span> entities,
-  predicate        <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- e.g. "is_heir", "has_curse"</span>
+  predicate        <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- stable snake_case key: eye_color, home_town, sibling_of</span>
   value            <span class="sql-type">TEXT</span>        <span class="sql-constraint">NOT NULL</span>,   <span class="sql-comment">-- e.g. "true", "Ironwood Throne"</span>
   source_chapter   <span class="sql-type">INT</span>,
   confidence       <span class="sql-type">FLOAT</span>       <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">1.0</span>,
@@ -1316,7 +1316,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <pre><code>{
   <span class="str">"kind"</span>: <span class="str">"identity"</span> | <span class="str">"world_rule"</span> | <span class="str">"relationship"</span> | <span class="str">"object_property"</span>,
   <span class="str">"subject_name"</span>: <span class="str">"..."</span>,          <span class="cmt">// entity name — resolved to subject_entity_id</span>
-  <span class="str">"predicate"</span>: <span class="str">"is_heir"</span>,           <span class="cmt">// snake_case property key</span>
+  <span class="str">"predicate"</span>: <span class="str">"eye_color"</span>,         <span class="cmt">// from CANON_PREDICATES; both prompts share it</span>
   <span class="str">"value"</span>: <span class="str">"true"</span>,                  <span class="cmt">// string value (booleans as "true"/"false")</span>
   <span class="str">"confidence"</span>: <span class="num">0.95</span>               <span class="cmt">// 0.0–1.0</span>
 }</code></pre>
