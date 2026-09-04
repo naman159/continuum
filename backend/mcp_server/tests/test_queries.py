@@ -53,15 +53,29 @@ def test_check_continuity_serializes_critic_report(monkeypatch):
         def critique(self, draft):
             return report
 
-    monkeypatch.setattr(queries, "extract_draft_claims", lambda text, use_mock=None: {})
-    monkeypatch.setattr(queries, "build_draft_chapter", lambda db, **kw: object())
-    monkeypatch.setattr(queries, "ContinuityCritic", StubCritic)
+    import pipeline.critic.service as service_mod
 
-    out = queries.check_continuity("novel-1", 4, "draft text", db=FakeDB(), use_mock=True)
+    monkeypatch.setattr(service_mod, "extract_draft_claims", lambda text, use_mock=None: {})
+    monkeypatch.setattr(service_mod, "build_draft_chapter", lambda db, **kw: object())
+    monkeypatch.setattr(service_mod, "ContinuityCritic", StubCritic)
+
+    # use_mock=False: mock mode is an outage, not a verdict (see critique_draft).
+    out = queries.check_continuity("novel-1", 4, "draft text", db=FakeDB(), use_mock=False)
     assert out["passed"] is False
+    assert out["status"] == "ok"
     assert out["fails"][0]["check"] == "knowledge_state"
     assert out["fails"][0]["quote"] == "the sword"
     assert out["warns"] == []
+
+
+def test_check_continuity_reports_an_outage_as_status_not_a_pass(monkeypatch):
+    """`passed` alone cannot distinguish "clean" from "never ran". An agent
+    reading only `passed` on an unavailable critic would see False and try to
+    revise; `status` is what tells it to retry instead."""
+    out = queries.check_continuity("novel-1", 4, "draft text", db=FakeDB(), use_mock=True)
+    assert out["passed"] is False
+    assert out["status"] == "unavailable"
+    assert out["fails"] == [] and out["warns"] == []
 
 
 def test_save_chapter_reports_duplicate_as_error(monkeypatch):

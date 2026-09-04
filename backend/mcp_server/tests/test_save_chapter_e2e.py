@@ -1,21 +1,19 @@
-"""End-to-end coverage for save_chapter through the real gate stack.
+"""End-to-end coverage for save_chapter through the real refusal stack.
 
 Every other test in this package monkeypatches `analyze_chapter` (see
 test_queries.py), which means none of them exercise the actual wiring
 between `mcp_server.queries.save_chapter`, `pipeline.analyze_chapter`, and
-`pipeline.gate.gate_agent_draft`. A wiring mistake between those three
-(e.g. save_chapter forgetting to pass a refusal dict through) would pass
-the whole suite despite Tasks 1-3's gate working correctly.
+`pipeline.critic.service.critique_draft`. This is the test that proves
+save_chapter still asks for `on_continuity_fail="block"` — drop that one
+argument and every other test in the suite still passes while agent writes
+sail into canon.
 
-This test uses a real DBClient against the branch Postgres, the real
-save_chapter, the real analyze_chapter, and the real gate_agent_draft.
-The only thing stubbed is the ContinuityCritic's verdict — mirroring
-pipeline/tests/test_gate.py's `stub_critic` fixture, which is the
-established pattern in this repo for testing the real `gate_agent_draft`
-deterministically. extract_draft_claims and build_draft_chapter are stubbed
-alongside it purely so the test never makes a real LLM call: save_chapter
-hardcodes `use_mock_llm=None` and has no parameter letting a caller opt
-into the app's mock-LLM mode, so this is the only seam available for that.
+This uses a real DBClient against the branch Postgres, the real save_chapter,
+the real analyze_chapter, and the real critique_draft. The only thing stubbed
+is the ContinuityCritic's verdict, so the test is deterministic and never
+makes a real LLM call: save_chapter hardcodes `use_mock_llm=None` and has no
+parameter letting a caller opt into mock mode, so this is the only seam
+available for that.
 """
 
 from __future__ import annotations
@@ -23,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from mcp_server import queries as queries_mod
-from pipeline import gate as gate_mod
+import pipeline.critic.service as service_mod
 from pipeline.critic.types import CritiqueReport, Finding, Severity
 from reads import drafts as drafts_reads
 
@@ -44,11 +42,11 @@ def _failing_report() -> CritiqueReport:
 @pytest.fixture
 def stub_critic_verdict(monkeypatch):
     """Force ContinuityCritic to return a deterministic FAIL. Does not touch
-    analyze_chapter, gate_agent_draft, or save_chapter."""
+    analyze_chapter, critique_draft, or save_chapter."""
     monkeypatch.setattr(
-        gate_mod, "extract_draft_claims", lambda text, use_mock=None: {"mentions": []}
+        service_mod, "extract_draft_claims", lambda text, use_mock=None: {"mentions": []}
     )
-    monkeypatch.setattr(gate_mod, "build_draft_chapter", lambda db, **kw: object())
+    monkeypatch.setattr(service_mod, "build_draft_chapter", lambda db, **kw: object())
 
     class _FailingCritic:
         def __init__(self, db):
@@ -57,14 +55,14 @@ def stub_critic_verdict(monkeypatch):
         def critique(self, draft):
             return _failing_report()
 
-    monkeypatch.setattr(gate_mod, "ContinuityCritic", _FailingCritic)
+    monkeypatch.setattr(service_mod, "ContinuityCritic", _FailingCritic)
 
 
 def test_save_chapter_refuses_through_the_real_stack(db, seed_novel, stub_critic_verdict):
     """A FAIL critic verdict must reach save_chapter's caller as
     ingested:False, with no chapter row written and the draft parked for
     human review — proven through the real save_chapter -> analyze_chapter
-    -> gate_agent_draft wiring, not a monkeypatched analyze_chapter."""
+    -> critique_draft wiring, not a monkeypatched analyze_chapter."""
     novel_id = seed_novel(db)["novel_id"]
 
     result = queries_mod.save_chapter(novel_id, 90, "a bad draft", db=db)

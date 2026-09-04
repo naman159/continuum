@@ -1,96 +1,50 @@
-"""The critic is optional, decoupled, and re-runnable.
+"""The critique is optional, decoupled, and re-runnable.
 
-Two properties this pins:
-
-1. Which claims source a critique uses, and why mock must degrade to `reuse`
-   (extract_draft_claims returns empty claims without a real LLM, and an empty
-   draft passes the critic vacuously — worse than the cheaper mode).
-2. CRITIC_ENABLED=false leaves ingestion otherwise untouched, so a chapter
-   ingested with the critic off is still fully queryable and can be critiqued
-   later via pipeline.critic.cli.
+CRITIC_ENABLED=false leaves ingestion otherwise untouched, so a chapter
+ingested with the critique off is still fully queryable and can be judged later
+via pipeline.critic.cli — which is what `critique_chapter` is for. What it must
+NOT do is overwrite an existing report with an empty one when it cannot judge.
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 
 import pytest
 
 import pipeline.critic.service as service
 import pipeline.pipeline as pipeline_mod
-from pipeline.config import settings
+from pipeline.critic.types import CritiqueReport, Finding, Severity
 
 
-# --------------------------------------------------------------------------
-# claims mode
-# --------------------------------------------------------------------------
+@pytest.fixture
+def real_critique(monkeypatch):
+    """Make critique_draft produce a real report without an LLM.
 
-def _spy(monkeypatch):
-    calls: list[str] = []
-    monkeypatch.setattr(
-        service, "extract_draft_claims",
-        lambda text, **kw: (calls.append("extract"), {"location_claims": []})[1],
-    )
-    monkeypatch.setattr(
-        service, "build_draft_chapter",
-        lambda db, **kw: (calls.append("build_chapter"), "DRAFT_EXTRACT")[1],
-    )
-    monkeypatch.setattr(
-        service, "build_draft_from_extraction",
-        lambda db, **kw: (calls.append("reuse"), "DRAFT_REUSE")[1],
-    )
-    return calls
+    Mock mode is deliberately an outage rather than a vacuous pass, so a test
+    that wants a persisted report has to stub the claims layer instead of
+    reaching for use_mock_llm=True.
+    """
 
+    def _install(*findings: Finding):
+        monkeypatch.setattr(
+            service, "extract_draft_claims", lambda text, use_mock=None: {"mentions": []}
+        )
+        monkeypatch.setattr(service, "build_draft_chapter", lambda db, **kw: object())
 
-def _build(monkeypatch, *, mode: str, use_mock):
-    monkeypatch.setattr(service, "settings", replace(settings, critique_claims=mode))
-    calls = _spy(monkeypatch)
-    draft = service.build_draft(
-        None, novel_id="n", chapter_number=1, raw_text="t",
-        extracted={}, use_mock_llm=use_mock,
-    )
-    return draft, calls
+        class _Critic:
+            def __init__(self, db):
+                pass
 
+            def critique(self, draft):
+                return CritiqueReport(
+                    novel_id="n", chapter_number=1, findings=list(findings)
+                )
 
-def test_extract_mode_pulls_claims_from_chapter_text(monkeypatch):
-    draft, calls = _build(monkeypatch, mode="extract", use_mock=False)
-    assert draft == "DRAFT_EXTRACT"
-    assert "extract" in calls and "reuse" not in calls
+        monkeypatch.setattr(service, "ContinuityCritic", _Critic)
 
+    return _install
 
-def test_mock_falls_back_to_reuse_even_in_extract_mode(monkeypatch):
-    draft, calls = _build(monkeypatch, mode="extract", use_mock=True)
-    assert draft == "DRAFT_REUSE", "mock must not produce an empty, vacuously-passing draft"
-    assert "extract" not in calls
-
-
-def test_reuse_mode_makes_no_extra_llm_call(monkeypatch):
-    draft, calls = _build(monkeypatch, mode="reuse", use_mock=False)
-    assert draft == "DRAFT_REUSE"
-    assert "extract" not in calls
-
-
-def test_extraction_failure_degrades_instead_of_losing_the_critique(monkeypatch):
-    monkeypatch.setattr(service, "settings", replace(settings, critique_claims="extract"))
-    calls = _spy(monkeypatch)
-
-    def boom(text, **kw):
-        calls.append("extract")
-        raise RuntimeError("draft_claims: extraction failed")
-
-    monkeypatch.setattr(service, "extract_draft_claims", boom)
-    draft = service.build_draft(
-        None, novel_id="n", chapter_number=1, raw_text="t",
-        extracted={}, use_mock_llm=False,
-    )
-    assert draft == "DRAFT_REUSE"
-    assert calls == ["extract", "reuse"]
-
-
-# --------------------------------------------------------------------------
-# on/off toggle + standalone re-run
-# --------------------------------------------------------------------------
 
 @pytest.fixture
 def novel(db):
@@ -136,28 +90,52 @@ def test_run_critic_false_skips_the_critique_but_still_ingests(db, novel):
     assert result["events"] >= 0
 
 
-def test_a_skipped_chapter_can_be_critiqued_later(db, novel):
+def test_a_skipped_chapter_can_be_critiqued_later(db, novel, real_critique):
     _ingest(novel, run_critic=False)
     assert _reports(db, novel) == 0
+    real_critique()
+
+    summary = service.critique_chapter(db, novel_id=novel, chapter_number=1)
+
+    assert summary["status"] == "ok"
+    assert _reports(db, novel) == 1
+
+
+def test_re_critiquing_replaces_rather_than_duplicates(db, novel, real_critique):
+    _ingest(novel, run_critic=False)
+    real_critique()
+
+    service.critique_chapter(db, novel_id=novel, chapter_number=1)
+    service.critique_chapter(db, novel_id=novel, chapter_number=1)
+
+    assert _reports(db, novel) == 1
+
+
+def test_an_outage_does_not_wipe_an_existing_report(db, novel, real_critique):
+    """A re-run that cannot judge must leave the previous verdict standing —
+    replacing it with nothing would silently turn a FAILing chapter clean."""
+    _ingest(novel, run_critic=False)
+    real_critique(
+        Finding(check="knowledge_state", severity=Severity.FAIL, message="nope")
+    )
+    service.critique_chapter(db, novel_id=novel, chapter_number=1)
+    assert _reports(db, novel) == 1
 
     summary = service.critique_chapter(
         db, novel_id=novel, chapter_number=1, use_mock_llm=True
     )
 
-    assert summary is not None
+    assert summary["status"] == "unavailable"
     assert _reports(db, novel) == 1
-
-
-def test_re_critiquing_replaces_rather_than_duplicates(db, novel):
-    _ingest(novel, run_critic=True)
-    before = _reports(db, novel)
-
-    service.critique_chapter(db, novel_id=novel, chapter_number=1, use_mock_llm=True)
-    service.critique_chapter(db, novel_id=novel, chapter_number=1, use_mock_llm=True)
-
-    assert _reports(db, novel) == before == 1
+    assert db.fetchval(
+        """
+        SELECT cr.passed FROM critique_reports cr
+        JOIN chapters ch ON ch.id = cr.chapter_id WHERE ch.novel_id = %s
+        """,
+        (novel,),
+    ) is False
 
 
 def test_critique_chapter_rejects_a_chapter_that_does_not_exist(db, novel):
     with pytest.raises(ValueError, match="does not exist"):
-        service.critique_chapter(db, novel_id=novel, chapter_number=99, use_mock_llm=True)
+        service.critique_chapter(db, novel_id=novel, chapter_number=99)

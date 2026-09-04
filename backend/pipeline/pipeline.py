@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pipeline.config import settings
-from pipeline.critic.service import critique_chapter
+from pipeline.critic.persist import persist_critique
+from pipeline.critic.service import critique_draft
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
@@ -27,9 +28,9 @@ from pipeline.extraction.persist_extras import (
     persist_scenes,
 )
 from pipeline.extraction.resolver import EntityResolver
-from pipeline.gate import gate_agent_draft
 from pipeline.style import compute_style_fingerprint
 from pipeline.ingestion.ingest import delete_chapter_data, ingest_chapter
+from pipeline.submissions import park_draft, supersede_pending
 from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
@@ -274,8 +275,23 @@ def analyze_chapter(
     replace: bool = False,
     source: Literal["human", "agent"] = "human",
     run_critic: bool | None = None,
-    _gate_bypass: bool = False,
+    on_continuity_fail: Literal["warn", "block"] = "warn",
 ) -> dict[str, Any]:
+    """Ingest one chapter: CRITIQUE -> EXTRACT -> PERSIST -> MATERIALIZE.
+
+    `source` is provenance only (it lands in `chapters.source`); it does not
+    decide anything. What a continuity FAIL *means* is `on_continuity_fail`:
+
+      "warn"  — record the findings and ingest anyway. The caller has a human
+                in the loop already (the CLI, the Process page), so a finding
+                is information, not a veto.
+      "block" — refuse the write, park the draft for review, and return
+                without extracting. For callers whose author is an agent that
+                would otherwise write to canon unattended.
+
+    Either way the critique runs exactly once, at phase 0, and its report is
+    the one persisted at phase 5.
+    """
     owned = db is None
     client = db if db is not None else DBClient()
     try:
@@ -290,38 +306,78 @@ def analyze_chapter(
                 "Pass replace=True to re-process it."
             )
 
-        # ---- phase 0: GATE (agent writes only) ----
-        # A chapter row means it passed continuity. Runs before EXTRACT so a
-        # refused draft costs one claim-extraction call instead of 13 passes,
-        # and so contradictory material never reaches the extraction tier.
+        # ---- phase 0: CRITIQUE ----
+        # The one place a draft is judged, for every caller. Runs before
+        # EXTRACT so a blocking refusal costs one claims-extraction call
+        # instead of 13 passes per chunk, and so refused text never reaches
+        # the write tier (delete_chapter_data cannot undo entity creation).
         # Independent of `replace`: re-processing is exactly when a
         # contradiction is most likely.
-        if source != "human" and not _gate_bypass:
-            verdict = gate_agent_draft(
+        critique = None
+        want_critique = settings.critic_enabled if run_critic is None else run_critic
+        if on_continuity_fail == "block":
+            # A caller that blocks on FAIL cannot opt out of the check that
+            # produces the FAIL — otherwise run_critic=False is a bypass.
+            want_critique = True
+        if want_critique:
+            critique = critique_draft(
+                client,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                text=raw_text,
+                use_mock_llm=use_mock_llm,
+            )
+
+        if on_continuity_fail == "block" and critique is not None and not critique.passed:
+            # An outage ("unavailable": critic off, or mock mode) parks
+            # nothing: there is no verdict for a human to adjudicate, so
+            # telling the caller "pending_review" would claim a review that
+            # isn't happening. A real FAIL, or an error while critiquing,
+            # parks the text so the author's work isn't lost.
+            if critique.status == "unavailable":
+                logger.error(
+                    "refusing write for novel %s ch %s: %s",
+                    novel_id, chapter_number, critique.error,
+                )
+                return {
+                    "ingested": False,
+                    "status": "refused",
+                    "submission_id": None,
+                    "reason": critique.status,
+                    "error": critique.error,
+                    "fails": [],
+                    "warns": [],
+                }
+            submission_id = park_draft(
                 client,
                 novel_id=novel_id,
                 chapter_number=chapter_number,
                 title=chapter_title,
                 raw_text=raw_text,
-                use_mock_llm=use_mock_llm,
+                findings={
+                    "fails": critique.fails,
+                    "warns": critique.warns,
+                    **({"error": critique.error} if critique.error else {}),
+                },
             )
-            if not verdict.passed:
-                # Only "critic_disabled" leaves nothing parked (submission_id
-                # is None): there is no row for a human to review, so telling
-                # the agent "pending_review" would be a lie — the draft was
-                # dropped, not queued. Every other refusal reason parks a row.
-                return {
-                    "ingested": False,
-                    "status": (
-                        "pending_review"
-                        if verdict.submission_id is not None
-                        else "refused"
-                    ),
-                    "submission_id": verdict.submission_id,
-                    "reason": verdict.reason,
-                    "fails": verdict.fails or [],
-                    "warns": verdict.warns or [],
-                }
+            return {
+                "ingested": False,
+                "status": "pending_review",
+                "submission_id": submission_id,
+                "reason": "fail" if critique.status == "ok" else critique.status,
+                "fails": critique.fails,
+                "warns": critique.warns,
+            }
+
+        if on_continuity_fail == "block":
+            # A passing resubmission still has to clear the stale pending row
+            # left by an earlier failing draft for this chapter.
+            supersede_pending(
+                client,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                note="superseded by a passing resubmission",
+            )
 
         custom_entity_types = [
             dict(r)
@@ -469,7 +525,7 @@ def analyze_chapter(
                 resolver=resolver,
             )
 
-        # ---- phase 4: MATERIALIZE / phase 5: CRITIQUE ----
+        # ---- phase 4: MATERIALIZE / phase 5: RECORD THE CRITIQUE ----
         # Both derive from the committed data and are idempotent; a failure
         # here must not roll back the saved chapter. materialized/critique in
         # the result tell callers whether a manual re-run is needed.
@@ -484,26 +540,21 @@ def analyze_chapter(
             materialized = True
         except Exception:
             logger.exception("materialize failed for novel %s; re-run pipeline.state.cli", novel_id)
-        # The critic is optional and fully decoupled: it reads only committed
-        # data, so skipping it here costs nothing that
-        # `python -m pipeline.critic.cli` cannot supply later.
-        want_critic = settings.critic_enabled if run_critic is None else run_critic
-        if want_critic:
-            try:
-                critique_summary = critique_chapter(
-                    client,
-                    novel_id=novel_id,
-                    chapter_number=chapter_number,
-                    chapter_id=chapter_id,
-                    raw_text=raw_text,
-                    extracted=extracted,
-                    use_mock_llm=use_mock_llm,
-                )
-            except Exception:
-                logger.exception(
-                    "critique failed for chapter %s of novel %s; re-run "
-                    "pipeline.critic.cli", chapter_number, novel_id,
-                )
+        # No second judgement: this persists the phase-0 report against the row
+        # that now exists. The chapter could not get a critique_reports row
+        # before it had a chapter_id, which is the only reason recording it is
+        # a separate phase from producing it. An outage at phase 0 leaves
+        # nothing to record — `python -m pipeline.critic.cli` supplies it later.
+        if critique is not None:
+            critique_summary = critique.summary()
+            if critique.report is not None:
+                try:
+                    persist_critique(client, chapter_id=chapter_id, report=critique.report)
+                except Exception:
+                    logger.exception(
+                        "recording the critique failed for chapter %s of novel %s; "
+                        "re-run pipeline.critic.cli", chapter_number, novel_id,
+                    )
 
         return {
             "chapter_id": chapter_id,

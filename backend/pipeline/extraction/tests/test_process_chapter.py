@@ -41,7 +41,14 @@ def novel_id(db: DBClient):
         cur.execute("DELETE FROM novels WHERE id = %s", (nid,))
 
 
-def test_analyze_chapter_materializes_and_persists_critique(db: DBClient, novel_id: str):
+def test_analyze_chapter_materializes_and_reports_a_mock_critique_as_unavailable(
+    db: DBClient, novel_id: str
+):
+    """Mock mode cannot produce a verdict — claims extraction needs a real LLM,
+    and an empty draft would pass every check vacuously. So a mock ingest
+    materializes normally but records no critique report rather than a clean
+    one. (Persisting a real report is covered in
+    pipeline/tests/test_continuity_policy.py.)"""
     result = analyze_chapter(
         novel_id=novel_id,
         chapter_number=1,
@@ -54,9 +61,9 @@ def test_analyze_chapter_materializes_and_persists_critique(db: DBClient, novel_
     )
 
     assert result["materialized"] is True
-    assert result["critique"] is not None and "passed" in result["critique"]
-    # A persisted report exists for the chapter.
+    assert result["critique"]["status"] == "unavailable"
+    assert result["critique"]["passed"] is None
     assert db.fetchval(
         "SELECT count(*) FROM critique_reports WHERE chapter_id = %s",
         (result["chapter_id"],),
-    ) == 1
+    ) == 0

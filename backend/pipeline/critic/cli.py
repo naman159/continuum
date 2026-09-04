@@ -6,7 +6,10 @@ re-run one whose critique failed transiently, or re-judge a back catalogue
 after changing a check.
 
 Re-running replaces the chapter's previous report (``persist_critique`` deletes
-and rewrites), so it is safe to run repeatedly.
+and rewrites), so it is safe to run repeatedly. It needs a real LLM: claims are
+read from the chapter text, and there is no cheaper claims source that can make
+the knowledge and possession checks fire (see ``critique_draft``). A run
+without one reports status "unavailable" and writes nothing.
 
     python -m pipeline.critic.cli --novel-id <uuid>               # every chapter
     python -m pipeline.critic.cli --novel-id <uuid> --chapter 12  # just chapter 12
@@ -30,11 +33,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--chapter", type=int, default=None,
         help="Chapter number to critique. Defaults to every chapter of the novel.",
-    )
-    parser.add_argument(
-        "--mock-llm", action="store_true",
-        help="Force mock mode (no LLM calls). Claims fall back to reused "
-             "extraction output, so knowledge and possession checks stay quiet.",
     )
     args = parser.parse_args(argv)
 
@@ -61,10 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         for number in numbers:
             try:
                 summary = critique_chapter(
-                    db,
-                    novel_id=args.novel_id,
-                    chapter_number=number,
-                    use_mock_llm=True if args.mock_llm else None,
+                    db, novel_id=args.novel_id, chapter_number=number
                 )
                 results.append({"chapter": number, "critique": summary})
             except Exception as exc:

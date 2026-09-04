@@ -140,8 +140,7 @@ def build_draft_chapter(
     # claim in a chapter, so emitting one claim per LLM assertion failed every
     # character who simply walked somewhere — which is most chapters. The
     # claim that matters is where the character ends up, since that is what
-    # gets compared against prior state. build_draft_from_extraction already
-    # collapsed this way; this path was missed.
+    # gets compared against prior state.
     #
     # Keyed on the RESOLVED character_id, not the surface name: two spellings
     # that resolve to one character (an alias the resolver already knows) must
@@ -185,80 +184,4 @@ def build_draft_chapter(
     )
 
 
-def build_draft_from_extraction(
-    db: Any,
-    *,
-    novel_id: str,
-    chapter_number: int,
-    text: str,
-    extracted: dict[str, Any],
-) -> DraftChapter:
-    """Adapter for the spine's critique phase: reuse the chapter's already-
-    extracted claims instead of paying a second claims-extraction LLM call.
-    Read-only name resolution; unknown names drop the claim."""
-    raw_claims = {
-        "mentions": [
-            {
-                "entity_name": f.get("subject_name"),
-                "entity_type": f.get("subject_type"),
-                "predicate": f.get("predicate"),
-                "claimed_value": f.get("value"),
-                "quote": f.get("quote"),
-            }
-            for f in extracted.get("canon_facts", [])
-            if isinstance(f, dict)
-        ],
-        "knowledge_claims": [
-            {
-                "character_name": l.get("character_name"),
-                "fact_description": l.get("fact_description"),
-                "source_type": l.get("source_type"),
-                "learned_this_chapter": True,
-                "quote": None,
-            }
-            for l in extracted.get("learnings", [])
-            if isinstance(l, dict)
-        ],
-        # One claim per character: the LAST location-kind delta for that
-        # character in extraction order. Each delta is a legitimate intra-
-        # chapter transition, not a simultaneous claim — emitting one claim per
-        # delta made location_possession FAIL any character who moved more than
-        # once in a chapter. The claim represents where the character ends the
-        # chapter, which is the only thing worth checking against prior state.
-        "location_claims": list(
-            {
-                d.get("character_name"): {
-                    "character_name": d.get("character_name"),
-                    "location_name": d.get("location_name"),
-                    "quote": d.get("quote"),
-                }
-                for d in extracted.get("state_deltas", [])
-                if isinstance(d, dict) and d.get("kind") == "location"
-            }.values()
-        ),
-        # No possession claims from extraction deltas: a possession GAIN this
-        # chapter is self-evidencing (there is by definition no active
-        # possesses_edge entering the chapter for a fresh pickup), so mapping
-        # gains to claims made location_possession WARN on every acquisition.
-        # The check's own carve-out already says "if the chapter introduces the
-        # pickup this is fine" — the pre-save MCP path still gets possession
-        # claims from the LLM draft-claims extractor (extract_draft_claims).
-        "possession_claims": [],
-        "events": [
-            {"description": e.get("description"), "event_type": e.get("event_type")}
-            for e in extracted.get("events", [])
-            if isinstance(e, dict)
-        ],
-    }
-    return build_draft_chapter(
-        db,
-        novel_id=novel_id,
-        chapter_number=chapter_number,
-        text=text,
-        raw_claims=raw_claims,
-        planned_thread_ids=[],
-        planned_commitment_ids=[],
-    )
-
-
-__all__ = ["extract_draft_claims", "build_draft_chapter", "build_draft_from_extraction"]
+__all__ = ["extract_draft_claims", "build_draft_chapter"]

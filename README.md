@@ -13,19 +13,26 @@ ground truth while drafting and saves finished chapters back.
 ## Architecture (two spines, one database)
 
 - **Write spine** — `analyze_chapter` (`backend/pipeline/pipeline.py`):
-  INGEST → EXTRACT (13 LLM passes, including typed `state_deltas`) →
-  PERSIST (one transaction, immutable extraction tier) → MATERIALIZE
-  (`StateReplay` folds deltas into projections; sole writer of
-  `character_states` and the bitemporal edge tables) → CRITIQUE
-  (5 deterministic continuity checks, persisted per chapter). Agent writes
-  (`source='agent'`) run a **GATE** phase first: the continuity critic
-  critiques the raw draft before extraction, and a FAIL or a critic error
-  refuses the write and parks it in `draft_submissions` for human review;
-  a disabled critic refuses outright with nothing parked (there's no
-  verdict to record). A row in `chapters` with `source='agent'` therefore
-  either passed continuity or was human-overridden through the Review
-  queue with the blocking findings recorded on it — human writes never
-  face the gate at all, so that invariant doesn't extend to them.
+  CRITIQUE (5 deterministic continuity checks) → INGEST → EXTRACT (13 LLM
+  passes, including typed `state_deltas`) → PERSIST (one transaction,
+  immutable extraction tier) → MATERIALIZE (`StateReplay` folds deltas into
+  projections; sole writer of `character_states` and the bitemporal edge
+  tables) → RECORD the critique against the committed chapter.
+  The critique runs **first and exactly once**, for every caller: before
+  extraction, so a refusal costs one claims-extraction call instead of 13
+  passes per chunk and refused text never mints entities. The later phase
+  only persists the report the first one produced. What a FAIL *costs* is the
+  caller's `on_continuity_fail` policy: `"warn"` (the default, used by the
+  CLI and the Process page, where a human is already the review step)
+  records the findings and ingests anyway; `"block"` (asked for only by the
+  MCP `save_chapter` tool, because an agent writes unattended) refuses the
+  write and parks the draft in `draft_submissions` for human review. An
+  outage — critique disabled, or no real model — refuses a blocking caller
+  outright with nothing parked, since there is no verdict to record. So a
+  row in `chapters` written through `save_chapter` either passed continuity
+  or was human-overridden through the Review queue with the blocking
+  findings recorded on it; rows from the un-blocking callers carry their
+  findings without that guarantee.
 - **Read layer** — `backend/reads/`: every public function takes
   `up_to_chapter` (None = whole novel) so both the wiki and MCP serve
   spoiler-safe, point-in-time views. API routes and MCP tools contain no

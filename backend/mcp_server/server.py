@@ -197,9 +197,11 @@ def scene_list(novel_id: str, writing_chapter: int, chapter: int | None = None) 
 @mcp.tool()
 def check_continuity(novel_id: str, chapter_number: int, draft_text: str) -> Any:
     """Run the continuity critic on a draft WITHOUT saving it. Returns
-    passed/fails/warns with quotes and suggested fixes. Use this while
-    revising: save_chapter runs the same checks and will refuse a draft that
-    fails them."""
+    passed/fails/warns with quotes and suggested fixes, plus a `status`.
+    Use this while revising: save_chapter runs the identical critique and will
+    refuse a draft that fails it. `status` is "ok" when the verdict is real;
+    "unavailable" or "error" mean the critique did not run, and `passed: false`
+    there is an outage, not a judgement on the draft."""
     return _call(lambda: queries.check_continuity(novel_id, chapter_number, draft_text))
 
 
@@ -209,18 +211,18 @@ def save_chapter(
 ) -> Any:
     """Ingest a finished draft into the novel as a generated chapter.
 
-    Drafts are gated: the continuity critic runs BEFORE extraction, and a
-    draft with any FAIL finding is refused and parked for human review.
+    The continuity critique runs BEFORE extraction, and a draft with any FAIL
+    finding is refused and parked for human review — this tool is the one
+    caller that blocks on a FAIL rather than recording it and ingesting.
     A refusal returns {"ingested": false, "status", "submission_id", "reason",
-    "fails", "warns"}. Two different refusals look alike but need different
-    responses:
-      - status "pending_review" (reason "fail" or "critic_error"):
-        `submission_id` is set — the draft is parked and waiting on a human.
-        Revise against `fails` and resubmit; a resubmission supersedes the
-        parked draft.
-      - status "refused" (reason "critic_disabled"): `submission_id` is null
-        — nothing was parked because there was no verdict to record. This is
-        an outage, not a verdict on the draft. Hold the text and retry
+    "fails", "warns"}. Two refusals look alike but need different responses:
+      - status "pending_review" (reason "fail" or "error"): `submission_id` is
+        set — the draft is parked and waiting on a human. Revise against
+        `fails` and resubmit; a resubmission supersedes the parked draft.
+      - status "refused" (reason "unavailable"): `submission_id` is null —
+        nothing was parked because there was no verdict to record. This is an
+        outage (the critique is switched off, or is running without a real
+        model), not a verdict on the draft. Hold the text and retry
         `save_chapter` later rather than revising against `fails` (which will
         be empty) or resubmitting into the queue.
     Warnings do not block. Refuses to overwrite an existing chapter."""

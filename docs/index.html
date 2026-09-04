@@ -379,7 +379,7 @@ repo is a consumer of these.</p>
     <tr>
       <td class="step-n">2</td>
       <td><code>backend/pipeline/pipeline.py</code></td>
-      <td><code>analyze_chapter</code> — the phase sequence: GATE → INGEST → EXTRACT → PERSIST → MATERIALIZE → CRITIQUE. Pure library; the <code>novel-pipeline</code> CLI is in <code>pipeline/cli.py</code>.</td>
+      <td><code>analyze_chapter</code> — the phase sequence: CRITIQUE → INGEST → EXTRACT → PERSIST → MATERIALIZE → RECORD. Pure library; the <code>novel-pipeline</code> CLI is in <code>pipeline/cli.py</code>.</td>
     </tr>
     <tr>
       <td class="step-n">3</td>
@@ -434,8 +434,8 @@ when you have a reason:</p>
   </div>
   <div class="card">
     <h4>backend/pipeline/critic/</h4>
-    <p>5 deterministic continuity checks plus a runner. Non-blocking on human writes;
-    blocking on agent writes via the gate.</p>
+    <p>5 deterministic continuity checks plus a runner. One critique per chapter,
+    run for every caller; whether a FAIL blocks is the caller's policy.</p>
   </div>
   <div class="card">
     <h4>backend/evals/</h4>
@@ -459,7 +459,7 @@ and <code>.html</code>.</p>
     <tr>
       <td rowspan="2"><span class="badge green">Core</span></td>
       <td><code>backend/pipeline/</code></td><td class="num">15,577</td>
-      <td>Write spine: ingest, 13-pass extraction, persist, materialize, critique, gate</td>
+      <td>Write spine: critique, ingest, 13-pass extraction, persist, materialize</td>
     </tr>
     <tr>
       <td><code>backend/reads/</code></td><td class="num">2,889</td>
@@ -499,24 +499,35 @@ July 2026 once the product decision landed on analyzer-only. It is not on the ro
 and any reference to <code>source='generated'</code> you find in the commit history is
 history, not intent.</p>
 
-<h3>The agent write gate</h3>
+<h3>Refusing a write</h3>
 
-<p>This is the one place Continuum is more than a data layer. Writes arriving over MCP
-(<code>source='agent'</code>) run a <strong>GATE</strong> phase before extraction: the
-continuity critic critiques the raw draft, and a FAIL — or a critic error — refuses the
-write and parks it in <code>draft_submissions</code> for human review in the wiki's
-Review page. A disabled critic refuses outright, with nothing parked, because there is
-no verdict to record.</p>
+<p>This is the one place Continuum is more than a data layer. Every write runs the
+<strong>CRITIQUE</strong> phase before extraction — the same five checks, once, for
+every caller. What differs is what a FAIL <em>costs</em>, and that is the caller's
+<code>on_continuity_fail</code> policy rather than anything the pipeline infers about
+who is writing:</p>
+
+<ul>
+  <li><code>"warn"</code> (the default — the CLI and the Process page): record the
+  findings, ingest anyway. There is already a human at the keyboard.</li>
+  <li><code>"block"</code> (asked for by the MCP <code>save_chapter</code> tool alone,
+  because an agent writes unattended): refuse the write and park the draft in
+  <code>draft_submissions</code> for review in the wiki's Review page.</li>
+</ul>
+
+<p>An outage — the critique switched off, or running without a real model — refuses a
+blocking caller outright with nothing parked, because there is no verdict to record. A
+missing verdict is never a pass.</p>
 
 <div class="callout info">
-  So a row in <code>chapters</code> with <code>source='agent'</code> either passed
-  continuity or was human-overridden through the Review queue with the blocking findings
-  recorded on it. <strong>Human writes never face the gate at all</strong> — that
-  invariant does not extend to them.
+  So a row in <code>chapters</code> written through <code>save_chapter</code> either
+  passed continuity or was human-overridden through the Review queue with the blocking
+  findings recorded on it. Rows from the un-blocking callers carry their findings
+  without that guarantee — the invariant belongs to the policy, not to the row.
 </div>
 
-<p>The gate turns Continuum from "tracks novel info" into "refuses agent writes that
-fail continuity." That is a policy enforcement point, and it is deliberate.</p>
+<p>That is a policy enforcement point, and it is deliberate. Keeping the judgement
+caller-agnostic is what stops it drifting into two different notions of "consistent".</p>
 
 <!-- ─────────────────────────────────────── -->
 <h2 id="setup">Full Setup</h2>

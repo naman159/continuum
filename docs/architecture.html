@@ -333,7 +333,7 @@
 
   <div class="sidebar-section">Core Pipeline</div>
   <a href="#pipeline-overview">Pipeline Overview</a>
-  <a href="#agent-write-gate">Agent Write Gate</a>
+  <a href="#continuity-policy">Blocking vs Advisory</a>
   <a href="#extraction-passes">13 Extraction Passes</a>
   <a href="#entity-resolution">Entity Resolution</a>
   <a href="#chapter-cap">Chapter Cap</a>
@@ -404,18 +404,20 @@
     </div>
 
     <div class="callout info">
-      <strong>Status: redesign complete (2026-07-13/14); agent write gate added (2026-08-24).</strong>
+      <strong>Status: redesign complete (2026-07-13/14); write refusal added 2026-08-24,
+      unified into a single caller-agnostic critique 2026-09-04.</strong>
       Continuum is a <strong>continuity analyzer</strong>, not a chapter generator — that product
       decision is final, not provisional. Two spines run over one Postgres database: the
       <strong>write spine</strong> (<code>analyze_chapter</code>) turns raw chapter text — from the
       Process page/CLI (<code>source='human'</code>) or an MCP <code>save_chapter</code> call from a
       writing agent (<code>source='agent'</code>) — into structured knowledge, and the
       <strong>read layer</strong> (<code>backend/reads/</code>) serves every wiki page, API route,
-      and MCP tool from that same data, cutoff-aware by construction. The write spine now branches on
-      <code>source</code>: human writes still run INGEST → EXTRACT → PERSIST → MATERIALIZE →
-      CRITIQUE unchanged; agent writes run a <strong>GATE</strong> phase first — see
-      <a href="#pipeline-overview">Pipeline Overview</a> and <a href="#agent-write-gate">The Agent
-      Write Gate</a> below. See <a href="state-of-the-system.html">State of the System</a> for the
+      and MCP tool from that same data, cutoff-aware by construction. The write spine does not branch
+      on who is writing: every caller runs CRITIQUE → INGEST → EXTRACT → PERSIST → MATERIALIZE →
+      RECORD, with the critique run once, up front. Only the <em>consequence</em> of a FAIL varies,
+      via the caller's <code>on_continuity_fail</code> policy — see
+      <a href="#pipeline-overview">Pipeline Overview</a> and
+      <a href="#continuity-policy">Blocking vs Advisory</a> below. See <a href="state-of-the-system.html">State of the System</a> for the
       full history of how it got here.
     </div>
   </section>
@@ -598,8 +600,7 @@ graph LR
 
     <ol class="steps">
       <li>
-        <strong>0 · GATE — agent writes only</strong> — runs before anything else, whenever <code>source != 'human'</code> (i.e. the MCP <code>save_chapter</code> path, which passes <code>source="agent"</code>; human writes from the Process page/CLI, the only callers that pass <code>source="human"</code>, never hit it). <code>gate_agent_draft()</code> (<code>pipeline/gate.py</code>) runs the cheap draft-claims critic path — <code>extract_draft_claims()</code> (one LLM call) → <code>build_draft_chapter()</code> → <code>ContinuityCritic.critique()</code> — against the raw, unextracted text. A FAIL, a critic exception, or <code>CRITIC_ENABLED=false</code> all refuse the write, returning <code>{"ingested": false, "status", "submission_id", "reason", "fails", "warns"}</code> instead of raising or writing anything to <code>chapters</code>. A FAIL or a critic exception additionally parks the draft in <code>draft_submissions</code> (superseding any prior pending row for the same chapter, in one transaction — a passing resubmission supersedes it the same way) and sets <code>"status": "pending_review"</code> with a real <code>submission_id</code>; a disabled critic parks nothing (there is no verdict to record) and sets <code>"status": "refused"</code> with <code>submission_id: null</code> instead. Because this runs <em>before</em> chunking and the 13-pass extractor, a refused draft costs one LLM call instead of thirteen, and contradictory material never reaches the extraction tier at all. See <a href="#agent-write-gate">The Agent Write Gate</a> below.
-      </li>
+        <strong>0 · CRITIQUE — every caller, exactly once</strong> — runs before anything else. <code>critique_draft()</code> (<code>pipeline/critic/service.py</code>) runs <code>extract_draft_claims()</code> (one LLM call) → <code>build_draft_chapter()</code> → <code>ContinuityCritic.critique()</code> against the raw, unextracted text. It returns a <code>DraftCritique</code> and never raises: <code>status="ok"</code> carries a real verdict, <code>"error"</code> means the critique itself blew up, and <code>"unavailable"</code> means it never ran (<code>CRITIC_ENABLED=false</code>, or no real model — an empty mock draft would pass every check vacuously, so mock mode is an outage rather than a pass). This is the <em>only</em> critique the chapter gets; phase 5 persists this report rather than computing a second one. Running before chunking and the 13-pass extractor is what makes a refusal cost one LLM call instead of thirteen — and, more importantly, what keeps refused text out of the write tier entirely, since <code>delete_chapter_data</code> cannot undo the entity rows, <code>plot_threads</code> upserts and <code>canon_facts</code> updates a rejected draft would leave behind. What a FAIL costs is the caller's <code>on_continuity_fail</code> policy, not this function's business — see <a href="#continuity-policy">Blocking vs Advisory</a> below.</li>
       <li>
         <strong>Ingest raw text</strong> — <code>ingest_chapter()</code> inserts the raw chapter text into the <code>chapters</code> table. Duplicate (novel_id, chapter_number) is rejected.
       </li>
@@ -640,38 +641,50 @@ graph LR
         <strong>4 · MATERIALIZE</strong> — runs outside the persistence transaction, after it commits: <code>StateMaterializer</code> replays <code>state_deltas</code> through the novel's latest chapter. A failure here is caught and logged, not raised — the already-committed chapter stays saved, and the result dict's <code>"materialized"</code> flag tells the caller a manual re-run (<code>python -m pipeline.state.cli</code>) is needed.
       </li>
       <li>
-        <strong>5 · CRITIQUE — optional, decoupled, re-runnable</strong> — skipped entirely when <code>CRITIC_ENABLED=false</code> or the request passes <code>run_critic: false</code>. The critic is a judgement <em>about</em> a chapter, not part of getting it into the memory layer, so it lives behind <code>pipeline/critic/service.py::critique_chapter()</code> and reads only committed data. That means a chapter ingested with the critic off is fully queryable and can be critiqued later — <code>python -m pipeline.critic.cli --novel-id &lt;uuid&gt; [--chapter N]</code> re-runs it over one chapter or a whole back catalogue without paying for re-extraction, which is also the recovery path after a transient failure or a change to a check. <code>build_draft()</code> assembles a <code>DraftChapter</code> (see <code>CRITIQUE_CLAIMS</code>), <code>ContinuityCritic</code> runs its five typed checks, and <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the result to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter — so re-running is idempotent. Like phase 4, this is derived-and-idempotent: a failure is caught and logged, and the result dict's <code>"critique"</code> key is <code>None</code> rather than raising. Because the checks compare this chapter's claims against the world state <em>entering</em> this chapter, running critique after the chapter is committed and materialized is correct by design, not a temporal bug. The entity-mention check used to be the exception — it ran after this chapter's canon facts were upserted and so compared each claim against the row it had just written — but it now bounds its comparison to <code>source_chapter &lt; chapter_number</code>, so unlocked facts are checked against prior canon like everything else.
+        <strong>5 · RECORD — persist the phase-0 verdict</strong> — no second judgement. <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the report phase 0 already produced to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter. The only reason this is a separate phase is that <code>critique_reports.chapter_id</code> is a foreign key: the chapter has to exist before its verdict can be filed against it. Skipped when phase 0 was skipped (<code>CRITIC_ENABLED=false</code> or <code>run_critic: false</code>) or produced no report (an outage) — a missing verdict must not overwrite an existing one with an empty one. Like phase 4 this is derived and idempotent: a failure is caught and logged rather than raised, and <code>python -m pipeline.critic.cli --novel-id &lt;uuid&gt; [--chapter N]</code> re-judges one chapter or a whole back catalogue from stored text without re-extracting — the recovery path after a transient failure or a change to a check. Because the checks compare this chapter's claims against the world state <em>entering</em> it, judging pre-ingest is not just cheaper but semantically cleaner: the chapter's own canon facts are not yet committed, so a mention cannot be compared against the row it just produced. (The entity-mention check still bounds itself to <code>source_chapter &lt; chapter_number</code>, which is what makes a standalone re-run correct too.)
       </li>
     </ol>
 
-    <div class="callout info" id="agent-write-gate">
-      <strong>The Agent Write Gate (added 2026-08-24).</strong> Before this, the continuity critic
-      was purely advisory for agent writes: <code>check_continuity</code> was a tool an agent could
-      call and ignore, and <code>save_chapter</code> ingested a draft regardless of what the critic
-      said about it — the critique came back attached to a successful response either way.
-      <strong>The invariant now is that a row in <code>chapters</code> with <code>source='agent'</code>
-      either passed continuity or was human-overridden through the Review queue, with the findings
-      that blocked it recorded on the chapter.</strong> Human writes never face the gate at all — see
-      "Human writes are untouched" below — so the invariant only constrains agent rows; it says
-      nothing about how a human-authored row got in.
-      A FAIL is refused at the write door (phase 0 · GATE above) rather than surfaced as data the
-      caller is free to ignore, and the refused text is never lost — it lands in
-      <code>draft_submissions</code>, a table that is deliberately <em>not</em> canon and is never
-      read by any query that serves the wiki, the API, or MCP tools other than the review queue
-      itself.
+    <div class="callout info" id="continuity-policy">
+      <strong>Blocking vs advisory (write refusal added 2026-08-24; unified 2026-09-04).</strong>
+      Originally this was a separate "agent write gate": a second module that critiqued the draft,
+      decided, and refused — while phase 5 critiqued the same prose a second time to produce the
+      report. Two invocations, two LLM calls, one set of checks. They are now one phase.
+      <strong>The judgement is caller-agnostic and runs once; only the consequence of a FAIL is a
+      policy.</strong>
       <ul>
-        <li><strong>Fail-closed, not fail-open.</strong> If the critic itself throws — a bad prompt,
-          a malformed <code>CritiqueReport</code>, anything — <code>gate_agent_draft()</code> catches
-          it, parks the draft with <code>reason: "critic_error"</code>, and refuses
-          (<code>status: "pending_review"</code>). A disabled critic
-          (<code>CRITIC_ENABLED=false</code>) refuses agent writes outright
-          (<code>reason: "critic_disabled"</code>) without parking anything, since there is no
-          verdict to record — the response's <code>status</code> is <code>"refused"</code> and
-          <code>submission_id</code> is <code>null</code>, distinguishing it from a parked refusal.
-          The agent still holds the text and can resubmit once the critic is back. Nothing about the
-          gate lets an outage become a free pass.</li>
+        <li><strong><code>on_continuity_fail="warn"</code> — the default.</strong> Record the
+          findings and ingest anyway. Used by the Process page and the CLI, where a human is already
+          the review step: telling them to approve their own draft would be ceremony, not safety.
+          The report lands in <code>critique_reports</code> and surfaces in the Continuity view.</li>
+        <li><strong><code>on_continuity_fail="block"</code>.</strong> Refuse the write, park the
+          draft, return <code>{"ingested": false, "status", "submission_id", "reason", "fails",
+          "warns"}</code> — no exception, no <code>chapters</code> row. Asked for by exactly one
+          caller: <code>mcp_server/queries.py::save_chapter</code>, because an agent writes to canon
+          unattended and at volume. Being the MCP tool is what makes a caller an agent; it is not a
+          string any caller can pass, which is the failure mode the old <code>source != 'human'</code>
+          test had.</li>
+      </ul>
+      <strong>The invariant is a property of the policy, not of the row.</strong> A chapter written
+      through <code>save_chapter</code> either passed continuity or was human-overridden through the
+      Review queue with the blocking findings recorded on it. Rows from warning callers carry their
+      findings without that guarantee. The refused text is never lost — it lands in
+      <code>draft_submissions</code>, a table that is deliberately <em>not</em> canon and is never
+      read by any query serving the wiki, the API, or MCP tools other than the review queue itself.
+      <ul>
+        <li><strong>Fail-closed, not fail-open.</strong> A blocking caller refuses on every outcome
+          that is not a clean pass. If the critique throws — bad prompt, malformed
+          <code>CritiqueReport</code>, anything — <code>critique_draft()</code> catches it and
+          returns <code>status="error"</code>; the draft is parked (<code>reason: "error"</code>,
+          <code>status: "pending_review"</code>). If it never ran at all
+          (<code>status="unavailable"</code>: <code>CRITIC_ENABLED=false</code>, or mock mode)
+          the write is refused with nothing parked — there is no verdict for a human to
+          adjudicate, so <code>status</code> is <code>"refused"</code> and
+          <code>submission_id</code> is <code>null</code>. The caller holds the text and retries.
+          <strong>A missing verdict is never a pass</strong>, and
+          <code>run_critic=false</code> cannot disable the check a blocking caller depends on.</li>
         <li><strong>Resubmission always clears the stale row.</strong> A pending row for a chapter is
-          superseded (marked <code>rejected</code>) the moment a new draft is gated for that same
+          superseded (marked <code>rejected</code>) the moment a new draft is judged for that same
           chapter — whether the new draft fails again or passes cleanly. A passing resubmission does
           not insert a row of its own; it only clears the one left by the earlier failure. Without
           this, a chapter that failed once and then passed would leave a stale <code>pending</code>
@@ -680,26 +693,23 @@ graph LR
         <li><strong>The human is the only override.</strong> A parked draft sits in the wiki's
           Review Queue (<code>/novels/{id}/review</code>, <code>routes/Review.tsx</code>) until a
           human accepts or rejects it. Rejecting just marks the row; the agent must revise and
-          resubmit. Accepting re-runs <code>analyze_chapter</code> with a bypass flag that only
-          <code>pipeline/drafts.py::accept_submission</code> is allowed to set — it is not a request
-          field, CLI flag, or MCP parameter anywhere else — and, critically, does <em>not</em>
-          discard the findings that blocked the draft: they are written through to
-          <code>continuity_flags</code> as <code>accepted_override:&lt;check&gt;</code> rows, so a
-          human-blessed contradiction stays visible in the Continuity view instead of being silently
-          absolved. If the human edited the text before accepting, the flag is labelled
-          <code>[accepted after edit; original draft FAILed]</code> rather than
-          <code>[accepted despite continuity FAIL]</code> — the edit is not re-critiqued, so this
-          only records that the <em>original</em> draft failed, not that the accepted text still
-          has the problem.</li>
-        <li><strong>Human writes are untouched, and only human writes are untouched.</strong> The
-          gate runs for anything other than <code>source == 'human'</code> (not just
-          <code>source == 'agent'</code> specifically — see <code>Literal["human", "agent"]</code> on
-          <code>analyze_chapter</code>'s <code>source</code> parameter), so the Process page and CLI
-          ingest path — the only callers that pass <code>source="human"</code> — run the same five
-          phases they always did, with no gate and no <code>draft_submissions</code> row ever created
-          for them. Every other write path Continuum has is either a human write (ungated) or an
-          agent write through this gate; there is no third, silently-ungated route to
-          <code>chapters</code> besides the human-operated Review queue accept flow above.</li>
+          resubmit. Accepting re-runs <code>analyze_chapter</code> under
+          <code>on_continuity_fail="warn"</code> — the reviewer <em>is</em> the review step — and,
+          critically, does <em>not</em> discard the findings that blocked the draft: they are written
+          through to <code>continuity_flags</code> as <code>accepted_override:&lt;check&gt;</code>
+          rows, so a human-blessed contradiction stays visible in the Continuity view instead of
+          being silently absolved. If the human edited the text before accepting, the flag is
+          labelled <code>[accepted after edit; original draft FAILed]</code> rather than
+          <code>[accepted despite continuity FAIL]</code> — the re-ingest critiques the edited text
+          into <code>critique_reports</code>, but never re-adjudicates the blocking verdict, so the
+          flag records only that the <em>original</em> draft failed.</li>
+        <li><strong>Human writes are advisory, not unchecked.</strong> The Process page and the CLI
+          run the identical five checks on the identical claims and get the identical findings;
+          they simply do not treat a FAIL as a veto. This is the part the old design got wrong by
+          omission: because the gate was a separate module reachable only via
+          <code>source != 'human'</code>, "human" was a string any caller could pass to skip the
+          check entirely. Now <code>source</code> is provenance only — it lands in
+          <code>chapters.source</code> and decides nothing.</li>
       </ul>
       See <a href="reference.html#schema-drafts"><code>draft_submissions</code> schema</a> and
       <a href="reference.html#api-drafts">the review-queue API</a> in the Reference for the exact
@@ -1236,7 +1246,7 @@ flowchart TD
         </tr>
         <tr>
           <td><code>draft_submissions</code></td>
-          <td>Agent drafts refused by the write gate, parked for human review — deliberately <em>not</em> canon; no query outside the review queue reads it</td>
+          <td>Agent drafts refused by a blocking caller, parked for human review — deliberately <em>not</em> canon; no query outside the review queue reads it</td>
           <td><code>novel_id, chapter_number, title, raw_text, status ('pending'|'accepted'|'rejected'), findings (JSONB), submitted_at, resolved_at, resolution_note</code></td>
         </tr>
       </tbody>
@@ -1666,10 +1676,11 @@ shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told
       <strong>Integration status.</strong> The "Advanced Modules" in this group all have live
       callers. The <strong>State Materializer</strong> runs automatically at the end of
       <code>analyze_chapter</code>, so <code>located_in_edges</code> and <code>possesses_edges</code>
-      are populated on every processed chapter. The <strong>Continuity Critic</strong> also runs at
-      the end of every <code>analyze_chapter</code> call (phase 5) and persists its report to
-      <code>critique_reports</code>/<code>critique_findings</code> — informational for the
-      already-committed chapter, surfaced in the wiki and MCP. See
+      are populated on every processed chapter. The <strong>Continuity Critic</strong> runs at the
+      <em>start</em> of every <code>analyze_chapter</code> call (phase 0) and its report is filed to
+      <code>critique_reports</code>/<code>critique_findings</code> once the chapter commits (phase 5)
+      — surfaced in the wiki and MCP, and blocking or informational according to the caller's
+      <code>on_continuity_fail</code> policy. See
       <a href="state-of-the-system.html">State of the System</a> for the full wiring map.
     </div>
 
@@ -1939,7 +1950,7 @@ flowchart LR
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
           <td>817</td>
-          <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · GATE runs before everything else whenever <code>source != 'human'</code> (unless <code>_gate_bypass</code>), resolvers run before persistence, extras run after core persist, materialize (phase 4) and critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 2) also lives here.</td>
+          <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · CRITIQUE runs before everything else for every caller, resolvers run before persistence, extras run after core persist, materialize (phase 4) and recording the critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 2) also lives here.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/cli.py</code></td>
@@ -1952,14 +1963,19 @@ flowchart LR
           <td><strong>Shared test fixtures.</strong> The <code>db</code> and <code>seed_novel</code> fixtures live at the backend root, so every suite resolves them from one place; <code>testing/seeding.py</code> holds the fixture novel. Suites needing a longer-lived connection (<code>evals/tests</code>, <code>pipeline/retrieval/tests</code>, the seed-once integration tests) still declare a module-scoped <code>db</code> — a nearer fixture wins, and that scope difference is deliberate.</td>
         </tr>
         <tr>
-          <td><code>backend/pipeline/gate.py</code></td>
-          <td>189</td>
-          <td><strong>The agent write gate.</strong> <code>gate_agent_draft()</code> is the only thing standing between an agent and canon — refusal is always a return value (<code>GateVerdict</code>), never a raised exception, so a bug in the gate can't accidentally look like "no findings, proceed." Fail-closed on a disabled critic or a critic exception; <code>_park()</code> supersedes any prior pending row and inserts the new one in one transaction.</td>
+          <td><code>backend/pipeline/critic/service.py</code></td>
+          <td>190</td>
+          <td><strong>The one critique entry point.</strong> <code>critique_draft()</code> judges a draft and nothing else — a verdict is always a return value (<code>DraftCritique</code>), never a raised exception, so a bug in it can't accidentally look like "no findings, proceed." <code>status</code> separates a real verdict from an outage, which is what lets a blocking caller refuse on "the critic never ran" instead of reading it as a pass. <code>critique_chapter()</code> is the standalone re-run used by <code>pipeline/critic/cli.py</code>.</td>
+        </tr>
+        <tr>
+          <td><code>backend/pipeline/submissions.py</code></td>
+          <td>84</td>
+          <td><strong>Review-queue writes.</strong> <code>park_draft()</code> supersedes any prior pending row and inserts the new one in one transaction — superseding without parking would drop the author's draft. Persistence only; it decides nothing. Separate from <code>pipeline/drafts.py</code> because <code>analyze_chapter</code> needs to park and <code>drafts.py</code> calls <code>analyze_chapter</code>.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/drafts.py</code></td>
           <td>186</td>
-          <td><strong>Human adjudication of parked drafts.</strong> <code>accept_submission()</code> is the sole caller allowed to pass <code>_gate_bypass=True</code> to <code>analyze_chapter</code>; it writes the blocking findings through to <code>continuity_flags</code> rather than discarding them, and raises <code>RuntimeError</code> (naming the chapter and submission) if that write-through fails after the chapter has already committed — that state needs a human, not a retry.</td>
+          <td><strong>Human adjudication of parked drafts.</strong> <code>accept_submission()</code> re-ingests under <code>on_continuity_fail="warn"</code> — the reviewer is the review step; it writes the blocking findings through to <code>continuity_flags</code> rather than discarding them, and raises <code>RuntimeError</code> (naming the chapter and submission) if that write-through fails after the chapter has already committed — that state needs a human, not a retry.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/extractor.py</code></td>

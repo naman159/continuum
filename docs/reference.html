@@ -182,7 +182,7 @@
   <a href="#schema-commitments">commitments (SOTA)</a>
   <a href="#schema-bitemp">bitemporal edges (SOTA)</a>
   <a href="#schema-temporal-runs">temporal &amp; runs (SOTA)</a>
-  <a href="#schema-drafts">draft_submissions (GATE)</a>
+  <a href="#schema-drafts">draft_submissions (REVIEW)</a>
 
   <div class="sidebar-section">API Endpoints</div>
   <a href="#api-novels">Novels</a>
@@ -327,12 +327,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><code>CRITIC_ENABLED</code></td>
           <td><code>true</code></td>
-          <td>Whether ingestion runs the continuity critic. For <strong>human</strong> writes it's a separate post-ingest judgement, not part of getting a chapter into the memory layer — set <code>false</code> for ingest-only deployments and run <code>python -m pipeline.critic.cli</code> later if you want the reports. Overridable per request via <code>run_critic</code> on <code>POST /chapters/process</code>. For <strong>agent</strong> writes (<code>source='agent'</code>) it's load-bearing, not optional: the write gate runs the critic before extraction, and <code>CRITIC_ENABLED=false</code> refuses every agent write outright (<code>reason: "critic_disabled"</code>) rather than letting them through uncritiqued — fail-closed, no override. See <a href="architecture.html#agent-write-gate">Architecture: The Agent Write Gate</a>.</td>
-        </tr>
-        <tr>
-          <td><code>CRITIQUE_CLAIMS</code></td>
-          <td><code>extract</code></td>
-          <td>Where the critique phase gets its claims. <code>extract</code> spends one extra LLM call per chapter reading the chapter text via <code>extract_draft_claims()</code>, which is what gives the knowledge and location/possession checks anything to test — the extraction passes describe what characters <em>learned</em> and <em>gained</em>, never what they act on as already-known. <code>reuse</code> reuses the existing passes and skips the call, at the cost of those two checks never firing. Mock runs always fall back to <code>reuse</code>, since <code>extract_draft_claims</code> returns empty claims without a real LLM and an empty draft passes the critic vacuously.</td>
+          <td>Whether ingestion critiques the chapter at all. For callers on the default <code>on_continuity_fail="warn"</code> policy it's a separate judgement, not part of getting a chapter into the memory layer — set <code>false</code> for ingest-only deployments and run <code>python -m pipeline.critic.cli</code> later if you want the reports. Overridable per request via <code>run_critic</code> on <code>POST /chapters/process</code>. For a <strong>blocking</strong> caller (the MCP <code>save_chapter</code> tool) it is load-bearing, not optional: <code>CRITIC_ENABLED=false</code> refuses every such write outright (<code>status: "refused"</code>, <code>reason: "unavailable"</code>) rather than letting it through unjudged, and <code>run_critic</code> cannot turn the check off for it either — fail-closed, no override. The same applies to <code>USE_MOCK_LLM=true</code>: claims extraction needs a real model, and an empty mock draft would pass every check vacuously. See <a href="architecture.html#continuity-policy">Architecture: Blocking vs Advisory</a>.</td>
         </tr>
         <tr>
           <td><code>DB_MAX_CONNECTIONS</code></td>
@@ -540,7 +535,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>canon_facts</code></td><td><code>novel_id, writing_chapter, locked_only=False</code></td><td>yes</td><td>Established world facts as of <code>writing_chapter − 1</code>; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span>. <strong>Fixed 2026-08-16</strong> — <code>writing_chapter</code> was optional and defaulted to <code>None</code>, which resolves to <code>MAX(number)</code> and leaked facts sourced from unwritten chapters.</td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. A revision aid, not the enforcement point — <code>save_chapter</code> runs the same checks itself and will refuse a draft that fails them regardless of whether this was called first, so skipping it doesn't let a bad draft through <span class="badge purple">GEN</span></td></tr>
-        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code>. <strong>Gated (added 2026-08-24):</strong> before extraction runs, the continuity critic critiques the raw draft; a FAIL, a critic error, or a disabled critic (<code>CRITIC_ENABLED=false</code>) refuses the write instead of ingesting. Refusal returns <code>{ingested: false, status, submission_id, reason: "fail"|"critic_error"|"critic_disabled", fails: [...], warns: [...]}</code>. For <code>reason: "fail"</code> or <code>"critic_error"</code> the draft is parked and <code>status</code> is <code>"pending_review"</code> with a real <code>submission_id</code> — revise against <code>fails</code> and resubmit; a resubmission supersedes the parked draft. For <code>reason: "critic_disabled"</code> nothing is parked (there is no verdict to record): <code>status</code> is <code>"refused"</code> and <code>submission_id</code> is <code>null</code> — this is an outage, not a verdict, so hold the text and retry later. A clean pass returns the pre-existing success contract, <code>{ingested: true, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run. Still refuses to overwrite an existing chapter (<code>replace=False</code>), independent of the gate. Note: the tool hardcodes <code>use_mock_llm=None</code>, so exercising this path (gate or extraction) always makes real LLM calls <span class="badge purple">GEN</span></td></tr>
+        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code>. <strong>The one blocking caller:</strong> it asks <code>analyze_chapter</code> for <code>on_continuity_fail="block"</code>, so the pre-extraction critique refuses the write instead of ingesting with findings attached. Refusal returns <code>{ingested: false, status, submission_id, reason: "fail"|"error"|"unavailable", fails: [...], warns: [...]}</code>. For <code>reason: "fail"</code> or <code>"error"</code> the draft is parked and <code>status</code> is <code>"pending_review"</code> with a real <code>submission_id</code> — revise against <code>fails</code> and resubmit; a resubmission supersedes the parked draft. For <code>reason: "unavailable"</code> (the critique is off, or is running without a real model) nothing is parked, since there is no verdict to record: <code>status</code> is <code>"refused"</code> and <code>submission_id</code> is <code>null</code> — an outage, not a verdict, so hold the text and retry later. A clean pass returns <code>{ingested: true, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run. Still refuses to overwrite an existing chapter (<code>replace=False</code>), independent of the policy. Note: the tool hardcodes <code>use_mock_llm=None</code>, so exercising this path always makes real LLM calls <span class="badge purple">GEN</span></td></tr>
       </tbody>
     </table>
 
@@ -1543,7 +1538,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       result per chapter instead of discarding it after the request. <code>schema_version</code> holds
       a single row, rewritten on every <code>init-db</code> run, so client code can check what schema
       it's talking to. <strong>It's currently 2</strong>, bumped from 1 by <code>draft_submissions</code>
-      below (added 2026-08-24, the agent write gate). There is no migration tool: <code>schema.sql</code>
+      below (added 2026-08-24 with the write-refusal path). There is no migration tool: <code>schema.sql</code>
       is idempotent (<code>CREATE TABLE IF NOT EXISTS</code> / <code>ADD COLUMN IF NOT EXISTS</code>
       throughout), so an existing database upgrades by re-running
       <code>uv run novel-pipeline init-db</code> — it picks up the new table and re-stamps
@@ -1574,7 +1569,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="schema-drafts">
-    <h2>Schema: draft_submissions <span class="badge purple">GATE</span></h2>
+    <h2>Schema: draft_submissions <span class="badge purple">REVIEW</span></h2>
     <pre><code><span class="sql-kw">CREATE TABLE</span> draft_submissions (
   id                <span class="sql-type">UUID</span> <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   novel_id          <span class="sql-type">UUID</span> <span class="sql-constraint">NOT NULL REFERENCES</span> novels <span class="sql-constraint">ON DELETE CASCADE</span>,
@@ -1588,18 +1583,19 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   resolution_note   <span class="sql-type">TEXT</span>
 );</code></pre>
     <p>
-      A parked agent draft that failed the continuity gate (<code>pipeline/gate.py</code>) before it
-      ever reached extraction. <code>findings</code> holds <code>{fails: [...], warns: [...]}</code>
+      A draft that failed the continuity critique before it ever reached extraction, parked by
+      <code>pipeline/submissions.py::park_draft</code> on behalf of a caller that asked for
+      <code>on_continuity_fail="block"</code>. <code>findings</code> holds <code>{fails: [...], warns: [...]}</code>
       (each a serialized <code>Finding</code> — <code>check, severity, message, quote, suggested_fix,
       context</code>), or <code>{fails: [], warns: [], error: "..."}</code> when the row exists because
-      the critic itself threw rather than returned a verdict. This table is deliberately outside the
+      the critique itself threw rather than returned a verdict (<code>status="error"</code>). This table is deliberately outside the
       cutoff-aware read contract — <code>reads/drafts.py</code> is the one module in <code>reads/</code>
       exempt from taking <code>up_to_chapter</code>, because a parked draft is not canon and has no
       point-in-time semantics. Resubmitting a draft for the same <code>(novel_id, chapter_number)</code>
       supersedes (not deletes) the prior pending row: it's marked <code>rejected</code> with
       <code>resolution_note = 'superseded by resubmission'</code> in the same transaction that inserts
-      the new one. See <a href="architecture.html#agent-write-gate">Architecture: The Agent Write
-      Gate</a> and <a href="#api-drafts">API: Draft Review Queue</a> below.
+      the new one. See <a href="architecture.html#continuity-policy">Architecture: Blocking vs
+      Advisory</a> and <a href="#api-drafts">API: Draft Review Queue</a> below.
     </p>
   </section>
 
@@ -1963,11 +1959,11 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="api-drafts">
-    <h2>API: Draft Review Queue <span class="badge purple">GATE</span></h2>
+    <h2>API: Draft Review Queue <span class="badge purple">REVIEW</span></h2>
     <p>
       <code>backend/api/routes/drafts.py</code>, backing the wiki's Review page
-      (<code>/novels/{id}/review</code>). These are the human side of the agent write gate — see
-      <a href="architecture.html#agent-write-gate">Architecture: The Agent Write Gate</a> for how a
+      (<code>/novels/{id}/review</code>). These are the human side of a blocked write — see
+      <a href="architecture.html#continuity-policy">Architecture: Blocking vs Advisory</a> for how a
       row ends up in <code>draft_submissions</code> in the first place, and
       <a href="#schema-drafts">the schema above</a> for the row shape.
     </p>
@@ -1994,15 +1990,15 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
           <td>—</td>
           <td><code>DraftDetail</code> — <code>DraftSummary</code> plus <code>raw_text, findings</code>
             (<code>{fails: [...], warns: [...]}</code>, or with an <code>error</code> key on a
-            <code>critic_error</code> row). 404 if not found.</td>
+            <code>error</code> row). 404 if not found.</td>
         </tr>
         <tr>
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/drafts/{submission_id}/accept</code></td>
           <td><code>AcceptRequest</code>: <code>{note?, edited_text?}</code></td>
-          <td>Ingests the draft as canon via <code>pipeline/drafts.py::accept_submission</code> — the
-            <em>only</em> caller allowed to bypass the gate. Runs the full pipeline (not just an
-            insert), so it costs a real extraction. Pass <code>edited_text</code> to ingest a
+          <td>Ingests the draft as canon via <code>pipeline/drafts.py::accept_submission</code>, which
+            re-ingests under <code>on_continuity_fail="warn"</code> — the reviewer is the review
+            step. Runs the full pipeline (not just an insert), so it costs a real extraction. Pass <code>edited_text</code> to ingest a
             human-revised version instead of the original <code>raw_text</code>; whenever it's
             present the resolution note is annotated <code>"(edited before ingest)"</code> (the
             Review page only sends it once the textarea contents actually diverge from

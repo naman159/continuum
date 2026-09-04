@@ -66,14 +66,3 @@ class ContinuityCritic:
         )
 
         return report
-
-
-def critique_chapter(draft: DraftChapter, db: DBClient | None = None) -> CritiqueReport:
-    """Convenience wrapper that opens a DBClient if not supplied."""
-    owned = db is None
-    client = db if db is not None else DBClient()
-    try:
-        return ContinuityCritic(client).critique(draft)
-    finally:
-        if owned:
-            client.close()

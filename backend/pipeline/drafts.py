@@ -1,9 +1,10 @@
 """Human adjudication of parked agent drafts.
 
-`accept_submission` is the only caller allowed to set `_gate_bypass` on
-analyze_chapter. Accepting does not erase the findings that blocked the draft:
-they are written through to `continuity_flags` so a human-blessed
-contradiction stays visible in the wiki instead of being silently absolved.
+Accepting re-ingests the draft with `on_continuity_fail="warn"` — the reviewer
+IS the review step, so a finding here is information rather than a veto.
+Accepting does not erase the findings that blocked the draft: they are written
+through to `continuity_flags` so a human-blessed contradiction stays visible in
+the wiki instead of being silently absolved.
 """
 
 from __future__ import annotations
@@ -36,14 +37,15 @@ def _write_findings_through(
     transaction as the submission's status update.
 
     `edited` reflects whether the human changed the text before accepting —
-    NOT whether the edit actually fixed anything. We don't re-run the gate on
-    the edited text (that would add a second critic invocation and a new
-    failure path inside the accept flow), so we can't claim the findings no
-    longer apply. But stamping the original "[accepted despite continuity
-    FAIL]" label on text the reviewer specifically edited — the most likely
-    reason to edit at all — falsely implies the contradiction is still there.
-    The edited-case label says only what we actually know: the *original*
-    draft FAILed; this text may or may not still have that problem.
+    NOT whether the edit actually fixed anything. The re-ingest runs under
+    "warn", so it does produce a critique of the edited text, but that report
+    lands in `critique_reports`; it never re-adjudicates the blocking verdict
+    recorded here. So we can't claim these findings no longer apply. Stamping
+    the original "[accepted despite continuity FAIL]" label on text the
+    reviewer specifically edited — the most likely reason to edit at all —
+    would falsely imply the contradiction is still there. The edited-case
+    label says only what we actually know: the *original* draft FAILed; this
+    text may or may not still have that problem.
     """
     prefix = (
         "[accepted after edit; original draft FAILed]"
@@ -75,7 +77,7 @@ def accept_submission(
     note: str | None = None,
     edited_text: str | None = None,
 ) -> dict[str, Any]:
-    """Ingest a parked draft as canon, bypassing the gate (human override).
+    """Ingest a parked draft as canon under "warn" policy (human override).
 
     `analyze_chapter` commits the chapter in its own internal transaction, so
     it cannot be joined with the writes below — that commit point is final
@@ -112,7 +114,7 @@ def accept_submission(
         db=db,
         replace=False,
         source="agent",
-        _gate_bypass=True,
+        on_continuity_fail="warn",
     )
     chapter_id = str(outcome["chapter_id"])
 

@@ -97,7 +97,7 @@ same ones.
 | `CONTEXT_MAX_CHARACTERS` | `40` | Cap on characters injected into prompts |
 | `CONTEXT_MAX_LOCATIONS` | `30` | Cap on locations injected into prompts |
 | `USE_MOCK_LLM` | `false` | `true` skips all LLM calls (deterministic mock extractor) and uses hash embeddings |
-| `CRITIC_ENABLED` | `true` | `false` skips the continuity critic during ingestion, and refuses agent writes at the gate |
+| `CRITIC_ENABLED` | `true` | `false` skips the continuity critique during ingestion. A caller that blocks on a FAIL (the MCP `save_chapter` tool) then refuses the write rather than treating a missing verdict as a pass |
 | `CRITIQUE_CLAIMS` | `extract` | `extract` spends one extra LLM call per chapter for real claims; `reuse` reuses the extraction passes |
 | `DB_MAX_CONNECTIONS` | `20` | Connection-pool ceiling |
 | `RUN_LLM_EVALS` | unset | `1` enables the evals that call a real model |

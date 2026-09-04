@@ -195,7 +195,7 @@
   <a href="#dual-truth">Dual Source of Truth</a>
   <a href="#heuristics">Typed State Deltas</a>
   <a href="#atomicity">Atomicity</a>
-  <a href="#write-gate">Agent Write Gate</a>
+  <a href="#write-gate">Refusing a Write</a>
 
   <div class="sidebar-section">Engineering Foundations</div>
   <a href="#evals">Eval Harness</a>
@@ -411,14 +411,15 @@ flowchart TB
         <td>Findings render in the UI (<code>Continuity.tsx</code>) and are measured by the critic precision/recall eval (both exactly 1.0, deterministic)</td>
       </tr>
       <tr>
-        <td><strong>Agent Write Gate + Review Queue</strong></td>
+        <td><strong>Write Refusal + Review Queue</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td><code>pipeline/gate.py</code> critiques an agent draft before extraction and refuses/parks
-          on FAIL, critic error, or a disabled critic; the wiki's Review page
+        <td><code>critique_draft()</code> judges every draft before extraction; a caller on
+          <code>on_continuity_fail="block"</code> (the MCP <code>save_chapter</code> tool) refuses and
+          parks on FAIL, a critique error, or an outage. The wiki's Review page
           (<code>/novels/{id}/review</code>) lists parked drafts and lets a human accept (findings
           written through to <code>continuity_flags</code>) or reject</td>
         <td>Closes the gap this page used to carry as open — see
-          <a href="#write-gate">Agent Write Gate</a></td>
+          <a href="#write-gate">Refusing a Write</a></td>
       </tr>
       <tr>
         <td><strong>State Materializer</strong></td>
@@ -786,34 +787,36 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      <code>planned_thread_ids: []</code>, <code>planned_commitment_ids: []</code>. Each hardcode was a
      defensible fix for a real false positive; cumulatively they removed the signal with the noise.</p>
 
-  <p><strong>Resolved 2026-08-17 by <code>CRITIQUE_CLAIMS</code> (default <code>extract</code>).</strong>
-     The missing inputs never needed a new extraction pass — <code>extract_draft_claims()</code>
-     already produced exactly them for the MCP path, at one LLM call per chapter rather than per
-     chunk. The spine now uses it by default, so knowledge and location/possession claims are real
-     rather than hardcoded. Set <code>CRITIQUE_CLAIMS=reuse</code> to trade those two checks back for
-     the saved call; mock runs fall back to <code>reuse</code> automatically, since empty claims
-     would pass the critic vacuously. Columns below score the spine at each setting.</p>
+  <p><strong>Resolved 2026-08-17 by <code>CRITIQUE_CLAIMS=extract</code>; the alternative deleted
+     2026-09-04.</strong> The missing inputs never needed a new extraction pass —
+     <code>extract_draft_claims()</code> already produced exactly them for the MCP path, at one LLM
+     call per chapter rather than per chunk. That became the default, and when the gate and the
+     critique merged into one phase the <code>reuse</code> mode lost its last caller and was removed
+     along with <code>build_draft_from_extraction()</code>: keeping a second, known-inert way to
+     build a draft is exactly the divergence the merge existed to close. Mock runs now report
+     <code>status="unavailable"</code> rather than falling back to a mode that passes vacuously.</p>
 
   <div class="callout warn">
     <strong>Prerequisite fixed in the same change.</strong> <code>build_draft_chapter()</code>
     emitted one location claim per LLM assertion with no per-character collapse, while
     <code>check_location_possession</code> FAILs a character with more than one distinct location in
-    a chapter — so any character who simply walked somewhere failed the MCP pre-save gate, the one
-    path where a FAIL actually blocks a save. Claims now collapse to the character's last location,
-    keyed on the <em>resolved</em> character id, so a known alias cannot split one character into two
-    claimants. That keying also retired a separate spine defect, since
-    <code>build_draft_from_extraction</code> routes its raw claims through the same function.
+    a chapter — so any character who simply walked somewhere failed the critique, which under
+    <code>on_continuity_fail="block"</code> refuses the save. Claims now collapse to the character's
+    last location, keyed on the <em>resolved</em> character id, so a known alias cannot split one
+    character into two claimants. <strong>The cost of that fix, named here because it is not
+    obvious:</strong> with at most one location claim per character, <code>location_possession</code>'s
+    two-places-at-once FAIL branch became unreachable from the only adapter production uses.
   </div>
 
   <table>
-    <thead><tr><th>Check</th><th>Reads</th><th>Spine — <code>CRITIQUE_CLAIMS=extract</code> (default)</th><th>Spine — <code>reuse</code></th><th>MCP pre-save</th></tr></thead>
+    <thead><tr><th>Check</th><th>Reads</th><th>Can it fire? (one path, every caller)</th></tr></thead>
     <tbody>
-      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">Fires</span> — bounds comparison to <code>source_chapter &lt; chapter_number</code> rather than comparing against the row this chapter just wrote (fixed 2026-08-16)</td><td><span class="badge green">Fires</span></td><td><span class="badge green">Fires</span></td></tr>
-      <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">Fires</span> — real <code>learned_this_chapter</code> booleans from the claims extractor</td><td><span class="badge red">No</span> — every claim is flagged learned-this-chapter and skipped</td><td><span class="badge green">Fires</span></td></tr>
-      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge green">Fires</span> — real possession claims; location claims collapsed per resolved character</td><td><span class="badge red">No</span> — <code>possession_claims</code> is <code>[]</code> and locations collapse to one per character</td><td><span class="badge green">Fires</span></td></tr>
-      <tr><td><code>commitments</code></td><td><code>commitments</code></td><td colspan="2"><span class="badge yellow">Partly</span> — the "planned foreshadow was planted" half is gated on <code>planned_commitment_ids=[]</code> and never runs. The accidental-payoff half does, and since 2026-08-16 ignores stopwords and only considers commitments foreshadowed at or before this chapter.</td><td><span class="badge yellow">Partly</span> — same gating</td></tr>
-      <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td colspan="3"><span class="badge red">No</span> — <code>planned_thread_ids=[]</code> makes the check return <code>[]</code> on its first line, on every path. Awaits a planner integration; this is the one check with no live caller.</td></tr>
-      <tr><td><code>temporal_consistency</code> (deleted 2026-07-12)</td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td colspan="3"><span class="badge red">N/A</span> — check itself removed, not just hollow</td></tr>
+      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">Fires</span> — bounds comparison to <code>source_chapter &lt; chapter_number</code> rather than comparing against the row this chapter just wrote (fixed 2026-08-16; moot now that the critique runs before this chapter's facts are written, but still load-bearing for a standalone re-run). Note it FAILs only against a <em>locked</em> fact, and locking is manual.</td></tr>
+      <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">Fires</span> — real <code>learned_this_chapter</code> booleans from the claims extractor</td></tr>
+      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge yellow">Partly</span> — the possession half fires on real claims. The two-places-at-once FAIL does not: claims collapse to one location per resolved character (see the callout above), so the <code>&gt;1 distinct location</code> branch is unreachable from the production adapter. It fires only in <code>critic_eval</code>, which builds a <code>DraftChapter</code> by hand.</td></tr>
+      <tr><td><code>commitments</code></td><td><code>commitments</code></td><td><span class="badge yellow">Partly</span> — the "planned foreshadow was planted" half is gated on <code>planned_commitment_ids=[]</code> and never runs. The accidental-payoff half does, and since 2026-08-16 ignores stopwords and only considers commitments foreshadowed at or before this chapter.</td></tr>
+      <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge red">No</span> — <code>planned_thread_ids=[]</code> makes the check return <code>[]</code> on its first line. Awaits a planner integration; this is the one check with no live caller.</td></tr>
+      <tr><td><code>temporal_consistency</code> (deleted 2026-07-12)</td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">N/A</span> — check itself removed, not just hollow</td></tr>
     </tbody>
   </table>
 
@@ -936,9 +939,9 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   </div>
   </section>
 
-  <!-- ════════════════ WRITE GATE ════════════════ -->
+  <!-- ════════════════ WRITE REFUSAL ════════════════ -->
   <section id="write-gate">
-  <h2>Data Integrity — Agent Write Gate <span class="badge green">Resolved 2026-08-24</span></h2>
+  <h2>Data Integrity — Refusing a Write <span class="badge green">Resolved 2026-08-24 · unified 2026-09-04</span></h2>
   <p><strong>Resolved.</strong> This page used to carry an unwritten but real gap: Continuum had no
      hard bounds on writing agents. Every continuity control in the system was advisory only —
      <code>check_continuity</code>'s enforcement mechanism was a sentence in its docstring telling an
@@ -950,37 +953,69 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      <code>settings.critic_enabled = False</code> could also disable the critic entirely with no
      replacement check. The only actual hard bound was <code>replace=False</code>, which only prevents
      overwriting an existing chapter.</p>
+
+  <p>The first fix (2026-08-24) added a separate <strong>agent write gate</strong>:
+     <code>pipeline/gate.py::gate_agent_draft()</code>, running ahead of extraction whenever
+     <code>source != 'human'</code>. It worked, and it had two structural problems that only show up
+     when you trace the whole path rather than the module:</p>
+  <ul>
+    <li><strong>The critic ran twice.</strong> The gate critiqued the draft (one
+      <code>extract_draft_claims</code> LLM call) to decide; phase 5 then critiqued the same prose
+      again (a second call) to produce the report. Two invocations of one set of checks, and the
+      first result was thrown away.</li>
+    <li><strong><code>source</code> was a caller-asserted string.</strong> Nothing verified it. The
+      guarantee was really "a chapter written through the MCP tool passed continuity", but it was
+      implemented as a check on a parameter any caller could set to <code>"human"</code>.</li>
+  </ul>
+
   <p>
-    <code>pipeline/gate.py::gate_agent_draft()</code> now sits in front of extraction for every write
-    whose <code>source</code> is not <code>'human'</code> (in practice, <code>source == 'agent'</code> —
-    the only other value any caller passes). It runs the cheap draft-claims critic path — one LLM call
-    for <code>extract_draft_claims()</code>, then <code>ContinuityCritic.critique()</code> — against the
-    raw text before any of the 13-pass extractor runs. A FAIL parks the draft in a new
-    <code>draft_submissions</code> table and refuses the write; a critic exception is treated the same
-    way (<code>reason: "critic_error"</code>) — both set <code>status: "pending_review"</code> with a
-    real <code>submission_id</code>. A disabled critic refuses outright without parking anything, since
-    there's no verdict to park (<code>reason: "critic_disabled"</code>) — an outage cannot become a
-    free pass, but it also isn't a queued review, so it gets its own status:
-    <code>save_chapter</code>'s return contract is
-    <code>{"ingested": false, "status", "submission_id", "reason", "fails", "warns"}</code> on refusal
-    with <code>status</code> either <code>"pending_review"</code> (parked, revise and resubmit) or
-    <code>"refused"</code> (nothing parked, <code>submission_id: null</code>, hold the text and retry
-    once the critic is back), and the pre-existing success shape otherwise. A resubmission for the same
-    chapter always supersedes the prior pending row, whether the resubmission fails again or passes —
-    a passing one just clears the stale row rather than parking a new one, so a chapter that failed once
-    and later passed doesn't leave an unacceptable "pending" row behind it forever. Human writes are
-    completely untouched — the gate never runs for <code>source == 'human'</code>.
+    <strong>Unified 2026-09-04.</strong> There is now one critique, at phase 0, for every caller:
+    <code>pipeline/critic/service.py::critique_draft()</code>. It judges and returns a
+    <code>DraftCritique</code>; it never decides what the verdict means and never raises. The
+    consequence is the caller's explicit <code>on_continuity_fail</code> policy —
+    <code>"warn"</code> (the default: record the findings, ingest anyway; the Process page and the
+    CLI, where a human is already the review step) or <code>"block"</code> (refuse and park; asked
+    for by <code>mcp_server/queries.py::save_chapter</code> alone, because an agent writes to canon
+    unattended). Phase 5 no longer critiques anything: it persists the phase-0 report against the
+    now-committed chapter, which is the only reason recording is a separate step at all
+    (<code>critique_reports.chapter_id</code> is a foreign key). <code>pipeline/gate.py</code> is
+    deleted; parking moved to <code>pipeline/submissions.py</code>, which is persistence only.
+  </p>
+  <p>
+    Keeping the judgement pre-ingest was the part worth defending. Refusing after the write would
+    mean rolling back, and <code>delete_chapter_data</code> documents what a rollback cannot undo —
+    entity rows, <code>plot_threads</code> upserts and <code>canon_facts</code> updates survive it.
+    A rejected draft would permanently contaminate entity identity, which is precisely the failure
+    the resolver is built to avoid. It is also cheaper (one claims call instead of thirteen
+    extraction passes per chunk) and semantically cleaner: post-ingest, a mention would be compared
+    against the canon row the same chapter just wrote.
+  </p>
+  <p>
+    Refusal fails closed on everything that is not a clean pass. A FAIL parks the draft in
+    <code>draft_submissions</code> (<code>reason: "fail"</code>); a critique that throws is treated
+    the same way (<code>reason: "error"</code>) — both return <code>status: "pending_review"</code>
+    with a real <code>submission_id</code>. An outage refuses outright without parking, since there
+    is no verdict to park (<code>reason: "unavailable"</code>, <code>status: "refused"</code>,
+    <code>submission_id: null</code>) — hold the text and retry rather than revising against an
+    empty <code>fails</code> list. That now covers <strong>mock mode</strong> as well as
+    <code>CRITIC_ENABLED=false</code>: <code>extract_draft_claims</code> returns empty claims without
+    a real model and an empty draft passes every check vacuously, so <code>USE_MOCK_LLM=true</code>
+    used to be a silent bypass for the gate. It is an outage now, not a pass. <code>run_critic</code>
+    cannot switch off the check a blocking caller depends on either. A resubmission for the same
+    chapter always supersedes the prior pending row, whether it fails again or passes — a passing
+    one just clears the stale row rather than parking a new one, so a chapter that failed once and
+    later passed doesn't leave an unacceptable "pending" row behind it forever.
   </p>
   <p>
     The human is the only override, and it is not a silent one. The wiki's Review page
     (<code>/novels/{id}/review</code>) lists parked drafts; accepting one re-runs the full pipeline
-    with a bypass flag that only <code>pipeline/drafts.py::accept_submission</code> is allowed to set
-    (it is not exposed as a request field, CLI flag, or MCP parameter anywhere else), and writes the
-    draft's blocking findings through to <code>continuity_flags</code> — a human-blessed contradiction
-    stays visible in the Continuity view rather than being silently absolved. If the human edited the
-    text before accepting, that flag reads <code>[accepted after edit; original draft FAILed]</code>
-    instead of <code>[accepted despite continuity FAIL]</code>, since the edit is not re-critiqued and
-    the original label would otherwise misstate an edited, possibly-now-clean chapter as still failing.
+    under <code>on_continuity_fail="warn"</code> and writes the draft's blocking findings through to
+    <code>continuity_flags</code> — a human-blessed contradiction stays visible in the Continuity
+    view rather than being silently absolved. If the human edited the text before accepting, that
+    flag reads <code>[accepted after edit; original draft FAILed]</code> instead of
+    <code>[accepted despite continuity FAIL]</code>: the re-ingest does critique the edited text into
+    <code>critique_reports</code>, but it never re-adjudicates the blocking verdict, so the original
+    label would misstate an edited, possibly-now-clean chapter as still failing.
     Rejecting just marks the row; the agent has to revise and resubmit. Both accept and reject are
     compare-and-swap updates (matched against <code>status = 'pending'</code>) so two reviewers racing
     on the same submission can't silently clobber each other's resolution.
@@ -991,20 +1026,20 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
       <h4>Where we stood</h4>
       <p>Every continuity control an agent could reach was advisory: a docstring telling it to
          self-check, a post-commit critique that couldn't stop anything, and a success response that
-         looked identical whether the draft passed, failed, or the critic errored.</p>
+         looked identical whether the draft passed, failed, or the critic errored. The first fix
+         bought enforcement at the cost of a second critique run and a trust check on a string.</p>
     </div>
     <div class="need">
       <h4>Where we are now</h4>
-      <p>A chapter row in <code>chapters</code> with <code>source='agent'</code> either passed
-         continuity or was human-overridden through the Review queue with the blocking findings
-         recorded against it. Refusal happens before extraction and fails closed on any critic
-         problem; the Review queue's accept flow is the only way an agent-authored draft that FAILed
-         reaches <code>chapters</code> at all. That invariant covers agent writes only — it says
-         nothing about human-authored rows, which come in through the Process page/CLI and never face
-         the gate to begin with, continuity-checked or not.
-         <code>knowledge_state_check</code>'s
-         word-overlap matching still bounds how precise the gate can be; see
-         <a href="#roadmap">Known Gaps / Next Steps</a>.</p>
+      <p>One critique per chapter, run pre-ingest, identical for every caller; the caller's
+         <code>on_continuity_fail</code> policy decides whether a FAIL blocks. A chapter written
+         through <code>save_chapter</code> either passed continuity or was human-overridden through
+         the Review queue with the blocking findings recorded against it — the accept flow is the
+         only way a FAILed agent draft reaches <code>chapters</code>. Rows from warning callers carry
+         the same findings without that guarantee: the invariant belongs to the policy, not the row,
+         which is a more honest claim than the old "human writes are simply untouched".
+         <code>knowledge_state_check</code>'s word-overlap matching still bounds how precise any of
+         this can be; see <a href="#roadmap">Known Gaps / Next Steps</a>.</p>
     </div>
   </div>
   </section>
@@ -1338,15 +1373,18 @@ flowchart TB
       needed.
     </li>
     <li>
-      <span class="phase-tag">The write gate's precision is bounded by word-overlap matching</span><br>
+      <span class="phase-tag">Word-overlap matching is what a blocking refusal rests on</span><br>
       <strong><code>knowledge_state_check</code> matches a draft's knowledge claims against stored
       <code>knows_edges</code> facts by word overlap</strong>, not embedding similarity — its own
       docstring names the fix. The stored <code>fact_description</code> and the draft-claim's
-      <code>fact_description</code> come from two independent LLM calls that rarely agree verbatim, so
-      this is the check that decides whether an agent write gets refused for "knowing" something it
-      shouldn't. New as of the agent write gate (2026-08-24) — before this, the check ran but nothing
-      downstream of it could refuse a write, so its precision ceiling was invisible in practice.
-      See <a href="#write-gate">Agent Write Gate</a>.<br>
+      <code>fact_description</code> come from two independent LLM calls that rarely agree verbatim,
+      so false rejections should dominate false acceptances. This matters more than the phrasing
+      "one of five checks" suggests: with <code>entity_mention</code> FAILing only against a
+      manually-locked canon fact and <code>location_possession</code>'s FAIL branch unreachable from
+      the production adapter, this and a locked-fact contradiction are the only two live hard-reject
+      grounds — and locking is manual, so on a database where nobody has locked anything this is the
+      only one. Its precision ceiling was invisible until 2026-08-24, when a FAIL first
+      became able to refuse a write. See <a href="#write-gate">Refusing a Write</a>.<br>
       <em>Done when:</em> <code>check_knowledge_state</code> matches on embedding similarity (or
       another semantic measure) instead of <code>words_overlap()</code>.
     </li>
@@ -1355,8 +1393,10 @@ flowchart TB
       <strong><code>mcp_server/queries.py::save_chapter</code> hardcodes <code>use_mock_llm=None</code></strong>
       on its call into <code>analyze_chapter</code> — there's no parameter to force mock mode from the
       MCP tool surface. Every accept-path test that needs to avoid spending real API credits (the
-      write-gate refusal tests, the Review-page accept/reject tests) has to monkeypatch around it
-      rather than pass a flag.<br>
+      refusal tests, the Review-page accept/reject tests) has to monkeypatch around it rather than
+      pass a flag. Sharper since 2026-09-04: mock mode is now an explicit outage rather than a
+      vacuous pass, so a mock-mode override would refuse rather than silently ingest — the monkeypatch
+      is the only way to exercise the path at all.<br>
       <em>Done when:</em> <code>save_chapter</code> either accepts a mock-mode override, or reads one
       from settings the way the CLI path does, so exercising the MCP write path in a test doesn't
       require monkeypatching <code>analyze_chapter</code>.
