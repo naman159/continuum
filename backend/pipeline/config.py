@@ -27,12 +27,18 @@ class Settings:
     database_url: str = field(
         default_factory=lambda: os.getenv("DATABASE_URL", "postgresql://localhost/novel_wiki")
     )
-    default_model: str = field(default_factory=lambda: os.getenv("DEFAULT_MODEL", "gpt-4o-mini"))
+    # These defaults are the same values .env.example ships. They used to be a
+    # second, OpenAI-flavoured set, which meant the README documented one model
+    # and every actual run used another -- and EMBEDDING_DIMENSIONS disagreeing
+    # is not cosmetic, it decides the width of every vector column.
+    default_model: str = field(
+        default_factory=lambda: os.getenv("DEFAULT_MODEL", "gemini/gemini-3.1-flash-lite")
+    )
     embedding_model: str = field(
-        default_factory=lambda: os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+        default_factory=lambda: os.getenv("EMBEDDING_MODEL", "gemini/gemini-embedding-2")
     )
     embedding_dimensions: int = field(
-        default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSIONS", "1536"))
+        default_factory=lambda: int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
     )
     # Connection-pool ceiling. Every API route handler is a plain `def`, so
     # Starlette runs them on its 40-slot threadpool; a pool smaller than that

@@ -439,8 +439,19 @@ Compare two fallbacks from this codebase:
 
 | Fallback | Degraded state | Verdict |
 |---|---|---|
-| `tiktoken` missing → split on whitespace | Chunks are ~25% smaller. Everything works. Recoverable by reinstalling. | **Fine** |
+| `tiktoken` missing → split on whitespace | Chunks 1.48x larger than requested, paragraph breaks flattened. Silent. | **Fatal** |
 | Embedding call fails → hash vector | Poisoned data, indistinguishable from good data, permanent, undetectable. | **Fatal** |
+
+Both rows say **Fatal**, and the first one is a correction. This post originally scored
+the tokenizer fallback as *Fine* — "chunks are ~25% smaller, everything works" — and
+used it as the safe counterexample. Both numbers in that sentence were wrong. Whitespace
+tokens are coarser than BPE, so a fixed 2000-token window packs 1.48x *more* text than
+asked for (measured on this project's prose), and re-joining on single spaces destroyed
+the paragraph structure the extractor reads scenes from. Nothing logged it. Nothing
+distinguished a degraded chapter from a good one afterward.
+
+Which is the rule below, applied to the example that was supposed to be exempt from it.
+The fallback has since been removed: the chunker lets the failure raise instead.
 
 The difference isn't severity. It's **detectability and reversibility**.
 

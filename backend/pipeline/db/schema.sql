@@ -33,6 +33,14 @@ CREATE TABLE IF NOT EXISTS entities (
 
 ALTER TABLE entities ADD COLUMN IF NOT EXISTS aliases TEXT[] DEFAULT '{}';
 
+-- entity_type used to be CHECK-constrained to the four built-in types. Custom
+-- entity types (novel_entity_types, below) made that wrong, and the CREATE
+-- TABLE above dropped it -- but CREATE TABLE IF NOT EXISTS is a no-op on a
+-- database that already has the table, so every DB created before the custom
+-- types landed still carries the old constraint and rejects custom entities at
+-- INSERT. Drop it here, where existing databases actually get brought forward.
+ALTER TABLE entities DROP CONSTRAINT IF EXISTS entities_entity_type_check;
+
 CREATE INDEX IF NOT EXISTS idx_entities_novel ON entities(novel_id, entity_type);
 
 CREATE TABLE IF NOT EXISTS novel_entity_types (
@@ -120,6 +128,11 @@ CREATE TABLE IF NOT EXISTS character_states (
     notes TEXT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Retrofit: added to the CREATE TABLE body after the first databases existed,
+-- where CREATE TABLE IF NOT EXISTS could not add it. StateMaterializer INSERTs
+-- this column by name, so a database missing it fails every state write.
+ALTER TABLE character_states ADD COLUMN IF NOT EXISTS appearance TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_character_states_character_chapter
 ON character_states(character_id, chapter_id);

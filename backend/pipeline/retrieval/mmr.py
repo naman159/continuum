@@ -35,8 +35,8 @@ def mmr(
     At each step, picks the remaining candidate maximizing
         lambda * rel(d) - (1 - lambda) * max(sim(d, d') for d' in selected).
 
-    Relevance is the candidate's incoming `score` -- the fused (or reranked)
-    hybrid signal -- max-normalized to [0, 1] so it shares a scale with the
+    Relevance is the candidate's incoming `score` -- the fused hybrid signal
+    -- max-normalized to [0, 1] so it shares a scale with the
     cosine novelty penalty. Recomputing relevance from the query embedding
     instead would discard the keyword half of the hybrid and collapse the
     ranking to dense-only.

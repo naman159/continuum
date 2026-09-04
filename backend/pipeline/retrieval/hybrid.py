@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
 
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService, vector_literal
@@ -11,74 +9,43 @@ from pipeline.retrieval.bm25 import BM25Search
 from pipeline.retrieval.dense import DenseSearch
 from pipeline.retrieval.fusion import reciprocal_rank_fusion
 from pipeline.retrieval.mmr import mmr
-from pipeline.retrieval.rerank import LLMReranker
-from pipeline.retrieval.types import RetrievalBundle, RetrievalQuery, RetrievalResult
+from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
 
 logger = logging.getLogger(__name__)
 
-
-_DEFAULT_KINDS: tuple[str, ...] = ("chapter", "scene", "event")
+_KINDS: tuple[str, ...] = ("chapter", "scene", "event")
 
 # How many candidates each stage emits before the next one trims.
 _PER_KIND_LIMIT = 50
 _FUSION_POOL = 50
-_RERANK_POOL = 50
 
-
-def _summarize(results: list[RetrievalResult], n: int = 10) -> list[dict[str, Any]]:
-    return [
-        {
-            "item_id": r.item_id,
-            "kind": r.kind,
-            "score": r.score,
-            "chapter_number": r.chapter_number,
-        }
-        for r in results[:n]
-    ]
+_TABLE_FOR_KIND = {"chapter": "chapters", "scene": "scenes", "event": "events"}
 
 
 class HybridRetriever:
-    """Hybrid retriever: BM25 + dense -> RRF -> rerank -> MMR diversify.
+    """BM25 + dense -> RRF -> MMR diversify."""
 
-    The orchestrator records per-stage timings and top-K snapshots in the
-    returned RetrievalBundle's `debug` dict.
-    """
-
-    def __init__(
-        self,
-        db: DBClient,
-        embedder: EmbeddingService,
-        reranker: LLMReranker | None = None,
-    ) -> None:
+    def __init__(self, db: DBClient, embedder: EmbeddingService) -> None:
         self.db = db
         self.embedder = embedder
-        self.reranker = reranker
         self.bm25 = BM25Search(db)
         self.dense = DenseSearch(db, embedder)
 
     def retrieve(
         self,
         query: RetrievalQuery,
-        kinds: list[str] | None = None,
         *,
-        use_rerank: bool = True,
         use_mmr: bool = True,
         mmr_lambda: float = 0.7,
-    ) -> RetrievalBundle:
-        active_kinds = tuple(kinds) if kinds else _DEFAULT_KINDS
-        debug: dict[str, Any] = {"kinds": list(active_kinds), "timings_ms": {}, "stages": {}}
-
+    ) -> list[RetrievalResult]:
         # Embed the query once for both dense search and MMR.
-        t0 = time.perf_counter()
         query_embedding = self.embedder.embed_text(query.text)
-        debug["timings_ms"]["embed_query"] = (time.perf_counter() - t0) * 1000.0
 
         # Stage 1: BM25 + dense in parallel per kind.
-        t0 = time.perf_counter()
-        per_kind: dict[str, dict[str, list[RetrievalResult]]] = {}
-        with ThreadPoolExecutor(max_workers=max(2, 2 * len(active_kinds))) as pool:
+        per_kind: dict[tuple[str, str], list[RetrievalResult]] = {}
+        with ThreadPoolExecutor(max_workers=2 * len(_KINDS)) as pool:
             futures = {}
-            for kind in active_kinds:
+            for kind in _KINDS:
                 futures[("bm25", kind)] = pool.submit(
                     self.bm25.search, query, kind, _PER_KIND_LIMIT
                 )
@@ -89,85 +56,45 @@ class HybridRetriever:
                     _PER_KIND_LIMIT,
                     query_embedding=query_embedding,
                 )
-            for (source, kind), fut in futures.items():
+            for key, fut in futures.items():
                 try:
-                    res = fut.result()
+                    per_kind[key] = fut.result()
                 except Exception as exc:
-                    # debug is discarded by reads/search.py, so without this log
-                    # a fully-offline dense stage is invisible: the request
-                    # still returns 200 with BM25-only results.
+                    # Log rather than raise: one dead stage should degrade the
+                    # ranking, not fail the request. Without the log a fully
+                    # offline dense stage is invisible -- the request still
+                    # returns 200 with BM25-only results.
                     logger.warning(
                         "retrieval stage %s/%s failed, continuing degraded: %s",
-                        source, kind, exc,
+                        key[0], key[1], exc,
                     )
-                    debug.setdefault("errors", []).append(
-                        {"stage": source, "kind": kind, "error": str(exc)}
-                    )
-                    res = []
-                per_kind.setdefault(kind, {})[source] = res
-        debug["timings_ms"]["retrieve_parallel"] = (time.perf_counter() - t0) * 1000.0
-
-        debug["stages"]["bm25"] = {
-            k: _summarize(v.get("bm25", [])) for k, v in per_kind.items()
-        }
-        debug["stages"]["dense"] = {
-            k: _summarize(v.get("dense", [])) for k, v in per_kind.items()
-        }
+                    per_kind[key] = []
 
         # Stage 2: Reciprocal Rank Fusion across all sources/kinds.
-        t0 = time.perf_counter()
-        ranked_lists: list[list[RetrievalResult]] = []
-        for kind in active_kinds:
-            ranked_lists.append(per_kind.get(kind, {}).get("bm25", []))
-            ranked_lists.append(per_kind.get(kind, {}).get("dense", []))
-        fused = reciprocal_rank_fusion(*ranked_lists, k=60, limit=_FUSION_POOL)
-        debug["timings_ms"]["rrf"] = (time.perf_counter() - t0) * 1000.0
-        debug["stages"]["rrf"] = _summarize(fused, n=_FUSION_POOL)
+        fused = reciprocal_rank_fusion(
+            *per_kind.values(), k=60, limit=_FUSION_POOL
+        )
 
-        # Stage 3: Rerank top _RERANK_POOL with cross-encoder LLM.
-        rerank_pool = fused[:_RERANK_POOL]
-        if use_rerank and self.reranker is not None and rerank_pool:
-            t0 = time.perf_counter()
-            reranked = self.reranker.rerank(query, rerank_pool, top_k=_RERANK_POOL)
-            debug["timings_ms"]["rerank"] = (time.perf_counter() - t0) * 1000.0
-            debug["stages"]["rerank"] = _summarize(reranked, n=_RERANK_POOL)
-        else:
-            reranked = rerank_pool
-
-        # Stage 4: MMR diversification on the reranked pool.
-        if use_mmr and reranked:
-            t0 = time.perf_counter()
-            item_embeddings = self._fetch_item_embeddings(reranked)
-            diversified = mmr(
-                reranked,
-                item_embeddings,
-                lambda_=mmr_lambda,
-                top_k=query.k,
-            )
-            debug["timings_ms"]["mmr"] = (time.perf_counter() - t0) * 1000.0
-            debug["stages"]["mmr"] = _summarize(diversified, n=query.k)
-        else:
-            diversified = reranked[: query.k]
-
-        return RetrievalBundle(query=query, results=diversified, debug=debug)
+        # Stage 3: MMR diversification.
+        if not (use_mmr and fused):
+            return fused[: query.k]
+        return mmr(
+            fused,
+            self._fetch_item_embeddings(fused),
+            lambda_=mmr_lambda,
+            top_k=query.k,
+        )
 
     def _fetch_item_embeddings(
         self, results: list[RetrievalResult]
     ) -> dict[str, list[float]]:
-        """Load embeddings for the given results, grouped by kind."""
         by_kind: dict[str, list[str]] = {}
         for r in results:
             by_kind.setdefault(r.kind, []).append(r.item_id)
 
         out: dict[str, list[float]] = {}
-        table_map = {
-            "chapter": "chapters",
-            "scene": "scenes",
-            "event": "events",
-            "commitment": "commitments",
-        }
         for kind, ids in by_kind.items():
-            table = table_map.get(kind)
+            table = _TABLE_FOR_KIND.get(kind)
             if not table or not ids:
                 continue
             rows = self.db.fetchall(
@@ -176,32 +103,15 @@ class HybridRetriever:
                 dict_rows=True,
             )
             for row in rows:
-                emb = row.get("embedding")
-                if emb is None:
-                    continue
-                out[row["id"]] = _coerce_embedding(emb)
+                if row.get("embedding"):
+                    out[row["id"]] = _parse_vector(row["embedding"])
         return out
 
 
-def _coerce_embedding(value: Any) -> list[float]:
-    """Convert various pgvector return shapes into list[float]."""
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [float(v) for v in value]
-    if isinstance(value, tuple):
-        return [float(v) for v in value]
-    if isinstance(value, str):
-        # pgvector text form like "[0.1,0.2,...]"
-        s = value.strip().strip("[]")
-        if not s:
-            return []
-        return [float(x) for x in s.split(",")]
-    # numpy array, memoryview, etc.
-    try:
-        return [float(v) for v in value]
-    except Exception:
-        return []
+def _parse_vector(value: str) -> list[float]:
+    """pgvector hands back its text form, e.g. "[0.1,0.2,...]"."""
+    body = value.strip().strip("[]")
+    return [float(x) for x in body.split(",")] if body else []
 
 
 __all__ = ["HybridRetriever", "vector_literal"]

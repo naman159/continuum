@@ -68,8 +68,8 @@ else for it to be.
 ### Tokens
 
 The model doesn't see letters or words. It sees **tokens**, which are chunks of text
-somewhere between a character and a word. The tokenizer that OpenAI's models use
-(called `cl100k_base`, and yes we will use it later) splits text roughly like this:
+somewhere between a character and a word. Here is `cl100k_base` — the tokenizer behind
+GPT-4 and GPT-3.5 — splitting text roughly like this:
 
 ```
 "The dagger had a chipped crossguard."
@@ -82,6 +82,11 @@ Common words are one token. Rare words split into pieces. Punctuation is usually
 own token. The rule of thumb for English prose is:
 
 > **1 word ≈ 1.33 tokens**
+
+Every model family has its own tokenizer, and they disagree. That matters in Post 2,
+where we chunk chapters by token count: the pipeline derives its encoding from the
+configured model rather than hardcoding one, because counting in the wrong vocab means
+chunks that aren't the size you asked for.
 
 That number is going to do a lot of work in a minute, so remember it. Four hundred
 thousand words of novel is about 530,000 tokens.

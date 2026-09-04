@@ -586,9 +586,6 @@ fused = reciprocal_rank_fusion(*ranked_lists, k=60, limit=_FUSION_POOL)
                   └───────────┬───────────┘
                               ▼
                   ┌───────────────────────┐
-                  │  LLM rerank (optional)│  cross-encoder scoring
-                  └───────────┬───────────┘
-                              ▼
                   ┌───────────────────────┐
                   │  MMR (λ = 0.7)        │  diversify → top k
                   └───────────┬───────────┘
@@ -661,12 +658,24 @@ to passages **positionally**, so a length mismatch would silently misalign every
 after the gap — the ninth passage getting the tenth's score. Padding is not elegant; it
 is correct.
 
-**In production, reranking is off.** The wiki's search endpoint calls
-`retrieve(use_rerank=False)`. The cost — an LLM call on the read path — didn't justify
-the gain for this workload, and it violates the Post 1 principle that reads should be
-LLM-free. The component exists, works, and is available; it just isn't in the default
-path. That's a legitimate outcome for a piece of infrastructure, and worth naming as one
-rather than pretending everything built gets used.
+**In production, reranking was off — and then it was deleted.** The wiki's search
+endpoint called `retrieve(use_rerank=False)`. The cost — an LLM call on the read path —
+didn't justify the gain for this workload, and it violates the Post 1 principle that
+reads should be LLM-free.
+
+This post used to end the section by calling that "a legitimate outcome for a piece of
+infrastructure," on the grounds that the component existed, worked, and was *available*.
+Two of those three were wrong. `HybridRetriever` skipped the stage unless it was both
+handed a reranker **and** called with `use_rerank=True`, and the one production caller
+did neither — so no configuration could switch it on, and "available" meant editing the
+source. "Works" was never demonstrated on the read path either: it had never run there,
+and an audit later found it made five *sequential* model calls for a 50-candidate pool,
+plus sorted on integer scores 0–10 with no tie-break, so most of the pool tied.
+
+So the honest outcome was not a dormant component but 126 lines of unreachable code that
+the architecture docs described as a live pipeline stage. It has been removed. Unused
+infrastructure does not sit inert — it drifts out of sync with the thing it claims to be
+part of, and the docs keep telling you it's there.
 
 ### MMR: stop returning the same thing five times
 
@@ -748,7 +757,7 @@ you have. It was being actively discarded.
 The fix, and the docstring that now explains it so nobody re-introduces it:
 
 ```python
-"""Relevance is the candidate's incoming `score` -- the fused (or reranked)
+"""Relevance is the candidate's incoming `score` -- the fused
 hybrid signal -- max-normalized to [0, 1] so it shares a scale with the
 cosine novelty penalty. Recomputing relevance from the query embedding
 instead would discard the keyword half of the hybrid and collapse the

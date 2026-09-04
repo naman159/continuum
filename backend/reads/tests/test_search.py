@@ -17,13 +17,9 @@ class FakeRetriever:
     def __init__(self):
         self.last_query = None
 
-    def retrieve(self, query, use_rerank=False):
+    def retrieve(self, query):
         self.last_query = query
-
-        class Bundle:
-            results = [_R()]
-
-        return Bundle()
+        return [_R()]
 
 
 def test_search_applies_cutoff_and_shapes_results(db, seed_novel):

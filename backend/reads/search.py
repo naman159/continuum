@@ -32,14 +32,13 @@ def search(
     """Hybrid semantic+keyword search over chapters <= the resolved cutoff."""
     max_chapter = resolve_cutoff(db, novel_id, up_to_chapter)
     active_retriever = retriever if retriever is not None else _build_retriever(db)
-    bundle = active_retriever.retrieve(
+    results = active_retriever.retrieve(
         RetrievalQuery(
             text=query_text,
             novel_id=str(novel_id),
             max_chapter=max_chapter,
             k=k,
-        ),
-        use_rerank=False,
+        )
     )
     return {
         "results": [
@@ -49,6 +48,6 @@ def search(
                 "score": r.score,
                 "snippet": r.snippet,
             }
-            for r in bundle.results
+            for r in results
         ]
     }

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
@@ -12,11 +11,7 @@ from pipeline.retrieval.bm25 import BM25Search
 from pipeline.retrieval.dense import DenseSearch
 from pipeline.retrieval.fusion import reciprocal_rank_fusion
 from pipeline.retrieval.mmr import mmr
-from pipeline.retrieval.rerank import LLMReranker
 from pipeline.retrieval.types import RetrievalResult
-
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 
 # ---- Fixtures: seed a small synthetic novel into the branch DB ----
@@ -77,10 +72,12 @@ def seeded(db: DBClient, embedder: EmbeddingService):
         emb = vector_literal(embedder.embed_text(summary))
         db.execute(
             """
-            INSERT INTO chapters (id, novel_id, number, title, raw_text, summary, embedding)
-            VALUES (%s, %s, %s, %s, %s, %s, %s::vector)
+            INSERT INTO chapters (id, novel_id, number, title, raw_text, summary,
+                                  embedding, embedding_model)
+            VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s)
             """,
-            (chapter_id, novel_id, number, title, raw_text, summary, emb),
+            (chapter_id, novel_id, number, title, raw_text, summary, emb,
+             embedder.model_name),
         )
 
     # Scenes (one per chapter for simplicity)
@@ -96,10 +93,11 @@ def seeded(db: DBClient, embedder: EmbeddingService):
         emb = vector_literal(embedder.embed_text(summary))
         db.execute(
             """
-            INSERT INTO scenes (id, chapter_id, scene_index, summary, embedding)
-            VALUES (%s, %s, %s, %s, %s::vector)
+            INSERT INTO scenes (id, chapter_id, scene_index, summary,
+                                embedding, embedding_model)
+            VALUES (%s, %s, %s, %s, %s::vector, %s)
             """,
-            (sid, chapter_id, scene_index, summary, emb),
+            (sid, chapter_id, scene_index, summary, emb, embedder.model_name),
         )
 
     # Events
@@ -115,10 +113,11 @@ def seeded(db: DBClient, embedder: EmbeddingService):
         emb = vector_literal(embedder.embed_text(description))
         db.execute(
             """
-            INSERT INTO events (id, chapter_id, description, embedding)
-            VALUES (%s, %s, %s, %s::vector)
+            INSERT INTO events (id, chapter_id, description,
+                                embedding, embedding_model)
+            VALUES (%s, %s, %s, %s::vector, %s)
             """,
-            (eid, chapter_id, description, emb),
+            (eid, chapter_id, description, emb, embedder.model_name),
         )
 
     yield {
@@ -214,16 +213,59 @@ def test_dense_chapter_returns_results(db, embedder, seeded):
     assert results[0].score > 0.99  # near-identical vector
 
 
-def test_dense_event_with_entity_filter_empty_safe(db, embedder, seeded):
-    dense = DenseSearch(db, embedder)
-    query = RetrievalQuery(
-        text="dragon raid",
-        novel_id=seeded["novel_id"],
-        entity_ids=[str(uuid.uuid4())],  # no overlap with anything
+def test_dense_excludes_vectors_from_a_different_embedding_model(db, embedder, seeded):
+    # A hash vector and a real vector are indistinguishable once written; the
+    # provenance column is the only thing that tells them apart, so dense
+    # search has to actually consult it.
+    text = "Aldric patrols the ramparts of Cair Eldoth at night and spots wolf tracks."
+    foreign_id = str(uuid.uuid4())
+    db.execute(
+        """
+        INSERT INTO chapters (id, novel_id, number, title, raw_text, summary,
+                              embedding, embedding_model)
+        VALUES (%s, %s, %s, %s, %s, %s, %s::vector, %s)
+        """,
+        (foreign_id, seeded["novel_id"], 99, "Foreign", text, text,
+         vector_literal(embedder.embed_text(text)), "some-other-model"),
     )
-    results = dense.search(query, kind="event", limit=10)
-    # Entity filter excludes everything; should return empty cleanly.
-    assert results == []
+    try:
+        dense = DenseSearch(db, embedder)
+        query = RetrievalQuery(text=text, novel_id=seeded["novel_id"])
+        found = [r.item_id for r in dense.search(query, kind="chapter", limit=50)]
+        # Identical text, so it would otherwise rank at distance ~0.
+        assert foreign_id not in found
+        assert found, "matching-provenance chapters should still come back"
+    finally:
+        db.execute("DELETE FROM chapters WHERE id = %s", (foreign_id,))
+
+
+class _TiedRowsDB:
+    """Returns equal-distance rows in whatever order it is told to."""
+
+    def __init__(self, order: list[str]) -> None:
+        self.order = order
+
+    def fetchall(self, sql, params=None, dict_rows=False):
+        return [
+            {
+                "item_id": i,
+                "chapter_id": None,
+                "chapter_number": 1,
+                "snippet": "",
+                "distance": 0.25,
+            }
+            for i in self.order
+        ]
+
+
+def test_dense_breaks_distance_ties_deterministically(embedder):
+    # RRF consumes rank, not score, so an arbitrary order among equal
+    # distances would propagate into the fused ranking.
+    forward = DenseSearch(_TiedRowsDB(["a", "b", "c"]), embedder)
+    reverse = DenseSearch(_TiedRowsDB(["c", "b", "a"]), embedder)
+    query = RetrievalQuery(text="anything", novel_id=str(uuid.uuid4()))
+    ids = lambda d: [r.item_id for r in d.search(query, kind="chapter", limit=10)]
+    assert ids(forward) == ids(reverse) == ["a", "b", "c"]
 
 
 # ---- Fusion ----
@@ -299,72 +341,62 @@ def test_mmr_reports_its_ranking_score():
 
 
 def test_hybrid_retrieve_returns_relevant_items(db, embedder, seeded):
-    retriever = HybridRetriever(db, embedder, reranker=None)
+    retriever = HybridRetriever(db, embedder)
     query = RetrievalQuery(
         text="dragon raids Pellis harbor",
         novel_id=seeded["novel_id"],
         k=5,
     )
-    bundle = retriever.retrieve(query, kinds=["chapter", "scene", "event"])
-    assert bundle.results
-    assert "timings_ms" in bundle.debug
-    assert "stages" in bundle.debug
+    results = retriever.retrieve(query)
+    assert results
     # The dragon material must lead, not merely appear somewhere in the page.
     dragon_items = {
         seeded["chapter_ids"][2],
         seeded["scene_ids"][2],
         seeded["event_ids"][2],
     }
-    assert bundle.results[0].item_id in dragon_items
+    assert results[0].item_id in dragon_items
 
 
 def test_hybrid_scores_are_ordered(db, embedder, seeded):
-    retriever = HybridRetriever(db, embedder, reranker=None)
+    retriever = HybridRetriever(db, embedder)
     query = RetrievalQuery(
         text="dragon raids Pellis harbor", novel_id=seeded["novel_id"], k=5
     )
-    bundle = retriever.retrieve(query, kinds=["chapter", "scene", "event"])
-    scores = [r.score for r in bundle.results]
+    results = retriever.retrieve(query)
+    scores = [r.score for r in results]
     assert scores == sorted(scores, reverse=True)
 
 
 def test_hybrid_keeps_agreed_result_on_top(db, embedder, seeded):
     # An item both BM25 and dense rank highly wins RRF; the diversification
     # stage must not demote it below dense-only candidates.
-    retriever = HybridRetriever(db, embedder, reranker=None)
+    retriever = HybridRetriever(db, embedder)
     query = RetrievalQuery(
         text="Vextheryon dragon Pellis", novel_id=seeded["novel_id"], k=8
     )
-    bundle = retriever.retrieve(query, kinds=["chapter", "scene", "event"])
-    top_fused = bundle.debug["stages"]["rrf"][0]["item_id"]
-    assert bundle.results[0].item_id == top_fused
+    # Recompute the fused ranking from the same two sources the retriever
+    # uses, so the assertion is about MMR not demoting the agreed winner
+    # rather than about any particular item.
+    lists = []
+    for kind in ("chapter", "scene", "event"):
+        lists.append(retriever.bm25.search(query, kind, 50))
+        lists.append(retriever.dense.search(query, kind, 50))
+    top_fused = reciprocal_rank_fusion(*lists, k=60, limit=50)[0].item_id
+
+    results = retriever.retrieve(query)
+    assert results[0].item_id == top_fused
 
 
 def test_hybrid_respects_max_chapter(db, embedder, seeded):
-    retriever = HybridRetriever(db, embedder, reranker=None)
+    retriever = HybridRetriever(db, embedder)
     query = RetrievalQuery(
         text="dragon Pellis",
         novel_id=seeded["novel_id"],
         max_chapter=1,
         k=5,
     )
-    bundle = retriever.retrieve(query, kinds=["chapter", "event"])
-    for r in bundle.results:
+    results = retriever.retrieve(query)
+    for r in results:
         if r.chapter_number is not None:
             assert r.chapter_number <= 1
-
-
-# ---- Reranker (requires API credentials) ----
-
-
-@pytest.mark.skipif(not GEMINI_API_KEY, reason="No Gemini API key available")
-def test_reranker_orders_candidates(db, embedder, seeded):
-    retriever = HybridRetriever(db, embedder, reranker=LLMReranker())
-    query = RetrievalQuery(
-        text="Who is the dragon attacking the harbor?",
-        novel_id=seeded["novel_id"],
-        k=3,
-    )
-    bundle = retriever.retrieve(query, kinds=["chapter", "event"])
-    assert bundle.results
-    assert "rerank" in bundle.debug.get("stages", {})

@@ -557,13 +557,12 @@ graph LR
 │   │   │   ├── types.py          <span class="cmt"># DraftChapter, CritiqueReport, Finding</span>
 │   │   │   └── checks/           <span class="cmt"># commitment, entity, knowledge, location, thread</span>
 │   │   ├── <span class="dir">retrieval/</span>        <span class="cmt"># HybridRetriever: BM25 + dense + RRF + MMR</span>
-│   │   │   ├── hybrid.py         <span class="cmt"># Orchestrator: BM25 → dense → RRF → rerank → MMR</span>
+│   │   │   ├── hybrid.py         <span class="cmt"># Orchestrator: BM25 → dense → RRF → MMR</span>
 │   │   │   ├── bm25.py           <span class="cmt"># Full-text search (tsvector)</span>
 │   │   │   ├── dense.py          <span class="cmt"># Vector ANN search (HNSW)</span>
 │   │   │   ├── fusion.py         <span class="cmt"># Reciprocal rank fusion</span>
-│   │   │   ├── rerank.py         <span class="cmt"># LLM reranker</span>
 │   │   │   ├── mmr.py            <span class="cmt"># Max marginal relevance diversification</span>
-│   │   │   └── types.py          <span class="cmt"># RetrievalQuery, RetrievalResult, RetrievalBundle</span>
+│   │   │   └── types.py          <span class="cmt"># RetrievalQuery, RetrievalResult</span>
 │   │   ├── <span class="dir">state/</span>            <span class="cmt"># StateMaterializer: derives projections from state_deltas</span>
 │   │   │   ├── materializer.py   <span class="cmt"># Sole writer of character_states; also writes located_in_edges, possesses_edges</span>
 │   │   │   ├── replay.py         <span class="cmt"># Folds typed state_deltas into state snapshots</span>
@@ -608,7 +607,7 @@ graph LR
         <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, recent events, and custom entity types from the DB. Characters and locations are <em>selected, not dumped</em>: entities whose name or alias appears in the chapter text always make the cut, the remainder back-fills by recency, and the lists are capped at <code>CONTEXT_MAX_CHARACTERS</code> (default 40) / <code>CONTEXT_MAX_LOCATIONS</code> (default 30) so prompt size stays bounded as the cast grows. The result is injected into every LLM prompt so the model knows what already exists.
       </li>
       <li>
-        <strong>Chunk the text</strong> — <code>sliding_window_chunks()</code> splits the chapter into 2,000-token windows with 200-token overlap using tiktoken (falls back to whitespace split). Each chunk is processed independently.
+        <strong>Chunk the text</strong> — <code>sliding_window_chunks()</code> splits the chapter into 2,000-token windows with 200-token overlap using tiktoken. The encoding is derived from <code>DEFAULT_MODEL</code> (<code>o200k_base</code> for GPT-4o-class models, and as the estimator for any model tiktoken cannot map — every Gemini and Claude model). There is no whitespace fallback: a silently coarser window changes both chunk size and paragraph structure with nothing to detect it afterward, so a tokenizer that will not load raises. Each chunk is processed independently.
       </li>
       <li>
         <strong>LLM extraction (13 passes per chunk)</strong> — <code>ChapterExtractor</code> runs 13 sequential LLM calls per chunk. See <a href="#extraction-passes">Extraction Passes</a> for details.
@@ -1681,9 +1680,8 @@ flowchart LR
     Q --> DS["DenseSearch\n(HNSW cosine)"]
     BM --> RRF["Reciprocal\nRank Fusion"]
     DS --> RRF
-    RRF --> RR["LLMReranker\n(optional)"]
-    RR --> MMR["MMR\nDiversification"]
-    MMR --> OUT["RetrievalBundle\n(top-K results + debug)"]
+    RRF --> MMR["MMR\nDiversification"]
+    MMR --> OUT["top-K RetrievalResults"]
 
     style Q fill:#21262d,stroke:#30363d,color:#e6edf3
     style OUT fill:#1f6feb,stroke:#58a6ff,color:#e6edf3
@@ -1696,11 +1694,10 @@ flowchart LR
       </thead>
       <tbody>
         <tr><td><code>BM25Search</code></td><td><code>bm25.py</code></td><td>Queries <code>search_tsv</code> columns on chapters, scenes, events using PostgreSQL full-text search. User input is sanitized through <code>websearch_to_tsquery</code>, then relaxed from AND to OR semantics so partial matches survive; <code>ts_rank_cd</code> ranks fuller matches higher</td></tr>
-        <tr><td><code>DenseSearch</code></td><td><code>dense.py</code></td><td>ANN search over HNSW vector indexes using cosine similarity</td></tr>
+        <tr><td><code>DenseSearch</code></td><td><code>dense.py</code></td><td>ANN search over HNSW vector indexes using cosine similarity. Filters on <code>embedding_model</code> so vectors written by a different embedder — a <code>mock:hash</code> vector above all — cannot surface as confident nonsense, and ties are broken by <code>item_id</code> so RRF ranks are deterministic</td></tr>
         <tr><td><code>reciprocal_rank_fusion</code></td><td><code>fusion.py</code></td><td>Merges BM25 and dense ranked lists via RRF formula; deduplicates by item_id</td></tr>
-        <tr><td><code>LLMReranker</code></td><td><code>rerank.py</code></td><td>Optional LLM reranking of the fused top-K pool for better relevance</td></tr>
-        <tr><td><code>mmr</code></td><td><code>mmr.py</code></td><td>Max marginal relevance — diversifies the final result set to avoid redundancy. Relevance is the incoming fused/reranked score (max-normalized), never a recomputed query-embedding similarity, so the keyword half of the hybrid survives the last stage. Emits the MMR score as <code>score</code>, so result order and score agree</td></tr>
-        <tr><td><code>HybridRetriever</code></td><td><code>hybrid.py</code></td><td>Orchestrates all stages; records per-stage timings and snapshots in <code>RetrievalBundle.debug</code></td></tr>
+        <tr><td><code>mmr</code></td><td><code>mmr.py</code></td><td>Max marginal relevance — diversifies the final result set to avoid redundancy. Relevance is the incoming fused score (max-normalized), never a recomputed query-embedding similarity, so the keyword half of the hybrid survives the last stage. Emits the MMR score as <code>score</code>, so result order and score agree</td></tr>
+        <tr><td><code>HybridRetriever</code></td><td><code>hybrid.py</code></td><td>Orchestrates all stages and returns the top-K results. It used to also build a <code>RetrievalBundle.debug</code> dict of per-stage timings and top-K snapshots; nothing outside the tests ever read it, so it was removed along with <code>RetrievalBundle</code> itself. A stage that fails still logs, which is the part that surfaced anything.</td></tr>
       </tbody>
     </table>
 
@@ -2054,7 +2051,7 @@ flowchart LR
       </thead>
       <tbody>
         <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 5 typed checks against DB state; <code>persist.py</code> writes the report to <code>critique_reports</code>/<code>critique_findings</code></td></tr>
-        <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → LLM rerank → MMR</td></tr>
+        <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → MMR. An <code>LLMReranker</code> stage sat between RRF and MMR until 2026-09-03; it was unreachable at any setting (<code>reads/search.py</code> hardcoded <code>use_rerank=False</code> <em>and</em> supplied no reranker) and was deleted rather than switched on.</td></tr>
         <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from <code>state_deltas</code></td></tr>
       </tbody>
     </table>

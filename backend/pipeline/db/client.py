@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
@@ -108,11 +108,6 @@ class DBClient:
         if row is None:
             return None
         return row[0]
-
-    def execute_many(self, query: str, rows: Iterable[Sequence[Any]]) -> None:
-        with self.cursor(commit=True) as cur:
-            for row in rows:
-                cur.execute(query, row)
 
     def close(self) -> None:
         self._pool.close()

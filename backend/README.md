@@ -30,11 +30,12 @@ backend/
 │   ├── extraction/ #   13 LLM passes, intra-chunk dedup, canonicalizer, resolver
 │   ├── state/      #   StateMaterializer — sole writer of character_states + edges
 │   ├── critic/     #   5 deterministic continuity checks
-│   ├── retrieval/  #   BM25 + dense + RRF + rerank + MMR
+│   ├── retrieval/  #   BM25 + dense + RRF + MMR
 │   ├── db/         #   schema.sql, client.py, entity_merge.py, duplicates.py
 │   └── ingestion/  #   raw chapter INSERT
 ├── mcp_server/     # MCP tool definitions; read tools call reads/ directly
-└── evals/          # Golden fixture novel + answer key + scoring + 4 evals
+├── evals/          # Golden fixture novel + answer key + scoring + 4 evals
+└── scripts/        # branch_db.sh
 ```
 
 Tests are colocated with the code they test (`api/tests/`, `reads/tests/`,
@@ -61,26 +62,73 @@ from `EMBEDDING_DIMENSIONS`, and applies it in one transaction.
 > re-process chapters. That is affordable on purpose: `chapters.raw_text` is
 > ground truth and every projection is rebuildable from it.
 
+That policy needs a way to tell when a database is due for it, because
+`init-db` reports success either way: `CREATE TABLE IF NOT EXISTS` skips a
+table that already exists, so a constraint, a `NOT NULL`, or an
+`ON DELETE CASCADE` added to a table body never reaches a database created
+before it. Columns are the exception — the file backfills those with explicit
+`ADD COLUMN IF NOT EXISTS`.
+
+```bash
+uv run novel-pipeline check-schema
+```
+
+applies `schema.sql` into a throwaway schema and diffs the catalogs, reporting
+anything the live database is missing or carrying extra. `init-db` runs the
+same check and exits if it finds drift. Constraint *names* are ignored — only
+definitions are compared — so a constraint that arrived inline in one database
+and via a named `ALTER` in another is not reported as a difference.
+
 ### Environment
+
+Defaults are the values `.env.example` ships; `pipeline/config.py` holds the
+same ones.
 
 | Variable | Default | Description |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://localhost/novel_wiki` | Postgres connection string |
-| `DEFAULT_MODEL` | `gpt-4o-mini` | LiteLLM model string for extraction |
+| `DEFAULT_MODEL` | `gemini/gemini-3.1-flash-lite` | LiteLLM model string for extraction |
 | `LLM_TEMPERATURE` | `0.1` | Sampling temperature |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | LiteLLM embedding model |
-| `EMBEDDING_DIMENSIONS` | `1536` | Must match `VECTOR(...)` in the initialized schema |
+| `EMBEDDING_MODEL` | `gemini/gemini-embedding-2` | LiteLLM embedding model |
+| `EMBEDDING_DIMENSIONS` | `768` | Substituted into `VECTOR(__EMBEDDING_DIM__)` at `init-db` time. `init-db` exits if it drifts from the live column |
 | `CHUNK_SIZE` | `2000` | Tokens per extraction window |
 | `CHUNK_OVERLAP` | `200` | Token overlap between windows |
 | `CANONICALIZER_MAX_ROSTER` | `80` | Cap on canonicalizer candidates per LLM call |
 | `CONTEXT_MAX_CHARACTERS` | `40` | Cap on characters injected into prompts |
 | `CONTEXT_MAX_LOCATIONS` | `30` | Cap on locations injected into prompts |
-| `USE_MOCK_LLM` | `false` | `true` skips all LLM calls (deterministic mock extractor) |
+| `USE_MOCK_LLM` | `false` | `true` skips all LLM calls (deterministic mock extractor) and uses hash embeddings |
+| `CRITIC_ENABLED` | `true` | `false` skips the continuity critic during ingestion, and refuses agent writes at the gate |
+| `CRITIQUE_CLAIMS` | `extract` | `extract` spends one extra LLM call per chapter for real claims; `reuse` reuses the extraction passes |
+| `DB_MAX_CONNECTIONS` | `20` | Connection-pool ceiling |
+| `RUN_LLM_EVALS` | unset | `1` enables the evals that call a real model |
 
 Provider keys are read by LiteLLM directly from the environment and depend
 on the model string you choose (`GEMINI_API_KEY` for `gemini/…`,
 `OPENAI_API_KEY` for `openai/…`, and so on). `.env.example` ships with the
 Gemini setup.
+
+### Tokenization — three different things
+
+"Tokens" means something different in each layer, and the numbers are not
+comparable. Nothing in this system tokenizes text once and reuses it.
+
+| Layer | Tokenizer | Where it runs |
+|---|---|---|
+| Chunking (`CHUNK_SIZE`) | tiktoken BPE, encoding derived from `DEFAULT_MODEL` | Locally, from the vendored vocab |
+| Keyword retrieval | Postgres `to_tsvector('english')` — Snowball stemming + stopword removal, not BPE | In Postgres |
+| Dense retrieval | Whatever `EMBEDDING_MODEL` uses internally; never exposed | Provider-side |
+| Mock embeddings (`USE_MOCK_LLM=true`) | None. SHA-256 over raw UTF-8 bytes | Locally |
+
+The consequence worth internalizing: **`CHUNK_SIZE=2000` is an estimate, not a
+measurement.** tiktoken maps OpenAI models only, so on the shipped Gemini config
+it falls back to `o200k_base` and counts in a vocabulary the serving model does
+not use. That is fine for sizing a window — it is stable, local, and close
+enough — but it is not the model's own count, and no `count_tokens` call is
+made anywhere. If you need exact counts for cost or context-limit work, ask the
+provider; don't read them off `CHUNK_SIZE`.
+
+A tokenizer that cannot load raises rather than degrading to a whitespace
+split — see `pipeline/extraction/chunker.py` for why that mattered.
 
 ## Running
 

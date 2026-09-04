@@ -311,18 +311,18 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         </tr>
         <tr>
           <td><code>DEFAULT_MODEL</code></td>
-          <td><code>gpt-4o-mini</code></td>
+          <td><code>gemini/gemini-3.1-flash-lite</code></td>
           <td>LiteLLM model string for all extraction passes</td>
         </tr>
         <tr>
           <td><code>EMBEDDING_MODEL</code></td>
-          <td><code>text-embedding-3-small</code></td>
+          <td><code>gemini/gemini-embedding-2</code></td>
           <td>LiteLLM embedding model</td>
         </tr>
         <tr>
           <td><code>EMBEDDING_DIMENSIONS</code></td>
-          <td><code>1536</code></td>
-          <td>Vector dimensions. Must match what pgvector HNSW index was created with — <code>init-db</code> now asserts this against the live <code>chapters.embedding</code> column and exits with an explanatory error on drift, rather than letting every subsequent chapter die on an opaque <code>::vector</code> cast failure.</td>
+          <td><code>768</code></td>
+          <td>Vector dimensions. Substituted into <code>schema.sql</code>'s <code>VECTOR(__EMBEDDING_DIM__)</code> placeholder at <code>init-db</code> time — there is no literal width in the schema to hand-edit. Must match what the pgvector HNSW index was created with; <code>init-db</code> asserts this against the live <code>chapters.embedding</code> column and exits with an explanatory error on drift, rather than letting every subsequent chapter die on an opaque <code>::vector</code> cast failure. Changing it means an empty database and a full re-embed.</td>
         </tr>
         <tr>
           <td><code>CRITIC_ENABLED</code></td>
@@ -981,7 +981,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>
       Lives in <code>backend/pipeline/db/client.py</code>. Wraps a <code>psycopg_pool.ConnectionPool</code>
       and exposes a small query API (<code>execute</code>, <code>fetchone</code>, <code>fetchall</code>,
-      <code>fetchval</code>, <code>execute_many</code>). Used as a context manager
+      <code>fetchval</code>). Used as a context manager
       (<code>with DBClient() as db:</code>) — <code>__exit__</code> closes the pool.
     </p>
 
@@ -1082,7 +1082,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>faction</code>, <code>object</code>) also get a row in their dedicated table.
       User-defined types (e.g. <code>realm</code>, <code>deity</code>) live <em>only</em> in this table —
       no dedicated table. The <code>CHECK</code> constraint on <code>entity_type</code> was removed to allow
-      arbitrary type values from <code>novel_entity_types</code>. The <code>aliases[]</code> column holds
+      arbitrary type values from <code>novel_entity_types</code> — and, since 2026-09-03, is also
+      explicitly dropped by an <code>ALTER TABLE entities DROP CONSTRAINT IF EXISTS</code> in
+      <code>schema.sql</code>. Removing it from the <code>CREATE TABLE</code> body alone only fixed
+      <em>new</em> databases: <code>CREATE TABLE IF NOT EXISTS</code> is a no-op on an existing table,
+      so every database created before custom entity types landed kept the old four-value constraint and
+      rejected custom entities at INSERT with a <code>CheckViolation</code>. Re-run <code>init-db</code>
+      to pick up the drop. The <code>aliases[]</code> column holds
       canonicalizer-confirmed name variants for custom entity types (built-in types keep aliases on their
       dedicated tables); added by the consolidated <code>schema.sql</code> (migrate scripts were retired
       once <code>init-db</code> became the single, idempotent source of truth for schema changes).
@@ -1542,6 +1548,28 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       throughout), so an existing database upgrades by re-running
       <code>uv run novel-pipeline init-db</code> — it picks up the new table and re-stamps
       <code>schema_version</code> without touching data in any other table.
+    </p>
+    <p>
+      <strong>The catch, and it has bitten more than once:</strong> that idempotence covers tables and
+      columns, not <em>constraints</em>, <em>nullability</em>, or <em>referential actions</em>. Editing a
+      <code>CREATE TABLE IF NOT EXISTS</code> body changes what a fresh database gets and nothing about an
+      existing one. The <code>entity_type</code> CHECK above went unrelaxed this way from 2026-05-26 to
+      2026-09-03; an audit on that date found four more on the main database — <code>relationships</code>
+      missing <code>NOT NULL</code> on both entity columns, <code>shared_dynamics</code> missing its
+      self-reference CHECK and its <code>UNIQUE (entity_a_id, entity_b_id, chapter_id)</code> (which had
+      already let a duplicate row through), and both <code>shared_dynamics</code> foreign keys missing
+      <code>ON DELETE CASCADE</code>, so deleting any entity that appeared in a dynamic failed outright
+      and took novel deletion down with it. <code>character_states.appearance</code> was missing too,
+      which broke every <code>StateMaterializer</code> write on that database.
+    </p>
+    <p>
+      Since the policy is to drop and re-init rather than migrate, the fix is a detector rather than a
+      migrator: <code>novel-pipeline check-schema</code> (<code>pipeline/db/schema_drift.py</code>)
+      applies <code>schema.sql</code> into a throwaway schema and diffs the catalogs, and
+      <code>init-db</code> runs the same check and exits on drift. Constraint and index <em>names</em>
+      are normalized away — only definitions are compared — so the same UNIQUE arriving inline in one
+      database and as a named <code>ALTER</code> in another is not reported as a difference.
+      <code>test_init_db_leaves_no_drift_from_schema_sql</code> asserts the check comes back empty.
     </p>
   </section>
 

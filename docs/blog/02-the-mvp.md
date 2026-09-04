@@ -268,7 +268,7 @@ Here's the real code:
 
 ```python
 def sliding_window_chunks(text: str, chunk_size: int = 2000, overlap: int = 200):
-    tokens = tokenize(text)            # tiktoken cl100k_base, or whitespace fallback
+    tokens = tokenize(text)            # tiktoken, encoding derived from DEFAULT_MODEL
     chunks, start = [], 0
     stride = chunk_size - overlap      # 1800
 
@@ -311,23 +311,40 @@ sentence.
 
 **Why token-based chunks and not, say, paragraphs?** Because the constraint we're
 respecting is a *token* limit. Paragraphs vary from one line to two pages; chunking by
-paragraph gives you no control over prompt size. Notice, though, that the tokenizer here
-is a fallback-tolerant helper:
+paragraph gives you no control over prompt size. (Token windows have their own cost —
+they cut mid-sentence and mid-scene, which is what the overlap above is paying for.)
+
+The tokenizer itself used to be a fallback-tolerant helper, and that turned out to be a
+mistake worth walking through:
 
 ```python
-def tokenize(text: str):
+def tokenize(text: str):                 # the old version
     enc = _encoding()          # tiktoken.get_encoding("cl100k_base")
     if enc is not None:
         return enc.encode(text)
     return text.split()        # whitespace fallback
 ```
 
-If `tiktoken` isn't installed, it silently falls back to splitting on spaces. Chunks
-become word-counted instead of token-counted — about 25% smaller than intended, but the
-system still runs. Small thing, but it's a pattern worth naming: **degrade, don't die,
-when the degradation is safe.** We will meet exactly the opposite decision in Post 11,
-where a similar-looking fallback silently corrupted the database and had to be replaced
-with a hard failure. The difference is whether the degraded output is *detectable*.
+The reasoning at the time was **degrade, don't die, when the degradation is safe** —
+if `tiktoken` couldn't load, chunks became word-counted instead of token-counted, and
+the system still ran. Both halves of that sentence were wrong.
+
+*Not safe.* Whitespace tokens are coarser than BPE, so a fixed `chunk_size=2000` packs
+**more** text per chunk, not less — measured on this project's own prose, 4,980
+`cl100k_base` tokens against 3,357 whitespace tokens, a factor of 1.48. And
+`detokenize` re-joined on single spaces, flattening every paragraph break in the
+chapter before the extraction prompt ever saw it. Scene boundaries are precisely what
+the extractor reads structure from.
+
+*Not rare.* `tiktoken` downloads its vocab on first use and caches it under `TMPDIR` —
+which macOS and most CI runners sweep periodically. The fallback wasn't guarding
+against a missing dependency so much as against a cleared temp directory, on a machine
+that had worked the day before.
+
+So it's gone. The encoding is now derived from `DEFAULT_MODEL`, so the chunker and the
+model can't drift into different vocabularies, and a tokenizer that won't load raises
+instead of quietly producing different chunks. Post 11 works through the general rule
+this violates.
 
 ### Step 2: asking an LLM for JSON
 

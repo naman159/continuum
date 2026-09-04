@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     init_db_parser = subparsers.add_parser("init-db", help="Initialize database schema")
     init_db_parser.add_argument("--schema", default=None, help="Path to schema.sql (defaults to bundled)")
 
+    check_schema_parser = subparsers.add_parser(
+        "check-schema", help="Report where the live database has drifted from schema.sql"
+    )
+    check_schema_parser.add_argument("--schema", default=None, help="Path to schema.sql (defaults to bundled)")
+
     create_novel_parser = subparsers.add_parser("create-novel", help="Create a novel record")
     create_novel_parser.add_argument("--title", required=True)
     create_novel_parser.add_argument("--author")
@@ -75,6 +80,15 @@ def main() -> None:
     if args.command == "init-db":
         init_db(args.schema)
         print(json.dumps({"status": "ok", "schema": args.schema}, indent=2))
+        return
+
+    if args.command == "check-schema":
+        from pipeline.db.schema_drift import format_drift, schema_drift
+
+        drift = schema_drift(args.schema)
+        if drift:
+            raise SystemExit(format_drift(drift))
+        print(json.dumps({"status": "ok", "drift": []}, indent=2))
         return
 
     if args.command == "create-novel":

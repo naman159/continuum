@@ -3,7 +3,8 @@
 Hits the real branch-isolated Postgres. Running init_db twice must succeed
 (idempotent DDL) and leave exactly one schema_version row at SCHEMA_VERSION.
 The removed legacy surface (temporal_constraints, events SVO columns,
-knows_edges.fact_id, chapters.generation_meta) must be gone afterward.
+knows_edges.fact_id, chapters.generation_meta, the entity_type CHECK) must be
+gone afterward.
 """
 
 from __future__ import annotations
@@ -20,6 +21,18 @@ def _column_exists(db: DBClient, table: str, column: str) -> bool:
              WHERE table_name = %s AND column_name = %s
             """,
             (table, column),
+        )
+    )
+
+
+def _check_constraint_exists(db: DBClient, table: str, constraint: str) -> bool:
+    return bool(
+        db.fetchval(
+            """
+            SELECT 1 FROM pg_constraint
+             WHERE conrelid = %s::regclass AND contype = 'c' AND conname = %s
+            """,
+            (table, constraint),
         )
     )
 
@@ -54,3 +67,25 @@ def test_new_spine_tables_exist_and_legacy_surface_is_gone():
             assert not _column_exists(db, "events", col), col
         assert not _column_exists(db, "knows_edges", "fact_id")
         assert not _column_exists(db, "chapters", "generation_meta")
+
+
+def test_init_db_leaves_no_drift_from_schema_sql():
+    # Applying schema.sql is not the same as conforming to it: CREATE TABLE IF
+    # NOT EXISTS silently skips a table that already exists, so a constraint,
+    # a NOT NULL, or an ON DELETE CASCADE added to a table body never reaches a
+    # database that predates it. This catches the whole class at once.
+    from pipeline.db.schema_drift import format_drift, schema_drift
+
+    init_db()
+    drift = schema_drift()
+    assert drift == [], format_drift(drift)
+
+
+def test_entity_type_check_constraint_is_dropped_on_existing_databases():
+    # Relaxing the constraint in the CREATE TABLE body only reached fresh
+    # databases -- CREATE TABLE IF NOT EXISTS is a no-op once the table is
+    # there -- so every pre-existing DB kept rejecting custom entity types.
+    # Constraints need their own explicit ALTER, like columns do.
+    init_db()
+    with DBClient() as db:
+        assert not _check_constraint_exists(db, "entities", "entities_entity_type_check")

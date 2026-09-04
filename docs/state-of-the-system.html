@@ -400,8 +400,8 @@ flowchart TB
       <tr>
         <td><strong>Hybrid Retriever</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>Complete BM25+dense+RRF+rerank+MMR pipeline, with one production caller — <code>reads/search.py</code>, which backs <code>/api/search</code> and the MCP <code>search_story</code> tool</td>
-        <td>Measured by the retrieval recall@8 eval (floor 0.5, mock embeddings + real Postgres FTS)</td>
+        <td>BM25+dense+RRF+MMR, with one production caller — <code>reads/search.py</code>, which backs <code>/api/search</code> and the MCP <code>search_story</code> tool. An LLM rerank stage sat between RRF and MMR until 2026-09-03, unreachable at any setting; it was deleted rather than switched on</td>
+        <td>Measured by the retrieval recall@8 eval (floor 0.9, mock embeddings + real Postgres FTS) — a number for the pipeline <em>without</em> reranking</td>
       </tr>
       <tr>
         <td><strong>Continuity Critic</strong></td>
@@ -516,7 +516,7 @@ flowchart TB
   <table>
     <thead><tr><th>Subsystem</th><th>Engineering quality</th><th>How it's wired today</th></tr></thead>
     <tbody>
-      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + rerank + MMR</td><td><code>reads/search.py</code> wraps it for the wiki's Search page (<code>/api/search</code>) and the MCP <code>search_story</code> tool — one implementation, two callers</td></tr>
+      <tr><td><code>retrieval/</code></td><td>Parallelized, instrumented, RRF + MMR</td><td><code>reads/search.py</code> wraps it for the wiki's Search page (<code>/api/search</code>) and the MCP <code>search_story</code> tool — one implementation, two callers</td></tr>
       <tr><td><code>critic/</code></td><td>Five typed checks, severity model, structured findings</td><td><code>critic/adapter.py:build_draft_from_extraction</code> builds a <code>DraftChapter</code> from every chapter's own extraction; <code>analyze_chapter</code> persists the resulting report (phase 5) for every chapter, not a subset</td></tr>
       <tr><td><code>state/</code></td><td>Idempotent replay, novel-scoped projection rebuild</td><td>Runs automatically at the end of <code>analyze_chapter</code> (phase 4), replaying through the novel's latest chapter</td></tr>
     </tbody>
@@ -641,7 +641,6 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     <li>BM25 + dense search per kind (<code>chapter</code>, <code>scene</code>, <code>event</code>) in
         parallel via a thread pool, with per-stage error capture.</li>
     <li>Reciprocal Rank Fusion (k=60) across all source/kind lists.</li>
-    <li>Optional LLM cross-encoder rerank of the fused pool.</li>
     <li>MMR diversification (λ=0.7) down to <code>query.k</code>, ranking on the fused score and
         using embeddings only for the novelty penalty.</li>
   </ol>

@@ -67,11 +67,16 @@ def _normalize_custom_entities(
     return normalized
 
 
-def init_db(schema_path: str | None = None) -> None:
+def _schema_sql(schema_path: str | None = None) -> str:
+    """schema.sql with the configured vector width substituted in."""
     if schema_path is None:
         schema_path = str(Path(__file__).parent / "db" / "schema.sql")
     sql = Path(schema_path).read_text(encoding="utf-8")
-    sql = sql.replace("__EMBEDDING_DIM__", str(settings.embedding_dimensions))
+    return sql.replace("__EMBEDDING_DIM__", str(settings.embedding_dimensions))
+
+
+def init_db(schema_path: str | None = None) -> None:
+    sql = _schema_sql(schema_path)
     with DBClient() as db:
         with db.cursor(commit=True) as cur:
             cur.execute(sql)
@@ -81,6 +86,22 @@ def init_db(schema_path: str | None = None) -> None:
                 (SCHEMA_VERSION,),
             )
         _assert_embedding_dimension_matches(db)
+    _assert_no_schema_drift(schema_path)
+
+
+def _assert_no_schema_drift(schema_path: str | None = None) -> None:
+    """Fail loudly when the live database no longer matches schema.sql.
+
+    Applying schema.sql is not the same as conforming to it: every CREATE TABLE
+    is IF NOT EXISTS, so a constraint added to a table body after a database
+    was created never reaches it, and init-db reports success anyway. Checking
+    afterward is what turns that silent divergence into a message.
+    """
+    from pipeline.db.schema_drift import format_drift, schema_drift
+
+    drift = schema_drift(schema_path)
+    if drift:
+        raise SystemExit(format_drift(drift))
 
 
 def _assert_embedding_dimension_matches(db: DBClient) -> None:
