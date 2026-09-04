@@ -1185,8 +1185,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   entity_a_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> entities,
   entity_b_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> entities,
   rel_type        <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>,  <span class="sql-comment">-- SINGLE value enforced: 'ally', 'enemy', 'mentor', etc.</span>
-  from_chapter    <span class="sql-type">INT</span>,
-  to_chapter      <span class="sql-type">INT</span>,
+  from_chapter    <span class="sql-type">INT</span>,            <span class="sql-comment">-- chapter the relationship is established</span>
+  to_chapter      <span class="sql-type">INT</span>,            <span class="sql-comment">-- chapter it STOPPED being true; NULL = still in force</span>
   notes           <span class="sql-type">TEXT</span>,
   sentiment       <span class="sql-type">FLOAT</span>,           <span class="sql-comment">-- SOTA: -1.0 to 1.0</span>
   evidence_event_ids <span class="sql-type">UUID[]</span>,        <span class="sql-comment">-- SOTA: events that established this</span>

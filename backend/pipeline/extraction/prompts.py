@@ -121,8 +121,8 @@ PASS_SCHEMAS = {
                 "entity_b": "string",
                 "rel_type": "string",
                 "symmetric": "boolean|null  # true if genuinely mutual, false if one-sided, null if unclear",
-                "from_chapter": "integer|null",
-                "to_chapter": "integer|null",
+                "from_chapter": "integer|null  # chapter the relationship is first established",
+                "to_chapter": "integer|null  # ALWAYS null unless the text shows it ENDING",
                 "notes": "string|null",
             }
         ]
@@ -340,6 +340,19 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         than forcing one shared label. For relationships that are definitionally mutual
         (e.g. "spouse_of", "sibling_of"), emit exactly one row for the pair, not one per
         direction.
+
+        from_chapter / to_chapter describe when the relationship HOLDS, not when you
+        happened to read about it:
+          - from_chapter: the chapter the relationship is first established.
+          - to_chapter: null in almost every case. Set it ONLY when this chunk shows the
+            relationship ending — a death, a divorce, a formal severing, an explicit
+            renunciation. A relationship the text simply states, shows, or implies is
+            still in force, so it gets to_chapter: null.
+          - NEVER set to_chapter equal to from_chapter to mean "this is what I saw in
+            this chapter". A relationship is assumed to persist once established; a
+            to_chapter says it STOPPED being true, and readers of this data will believe
+            you. Two characters who are married in this chunk and are simply not
+            mentioned again are still married.
         Return JSON only.
         """
     ).strip(),
@@ -427,7 +440,7 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         """
     ).strip(),
     "canon_facts": dedent(
-        """
+        f"""
         Extract DURABLE, objective facts that future chapters must not
         contradict — physical traits (eye_color, hair_color, height), fixed
         relations (sibling_of, parent_of), origins (home_town, birthplace),
@@ -445,7 +458,7 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         - confidence: 1.0 for directly stated, lower for strongly implied.
 
         Return JSON only.
-        f"""
+        """
     ).strip(),
     "continuity_flags": dedent(
         """

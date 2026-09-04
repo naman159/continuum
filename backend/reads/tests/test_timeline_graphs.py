@@ -78,3 +78,75 @@ def test_relationship_with_null_from_chapter_is_cut_by_provenance_chapter(db, se
     assert not any(e["label"] == "debtor_of" for e in graph["edges"])
     graph3 = graphs_reads.relationship_graph(db, seeded["novel_id"], up_to_chapter=None)
     assert any(e["label"] == "debtor_of" for e in graph3["edges"])
+
+
+def test_an_established_relationship_persists_until_it_is_broken(db, seed_novel):
+    """Raising the cutoff must never remove a node or an edge.
+
+    `to_chapter` means the relationship STOPPED being true — not "this is the
+    chapter I read it in". An extractor that writes to_chapter = from_chapter
+    tells the graph the relationship ended the moment it began, so it vanishes
+    one chapter later and takes any character whose only edge it was with it
+    (nodes are derived from edges). On a real Pride and Prejudice ingest that
+    dropped four characters between chapter 1 and chapter 2, including a
+    married couple the book never separates.
+    """
+    seeded = seed_novel(db)
+    with db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO entities (novel_id, entity_type, name) VALUES (%s,'character','Wilhelmina') RETURNING id",
+            (seeded["novel_id"],),
+        )
+        spouse_eid = str(cur.fetchone()[0])
+        cur.execute(
+            "INSERT INTO characters (novel_id, entity_id, name, first_appearance_chapter)"
+            " VALUES (%s,%s,'Wilhelmina',1)",
+            (seeded["novel_id"], spouse_eid),
+        )
+        cur.execute(
+            "INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter)"
+            " VALUES (%s,%s,'spouse',1,NULL)",
+            (seeded["char_a_eid"], spouse_eid),
+        )
+
+    at_1 = graphs_reads.relationship_graph(db, seeded["novel_id"], up_to_chapter=1)
+    at_3 = graphs_reads.relationship_graph(db, seeded["novel_id"], up_to_chapter=3)
+
+    assert any(e["label"] == "spouse" for e in at_1["edges"])
+    assert any(e["label"] == "spouse" for e in at_3["edges"]), (
+        "a marriage established in ch1 that nothing ends must still hold at ch3"
+    )
+    assert {n["id"] for n in at_1["nodes"]} <= {n["id"] for n in at_3["nodes"]}, (
+        "raising the cutoff must not drop nodes"
+    )
+
+
+def test_a_relationship_the_text_ends_stops_at_its_to_chapter(db, seed_novel):
+    """The other half of the contract: to_chapter is honoured when it means
+    what it says, so a genuinely severed relationship does leave the graph."""
+    seeded = seed_novel(db)
+    with db.transaction() as cur:
+        cur.execute(
+            "INSERT INTO entities (novel_id, entity_type, name) VALUES (%s,'character','Rurik') RETURNING id",
+            (seeded["novel_id"],),
+        )
+        rurik_eid = str(cur.fetchone()[0])
+        cur.execute(
+            "INSERT INTO characters (novel_id, entity_id, name, first_appearance_chapter)"
+            " VALUES (%s,%s,'Rurik',1)",
+            (seeded["novel_id"], rurik_eid),
+        )
+        cur.execute(
+            "INSERT INTO relationships (entity_a_id, entity_b_id, rel_type, from_chapter, to_chapter)"
+            " VALUES (%s,%s,'sworn_to',1,2)",
+            (seeded["char_a_eid"], rurik_eid),
+        )
+
+    assert any(
+        e["label"] == "sworn_to"
+        for e in graphs_reads.relationship_graph(db, seeded["novel_id"], up_to_chapter=2)["edges"]
+    )
+    assert not any(
+        e["label"] == "sworn_to"
+        for e in graphs_reads.relationship_graph(db, seeded["novel_id"], up_to_chapter=3)["edges"]
+    )

@@ -734,6 +734,26 @@ graph LR
     </div>
 
     <div class="callout warn">
+      <strong>A relationship persists until the text breaks it (fixed 2026-09-04).</strong>
+      <code>to_chapter</code> means the relationship <em>stopped being true</em>. The extraction
+      prompt never said so — the schema offered <code>from_chapter</code> and <code>to_chapter</code>
+      as bare <code>integer|null</code> fields with no definition — so the model filled
+      <code>to_chapter</code> with the chapter it was reading, meaning "this is what I saw here".
+      Every relationship was therefore stored as having ended the moment it began.
+      <strong>Absence of a re-mention was being recorded as an ending.</strong>
+      <br><br>
+      The read layer then did exactly what it was told. Because
+      <code>relationship_graph</code> derives its nodes from its edges, a character whose only
+      relationships were closed-on-arrival disappeared from the graph one chapter later. On a
+      Pride and Prejudice ingest the graph went from 10 nodes at chapter 1 to 8 at chapter 2, losing
+      a married couple the book never separates — a cutoff that <em>removed</em> people as it moved
+      forward. The prompt now defines the interval, and
+      <code>reads/tests/test_timeline_graphs.py</code> pins both halves of the contract: raising the
+      cutoff can never drop a node, and a relationship the text genuinely ends does leave the graph
+      at its <code>to_chapter</code>.
+    </div>
+
+    <div class="callout warn">
       <strong>Entity identity is additive-only (fixed 2026-08-17).</strong> Two resolver defects
       could silently and permanently corrupt identity, which for a memory layer is worse than a
       missing answer — a wrong merge is unrecoverable without manual repair and poisons every later
