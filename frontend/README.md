@@ -7,7 +7,7 @@ facts, scenes, timeline, continuity critiques — and lets you process new
 chapters from the Process page.
 
 ```bash
-npm install
+npm ci          # Node.js 22.13+ on the 22 LTS line, or 24+
 npm run dev      # http://localhost:5173, proxies /api to 127.0.0.1:8000
 npm run build    # tsc -b && vite build → dist/ (served by novel-webapp)
 npm run lint
@@ -44,7 +44,8 @@ survives a reload.
 Data fetching is TanStack Query throughout; the cap is part of each query
 key, so changing it refetches rather than filtering client-side.
 
-Graphs (`EntityGraph.tsx`, relationship views) use `vis-network`.
+Graphs (`EntityGraph.tsx`, relationship views) use `vis-network`. These routes
+load on demand so the initial novel list does not download the graph renderer.
 
 See `../docs/reference.html` for the API these pages call and
 `../docs/architecture.html` for how the data gets there.

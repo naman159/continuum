@@ -183,6 +183,40 @@ def test_a_passing_resubmission_clears_the_stale_pending_row(db, seed_novel, cri
     assert drafts_reads.list_submissions(db, novel_id) == []
 
 
+@pytest.mark.parametrize("failure_phase", ["extraction", "persistence", "supersede"])
+def test_failed_resubmission_keeps_the_pending_draft(
+    db, seed_novel, critique, monkeypatch, failure_phase,
+):
+    novel_id = seed_novel(db)["novel_id"]
+    critique(_failing())
+    first = _analyze(db, novel_id, on_continuity_fail="block")
+    critique(_passing())
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("replacement failed")
+
+    if failure_phase == "extraction":
+        monkeypatch.setattr(pipeline_mod.ChapterExtractor, "extract_chapter", fail)
+    elif failure_phase == "persistence":
+        monkeypatch.setattr(pipeline_mod, "persist_state_deltas", fail)
+    else:
+        supersede = pipeline_mod.supersede_pending
+
+        def supersede_then_fail(*args, **kwargs):
+            supersede(*args, **kwargs)
+            fail()
+
+        monkeypatch.setattr(pipeline_mod, "supersede_pending", supersede_then_fail)
+
+    with pytest.raises(RuntimeError, match="replacement failed"):
+        _analyze(db, novel_id, on_continuity_fail="block")
+
+    assert _chapter_count(db, novel_id, 90) == 0
+    parked = drafts_reads.get_submission(db, first["submission_id"])
+    assert parked["status"] == "pending"
+    assert parked["raw_text"] == TEXT
+
+
 def test_resubmission_supersedes_the_previous_parked_row(db, seed_novel, critique):
     novel_id = seed_novel(db)["novel_id"]
     critique(_failing())

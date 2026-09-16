@@ -9,6 +9,7 @@ NOT do is overwrite an existing report with an empty one when it cannot judge.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 import pytest
 
@@ -27,6 +28,9 @@ def real_critique(monkeypatch):
     """
 
     def _install(*findings: Finding):
+        monkeypatch.setattr(
+            service, "settings", replace(service.settings, use_mock_llm=False, critic_enabled=True)
+        )
         monkeypatch.setattr(
             service, "extract_draft_claims", lambda text, use_mock=None: {"mentions": []}
         )

@@ -369,16 +369,6 @@ def analyze_chapter(
                 "warns": critique.warns,
             }
 
-        if on_continuity_fail == "block":
-            # A passing resubmission still has to clear the stale pending row
-            # left by an earlier failing draft for this chapter.
-            supersede_pending(
-                client,
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                note="superseded by a passing resubmission",
-            )
-
         custom_entity_types = [
             dict(r)
             for r in client.fetchall(
@@ -524,6 +514,15 @@ def analyze_chapter(
                 deltas=extracted.get("state_deltas", []),
                 resolver=resolver,
             )
+            if on_continuity_fail == "block":
+                # Resolve the parked draft only when its replacement commits.
+                # Extraction or persistence failures must leave it reviewable.
+                supersede_pending(
+                    s,
+                    novel_id=novel_id,
+                    chapter_number=chapter_number,
+                    note="superseded by a passing resubmission",
+                )
 
         # ---- phase 4: MATERIALIZE / phase 5: RECORD THE CRITIQUE ----
         # Both derive from the committed data and are idempotent; a failure

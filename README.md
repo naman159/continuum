@@ -65,11 +65,11 @@ rather than the reference. `docs/research/` holds background research.
 
 ## Setup
 
-Backend (Python 3.11+, Postgres with pgvector):
+Backend (Python 3.11+, [uv](https://docs.astral.sh/uv/), Postgres with pgvector):
 
 ```bash
 cd backend
-uv sync
+uv sync --frozen
 createdb novel_wiki
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS vector;'
@@ -77,16 +77,30 @@ cp .env.example .env   # set DATABASE_URL, DEFAULT_MODEL, EMBEDDING_MODEL
 uv run novel-pipeline init-db
 ```
 
-Frontend:
+Frontend (Node.js 22.13+ on the 22 LTS line, or 24+):
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
 API server: `cd backend && uv run novel-webapp`.
 MCP server (for writing agents): `cd backend && uv run novel-mcp`.
+
+For a demo without provider credentials, set `USE_MOCK_LLM=true` in
+`backend/.env`, start both servers, and open <http://localhost:5173>.
+Create a novel and paste `backend/evals/golden/ch01.txt` into its Process page;
+then browse Characters, Chapters, Timeline, and Search. Mock extraction is
+deterministic scaffolding, not a measure of model quality. The agent's
+`save_chapter` deliberately refuses writes in mock mode because there is no
+real continuity verdict.
+
+For a single-server demo, run `npm run build` in `frontend`, then
+`uv run novel-webapp` in `backend` and open <http://127.0.0.1:8000>.
+The app is intended for local, trusted use: it has no authentication, and
+the API can modify and delete novels. Add authentication before exposing a
+hosted instance to other people.
 
 ## Usage
 

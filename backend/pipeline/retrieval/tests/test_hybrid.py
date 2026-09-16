@@ -400,3 +400,58 @@ def test_hybrid_respects_max_chapter(db, embedder, seeded):
     for r in results:
         if r.chapter_number is not None:
             assert r.chapter_number <= 1
+
+
+def test_embedding_outage_preserves_keyword_results(db, embedder, seeded, monkeypatch):
+    retriever = HybridRetriever(db, embedder)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+    def unexpected_dense(*args, **kwargs):
+        pytest.fail("dense search must not retry a failed query embedding")
+
+    monkeypatch.setattr(embedder, "embed_text", unavailable)
+    monkeypatch.setattr(retriever.dense, "search", unexpected_dense)
+    results = retriever.retrieve(RetrievalQuery(
+        text="Vextheryon dragon Pellis", novel_id=seeded["novel_id"], max_chapter=3,
+    ))
+    assert results
+    assert results[0].chapter_number == 3
+
+
+def test_all_stage_failures_are_not_reported_as_no_matches(embedder, monkeypatch):
+    retriever = HybridRetriever(None, embedder)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(retriever.bm25, "search", unavailable)
+    monkeypatch.setattr(retriever.dense, "search", unavailable)
+    with pytest.raises(RuntimeError, match="All retrieval stages failed"):
+        retriever.retrieve(RetrievalQuery(text="dragon", novel_id=str(uuid.uuid4())))
+
+
+def test_diversification_outage_preserves_fused_results(db, embedder, seeded, monkeypatch):
+    retriever = HybridRetriever(db, embedder)
+    query = RetrievalQuery(text="dragon Pellis", novel_id=seeded["novel_id"], k=3)
+    expected = retriever.retrieve(query, use_mmr=False)
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("embedding lookup failed")
+
+    monkeypatch.setattr(retriever, "_fetch_item_embeddings", unavailable)
+    assert retriever.retrieve(query) == expected
+
+
+def test_diversification_excludes_incompatible_vectors(db, embedder, seeded):
+    chapter_id = seeded["chapter_ids"][0]
+    db.execute("UPDATE chapters SET embedding_model = 'other-model' WHERE id = %s", (chapter_id,))
+    try:
+        retriever = HybridRetriever(db, embedder)
+        assert retriever._fetch_item_embeddings([_mk(chapter_id, kind="chapter")]) == {}
+    finally:
+        db.execute(
+            "UPDATE chapters SET embedding_model = %s WHERE id = %s",
+            (embedder.model_name, chapter_id),
+        )

@@ -89,3 +89,26 @@ def test_entity_type_check_constraint_is_dropped_on_existing_databases():
     init_db()
     with DBClient() as db:
         assert not _check_constraint_exists(db, "entities", "entities_entity_type_check")
+
+
+def test_schema_drift_ignores_equivalent_constraint_and_index_names():
+    from pipeline.db.schema_drift import schema_drift
+
+    with DBClient() as db:
+        db.execute(
+            'ALTER TABLE chapters RENAME CONSTRAINT chapters_novel_id_number_key '
+            'TO "renamed chapter unique"'
+        )
+        try:
+            assert schema_drift() == []
+            # Still detect a real shape change, not just differences in names.
+            db.execute("ALTER TABLE chapters ALTER COLUMN raw_text DROP NOT NULL")
+            try:
+                assert any("column chapters.raw_text" in line for line in schema_drift())
+            finally:
+                db.execute("ALTER TABLE chapters ALTER COLUMN raw_text SET NOT NULL")
+        finally:
+            db.execute(
+                'ALTER TABLE chapters RENAME CONSTRAINT "renamed chapter unique" '
+                'TO chapters_novel_id_number_key'
+            )

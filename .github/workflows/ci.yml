@@ -46,7 +46,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: backend
-        run: uv sync --dev
+        run: uv sync --frozen --dev
 
       - name: Create extensions and schema
         working-directory: backend

@@ -38,8 +38,12 @@ class HybridRetriever:
         use_mmr: bool = True,
         mmr_lambda: float = 0.7,
     ) -> list[RetrievalResult]:
-        # Embed the query once for both dense search and MMR.
-        query_embedding = self.embedder.embed_text(query.text)
+        # A provider outage must not prevent local keyword search.
+        query_embedding = None
+        try:
+            query_embedding = self.embedder.embed_text(query.text)
+        except Exception:
+            logger.warning("query embedding failed; using keyword search", exc_info=True)
 
         # Stage 1: BM25 + dense in parallel per kind.
         per_kind: dict[tuple[str, str], list[RetrievalResult]] = {}
@@ -49,16 +53,19 @@ class HybridRetriever:
                 futures[("bm25", kind)] = pool.submit(
                     self.bm25.search, query, kind, _PER_KIND_LIMIT
                 )
-                futures[("dense", kind)] = pool.submit(
-                    self.dense.search,
-                    query,
-                    kind,
-                    _PER_KIND_LIMIT,
-                    query_embedding=query_embedding,
-                )
+                if query_embedding is not None:
+                    futures[("dense", kind)] = pool.submit(
+                        self.dense.search,
+                        query,
+                        kind,
+                        _PER_KIND_LIMIT,
+                        query_embedding=query_embedding,
+                    )
+            successful_stages = 0
             for key, fut in futures.items():
                 try:
                     per_kind[key] = fut.result()
+                    successful_stages += 1
                 except Exception as exc:
                     # Log rather than raise: one dead stage should degrade the
                     # ranking, not fail the request. Without the log a fully
@@ -69,6 +76,8 @@ class HybridRetriever:
                         key[0], key[1], exc,
                     )
                     per_kind[key] = []
+        if not successful_stages:
+            raise RuntimeError("All retrieval stages failed; search is unavailable")
 
         # Stage 2: Reciprocal Rank Fusion across all sources/kinds.
         fused = reciprocal_rank_fusion(
@@ -78,9 +87,14 @@ class HybridRetriever:
         # Stage 3: MMR diversification.
         if not (use_mmr and fused):
             return fused[: query.k]
+        try:
+            embeddings = self._fetch_item_embeddings(fused)
+        except Exception:
+            logger.warning("diversification failed; returning fused ranking", exc_info=True)
+            return fused[: query.k]
         return mmr(
             fused,
-            self._fetch_item_embeddings(fused),
+            embeddings,
             lambda_=mmr_lambda,
             top_k=query.k,
         )
@@ -98,8 +112,9 @@ class HybridRetriever:
             if not table or not ids:
                 continue
             rows = self.db.fetchall(
-                f"SELECT id::text AS id, embedding FROM {table} WHERE id = ANY(%s::uuid[])",
-                (ids,),
+                f"SELECT id::text AS id, embedding FROM {table} "
+                "WHERE id = ANY(%s::uuid[]) AND embedding_model = %s",
+                (ids, self.embedder.model_name),
                 dict_rows=True,
             )
             for row in rows:

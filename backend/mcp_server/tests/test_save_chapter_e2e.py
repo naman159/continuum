@@ -18,6 +18,8 @@ available for that.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from mcp_server import queries as queries_mod
@@ -43,6 +45,10 @@ def _failing_report() -> CritiqueReport:
 def stub_critic_verdict(monkeypatch):
     """Force ContinuityCritic to return a deterministic FAIL. Does not touch
     analyze_chapter, critique_draft, or save_chapter."""
+    monkeypatch.setattr(
+        service_mod, "settings",
+        replace(service_mod.settings, use_mock_llm=False, critic_enabled=True),
+    )
     monkeypatch.setattr(
         service_mod, "extract_draft_claims", lambda text, use_mock=None: {"mentions": []}
     )

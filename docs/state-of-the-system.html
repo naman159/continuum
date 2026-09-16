@@ -244,6 +244,11 @@
   <!-- ════════════════ TL;DR ════════════════ -->
   <section id="tldr">
   <h2>TL;DR</h2>
+  <p><strong>Release check, 2026-09-16:</strong> 484 backend tests pass with three
+  provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
+  Both dependency audits are clean, and no credentials were found in the scanned
+  Git history. See the <a href="release-check.md">release check</a> for the
+  browser workflow, fixes, and verification limits.</p>
 
   <div class="callout info">
     <strong>The one-sentence version:</strong> the analyzer-vs-generator ambiguity this page used to
@@ -633,6 +638,12 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ RETRIEVAL ════════════════ -->
   <section id="retrieval">
   <h2>Deep Dive — Hybrid Retrieval <span class="badge green">Wired</span></h2>
+  <p><strong>Release audit, 2026-09-16.</strong> A query-embedding outage now leaves
+     keyword search available. Failed diversification falls back to the fused ranking,
+     and MMR only compares vectors from the active embedding model. If every search
+     stage fails, the request reports an error instead of claiming no matches; the
+     wiki displays that error. A lost processing job also shows a retry action while
+     preserving the draft text.</p>
   <p><strong>Resolved 2026-07-12, consumer simplified 2026-07-14.</strong> Previously the
      best-engineered module in the repo and the one serving the fewest queries (zero); it now has one
      production caller. <code>HybridRetriever.retrieve</code> runs:</p>
@@ -1002,9 +1013,9 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     a real model and an empty draft passes every check vacuously, so <code>USE_MOCK_LLM=true</code>
     used to be a silent bypass for the gate. It is an outage now, not a pass. <code>run_critic</code>
     cannot switch off the check a blocking caller depends on either. A resubmission for the same
-    chapter always supersedes the prior pending row, whether it fails again or passes — a passing
-    one just clears the stale row rather than parking a new one, so a chapter that failed once and
-    later passed doesn't leave an unacceptable "pending" row behind it forever.
+    chapter supersedes the prior pending row when its new verdict is parked or its passing
+    replacement commits. Clearing the old row joins the chapter transaction, so a failed
+    extraction or save leaves the original draft pending and available for review.
   </p>
   <p>
     The human is the only override, and it is not a silent one. The wiki's Review page

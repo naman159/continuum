@@ -10,7 +10,7 @@ export default function Search() {
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["search", novelId, cap, query],
     queryFn: () => api.search(novelId!, query, cap),
     enabled: Boolean(novelId) && query.trim().length > 0,
@@ -49,7 +49,9 @@ export default function Search() {
 
       {query.trim() !== "" && isLoading && <p className="muted">Loading…</p>}
 
-      {query.trim() !== "" && !isLoading && (!data || data.results.length === 0) && (
+      {error && <p role="alert" className="status-error">Search failed: {error.message}</p>}
+
+      {query.trim() !== "" && !isLoading && !error && (!data || data.results.length === 0) && (
         <div className="empty-state">
           <p>No results for &ldquo;{query}&rdquo;.</p>
         </div>

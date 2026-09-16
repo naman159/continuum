@@ -37,7 +37,9 @@ def _encoding(model: str):
 
 
 def tokenize(text: str, model: str | None = None) -> list[int]:
-    return _encoding(model or settings.default_model).encode(text)
+    # Manuscript text may literally quote a tokenizer's control-token spelling.
+    # It is prose here, never a model control sequence.
+    return _encoding(model or settings.default_model).encode_ordinary(text)
 
 
 def detokenize(tokens: Iterable[int], model: str | None = None) -> str:

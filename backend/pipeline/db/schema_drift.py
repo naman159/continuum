@@ -15,7 +15,6 @@ throwaway schema, snapshot both catalogs, and diff.
 from __future__ import annotations
 
 import uuid
-from pathlib import Path
 
 from pipeline.db.client import DBClient
 
@@ -31,7 +30,10 @@ _CATALOG_SQL = """
     SELECT 'constraint ' || conrelid::regclass::text || ' ' || pg_get_constraintdef(oid)
       FROM pg_constraint WHERE connamespace = %(ns)s::text::regnamespace
     UNION ALL
-    SELECT 'index ' || replace(indexdef, %(ns)s::text, 'public')
+    SELECT 'index ' || replace(
+        replace(indexdef, 'INDEX ' || quote_ident(indexname) || ' ON ', 'INDEX ON '),
+        %(ns)s::text, 'public'
+    )
       FROM pg_indexes WHERE schemaname = %(ns)s::text
 """
 

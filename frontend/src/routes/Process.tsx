@@ -69,12 +69,12 @@ export default function Process() {
     enabled: Boolean(jobId),
     refetchInterval: (query) => {
       const s = query.state.data?.status;
-      return s === "done" || s === "error" ? false : 2000;
+      return s === "done" || s === "error" || query.state.status === "error" ? false : 2000;
     },
   });
 
   const job = jobQuery.data;
-  const isRunning = Boolean(jobId) && job?.status !== "done" && job?.status !== "error";
+  const isRunning = Boolean(jobId) && !jobQuery.isError && job?.status !== "done" && job?.status !== "error";
 
   const result = job?.result as Record<string, unknown> | null | undefined;
 
@@ -153,6 +153,15 @@ export default function Process() {
             <span>Job</span>
             <code>{jobId}</code>
           </div>
+
+          {jobQuery.isError && (
+            <div role="alert">
+              <p className="status-error">Could not retrieve processing status: {jobQuery.error.message}</p>
+              <p className="muted">Your chapter text is preserved. Check Chapters before submitting again.</p>
+              <button onClick={() => jobQuery.refetch()}>Retry status check</button>
+              <button onClick={() => setJobId(null)}>Back to draft</button>
+            </div>
+          )}
 
           {isRunning && (
             <div>

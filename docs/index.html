@@ -532,12 +532,16 @@ caller-agnostic is what stops it drifting into two different notions of "consist
 <!-- ─────────────────────────────────────── -->
 <h2 id="setup">Full Setup</h2>
 
-<p>Only needed on a fresh machine. Requires Python 3.11+ and Postgres with pgvector.</p>
+<p>See the <a href="release-check.md">2026-09-16 release check</a> for the
+verification results, review fixes, and remaining limits.</p>
+
+<p>Only needed on a fresh machine. Requires Python 3.11+, uv, Postgres with pgvector,
+and Node.js 22.13+ on the 22 LTS line (or 24+).</p>
 
 <h3>Backend</h3>
 
 <pre><code>cd backend
-uv sync
+uv sync --frozen
 createdb novel_wiki
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS vector;'
@@ -547,7 +551,7 @@ uv run novel-pipeline init-db</code></pre>
 <h3>Frontend</h3>
 
 <pre><code>cd frontend
-npm install
+npm ci
 npm run dev</code></pre>
 
 <h3>Servers</h3>
@@ -567,6 +571,19 @@ uv run novel-pipeline process-chapter --novel-id &lt;id&gt; --number 1 --file ch
 
 <p>Or paste chapter text into the wiki's Process page. In Claude Code, the MCP server is
 picked up automatically via <code>.mcp.json</code> at the repo root.</p>
+
+<p><strong>No-key demo:</strong> set <code>USE_MOCK_LLM=true</code> in
+<code>backend/.env</code>, start the API and frontend, and visit
+<code>http://localhost:5173</code>. Create a novel and process the text from
+<code>backend/evals/golden/ch01.txt</code>. Mock extraction exercises the application
+but does not measure model quality; MCP <code>save_chapter</code> refuses in this
+mode because no real continuity verdict is available. To serve the built UI from
+one process, run <code>npm run build</code> in <code>frontend</code>, then
+<code>uv run novel-webapp</code> in <code>backend</code> and visit
+<code>http://127.0.0.1:8000</code>.</p>
+
+<p>The application assumes local, trusted access. Its API has no authentication
+and can modify and delete novels; a hosted deployment needs authentication.</p>
 
 <!-- ─────────────────────────────────────── -->
 <h2 id="gotchas">Local Gotchas</h2>

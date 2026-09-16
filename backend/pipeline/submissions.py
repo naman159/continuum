@@ -18,8 +18,10 @@ __all__ = ["park_draft", "supersede_pending"]
 
 
 def _supersede_pending(cur: Any, *, novel_id: str, chapter_number: int, note: str) -> None:
-    """Mark any pending row for this chapter 'rejected'. Takes a cursor (not a
-    DBClient) so the caller can run this inside its own transaction."""
+    """Mark pending rows rejected using the supplied execute interface.
+
+    A cursor or DBSession keeps this write inside the caller's transaction.
+    """
     cur.execute(
         """
         UPDATE draft_submissions
@@ -77,7 +79,7 @@ def supersede_pending(db: Any, *, novel_id: str, chapter_number: int, note: str)
     chapter — otherwise the queue holds a 'pending' row for text the author has
     since fixed, and a reviewer who opens it hits the duplicate-chapter 409 the
     moment they try to accept. Nothing new is parked on this path."""
-    with db.transaction() as cur:
-        _supersede_pending(
-            cur, novel_id=novel_id, chapter_number=chapter_number, note=note
-        )
+    # DBClient.execute commits; DBSession.execute joins the chapter transaction.
+    _supersede_pending(
+        db, novel_id=novel_id, chapter_number=chapter_number, note=note
+    )

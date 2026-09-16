@@ -47,7 +47,7 @@ Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), and PostgreSQL 14+
 with `pgvector`.
 
 ```bash
-uv sync
+uv sync --frozen
 createdb novel_wiki
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS vector;'
@@ -98,7 +98,6 @@ same ones.
 | `CONTEXT_MAX_LOCATIONS` | `30` | Cap on locations injected into prompts |
 | `USE_MOCK_LLM` | `false` | `true` skips all LLM calls (deterministic mock extractor) and uses hash embeddings |
 | `CRITIC_ENABLED` | `true` | `false` skips the continuity critique during ingestion. A caller that blocks on a FAIL (the MCP `save_chapter` tool) then refuses the write rather than treating a missing verdict as a pass |
-| `CRITIQUE_CLAIMS` | `extract` | `extract` spends one extra LLM call per chapter for real claims; `reuse` reuses the extraction passes |
 | `DB_MAX_CONNECTIONS` | `20` | Connection-pool ceiling |
 | `RUN_LLM_EVALS` | unset | `1` enables the evals that call a real model |
 
@@ -151,9 +150,10 @@ uv run novel-pipeline process-chapter --novel-id <uuid> --number 1 \
 `process-chapter` also takes `--mock-llm`, `--chunk-size`, `--chunk-overlap`,
 and `--replace` (required to re-process a chapter number that already exists —
 it deletes that chapter's derived rows first).
-It runs the full write spine: INGEST → EXTRACT (13 passes per chunk, then
-intra-extraction dedup and cross-chapter canonicalization) → PERSIST (one
-transaction) → MATERIALIZE → CRITIQUE.
+It runs the full write spine: CRITIQUE → EXTRACT (13 passes per chunk, then
+intra-extraction dedup and cross-chapter canonicalization) → INGEST + PERSIST
+(one transaction) → MATERIALIZE → RECORD the original critique. The CLI
+records continuity findings and continues; the MCP save tool blocks on FAIL.
 
 Manual state rebuild (phases 4–5 are normally automatic, so this is for
 backfills after a failed materialize):

@@ -14,6 +14,11 @@ def test_single_chunk_round_trips_losslessly():
     assert sliding_window_chunks(PROSE, chunk_size=10_000) == [PROSE]
 
 
+def test_control_token_spellings_are_literal_prose():
+    text = 'The terminal printed "<|endoftext|>" before going dark.'
+    assert sliding_window_chunks(text, chunk_size=10_000) == [text]
+
+
 def test_chunks_are_windowed_with_overlap():
     text = " ".join(str(n) for n in range(100))
     chunks = sliding_window_chunks(text, chunk_size=10, overlap=3)
