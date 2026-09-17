@@ -9,10 +9,9 @@ def test_threads_status_at_cutoff_reflects_point_in_time(seed_novel_real, real_d
     assert response.status_code == 200
     rows = response.json()
     mine = next(r for r in rows if r["id"] == seeded["thread_id"])
-    # Raw columns reflect the novel-wide truth; status_at_cutoff reflects
-    # what a reader at chapter 2 would see.
-    assert mine["status"] == "closed"
-    assert mine["closed_chapter"] == 3
+    # The HTTP response must not expose a future closure in another field.
+    assert mine["status"] == "progressing"
+    assert mine["closed_chapter"] is None
     assert mine["status_at_cutoff"] == "progressing"
     assert all(e["chapter_number"] <= 2 for e in mine["events"])
 

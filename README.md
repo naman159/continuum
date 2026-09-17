@@ -1,7 +1,7 @@
 # Continuum
 
 Continuity tracking and agent memory for novels. Chapters go in; a
-queryable, spoiler-safe knowledge base comes out: characters, locations,
+queryable, chapter-capped knowledge base comes out: characters, locations,
 objects, factions, relationships, plot threads, commitments, who-knows-what,
 and per-chapter continuity critiques — browsable in a React wiki and
 exposed to writing agents over MCP.
@@ -9,6 +9,19 @@ exposed to writing agents over MCP.
 Continuum **analyzes** prose; it does not write it. The intended writer is
 an agent (e.g. Claude via the MCP server) that queries Continuum for
 ground truth while drafting and saves finished chapters back.
+
+## Project status
+
+Experimental and intended for local, trusted use. The core workflows have been
+checked with real Gemini calls on four saved novel chapters, database regression
+tests, and browser checks. See the [public-readiness audit](docs/public-readiness.md)
+for the evidence, fixes, and remaining limitations.
+
+Chapter-anchored state, events, and search honor the selected cutoff. Global
+metadata such as aliases, descriptions, and canon facts is not fully versioned.
+The critic provides heuristic findings, not a guarantee of continuity. Process
+chapters sequentially within a novel; for substantial retcons, reprocess the
+revised manuscript into a fresh novel.
 
 ## Architecture (two spines, one database)
 
@@ -105,6 +118,7 @@ hosted instance to other people.
 ## Usage
 
 ```bash
+cd backend
 # create a novel and process a chapter
 uv run novel-pipeline create-novel --title "My Novel"
 uv run novel-pipeline process-chapter --novel-id <id> --number 1 --file ch1.txt
@@ -152,10 +166,10 @@ human, via the wiki's Review page, can accept a failing draft anyway.
 ## Tests and evals
 
 ```bash
-cd backend && .venv/bin/python -m pytest        # full suite (needs Postgres)
-cd backend && .venv/bin/python -m pytest evals/ # eval harness (offline)
-cd backend && RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/  # + real-LLM evals
-cd frontend && npm run build                    # frontend gate
+(cd backend && uv run pytest -q)                 # needs Postgres
+(cd backend && uv run pytest evals/)             # offline provider fixtures
+(cd backend && RUN_LLM_EVALS=1 uv run pytest evals/) # spends API credits
+(cd frontend && npm run build)
 ```
 
 Use `backend/.venv` (not a repo-root venv) — the DB-integration tests
@@ -181,14 +195,14 @@ prevented — see `docs/state-of-the-system.html#entity-resolution`.
 
 CI (`.github/workflows/ci.yml`) runs on every push and pull request: the
 backend job stands up a `pgvector/pgvector:pg16` service, applies the schema,
-and runs pytest; the frontend job runs lint, typecheck, and build. The suite
+and runs Python lint and pytest; the frontend job runs lint, typecheck, and build. The suite
 is mock-LLM end to end, so it needs no provider credentials.
 
 Before opening a PR, run what CI runs:
 
 ```bash
-cd backend  && .venv/bin/python -m pytest -q
-cd frontend && npm run lint && npm run typecheck && npm run build
+(cd backend && uv run ruff check . && uv run pytest -q)
+(cd frontend && npm run lint && npm run typecheck && npm run build)
 ```
 
 ## License

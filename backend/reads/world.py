@@ -7,14 +7,8 @@ describing what custom entity types a novel uses), not chapter-anchored
 story data, so it takes no `up_to_chapter` parameter and always returns
 every registered type.
 
-`list_factions` / `list_custom_entities` accept `up_to_chapter` for
-interface symmetry with the other list functions, but the underlying rows
-(factions, custom entities) carry no chapter anchor of their own — the
-parameter goes unused there. `get_faction_detail` / `get_object_detail` /
-`get_custom_entity_detail` do use it: entity identity has no chapter anchor,
-but the chapter-anchored sub-lists inside each detail (events for factions;
-relationships for objects and custom entities) apply the cutoff so spoilers
-past `up_to_chapter` stay hidden.
+Faction and custom-entity visibility is derived from their earliest event or
+relationship reference. Unreferenced rows have no derivable chapter anchor.
 """
 
 from __future__ import annotations
@@ -119,7 +113,7 @@ def get_location_detail(
         (novel_id, location_id),
         dict_rows=True,
     )
-    if row is None:
+    if row is None or (row.get("first_appearance_chapter") or 0) > cutoff:
         return None
 
     char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id)
@@ -212,7 +206,7 @@ def get_object_detail(
         (novel_id, object_id),
         dict_rows=True,
     )
-    if row is None:
+    if row is None or (row.get("first_appearance_chapter") or 0) > cutoff:
         return None
 
     char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id)
@@ -254,7 +248,7 @@ def get_object_detail(
              END
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = ob.entity_id OR r.entity_b_id = ob.entity_id)
-          AND COALESCE(r.from_chapter, rch.number, 0) <= %s
+          AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           -- Active at the cutoff, not merely started before it.
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
           AND r.superseded_by_id IS NULL
@@ -264,6 +258,9 @@ def get_object_detail(
         dict_rows=True,
     )
     relationships = [dict(r) for r in rel_rows]
+    for rel in relationships:
+        if rel["to_chapter"] is not None and rel["to_chapter"] > cutoff:
+            rel["to_chapter"] = None
 
     return {
         "identity": {
@@ -397,7 +394,7 @@ def list_custom_entities(
         FROM entities e
         WHERE e.novel_id = %(novel_id)s AND e.entity_type = %(entity_type)s
           AND COALESCE(
-                (SELECT MIN(COALESCE(r.from_chapter, rch.number))
+                (SELECT MIN(GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)))
                    FROM relationships r
                    LEFT JOIN chapters rch ON rch.id = r.chapter_id
                   WHERE r.entity_a_id = e.id OR r.entity_b_id = e.id),
@@ -440,7 +437,7 @@ def get_custom_entity_detail(
         JOIN entities eb ON eb.id = r.entity_b_id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = %s OR r.entity_b_id = %s)
-          AND COALESCE(r.from_chapter, rch.number, 0) <= %s
+          AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
           AND r.superseded_by_id IS NULL
         """,
@@ -460,7 +457,7 @@ def get_custom_entity_detail(
             "symmetric": resolve_symmetric(r.get("rel_type"), r.get("symmetric")),
             "rel_type": r.get("rel_type"),
             "from_chapter": r.get("from_chapter"),
-            "to_chapter": r.get("to_chapter"),
+            "to_chapter": r.get("to_chapter") if r.get("to_chapter") is not None and r["to_chapter"] <= cutoff else None,
             "notes": r.get("notes"),
         })
 

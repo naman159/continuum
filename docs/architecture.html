@@ -316,6 +316,7 @@
 </style>
 </head>
 <body>
+<!-- Current audit and remaining limits: public-readiness.md (2026-09-17). -->
 
 <!-- ═══════════════════════════════════════════════════════
      SIDEBAR
@@ -497,7 +498,7 @@ graph LR
     F --> H["IntraExtractionDeduplicator\n(canonicalizer.py)"]
     H --> H2["EntityCanonicalizer\n(canonicalizer.py)"]
     H2 --> I["EntityResolver\n(resolver.py)"]
-    I --> J["_persist_extraction\n(pipeline.py)"]
+    I --> J["persist_extraction\n(extraction/persist.py)"]
     J --> K[(PostgreSQL\nknowledge graph)]
     K --> L["FastAPI\n(api/)"]
     L --> M["React\n(frontend/)"]
@@ -569,9 +570,8 @@ graph LR
 │   │   │   ├── materializer.py   <span class="cmt"># Sole writer of character_states; also writes located_in_edges, possesses_edges</span>
 │   │   │   ├── replay.py         <span class="cmt"># Folds typed state_deltas into state snapshots</span>
 │   │   │   └── types.py          <span class="cmt"># StateSnapshot, LocationFact, PossessionFact</span>
-│   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding + hash fallback</span>
+│   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding; explicit mock hash vectors</span>
 │   │   ├── llm.py                <span class="cmt"># Shared litellm loader + lenient JSON parser</span>
-│   │   ├── style.py              <span class="cmt"># Deterministic ingest-time prose fingerprint → chapters.style_fingerprint</span>
 │   │   ├── entity_tables.py      <span class="cmt"># Single source of the entity type → table map</span>
 │   │   └── ingestion/ingest.py   <span class="cmt"># Raw chapter INSERT</span>
 │   ├── <span class="dir">mcp_server/</span>          <span class="cmt"># FastMCP stdio server (novel-mcp): 13 tools for writing agents</span>
@@ -631,7 +631,7 @@ graph LR
         <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs. Only the <code>new_entities</code> pass is allowed to <em>create</em> characters; every other pass resolves with <code>create=False</code> (resolve-or-skip) so a name it merely references can't mint a phantom character.
       </li>
       <li>
-        <strong>Persist to DB</strong> — <code>_persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It never writes <code>character_states</code>: state changes go through the typed <code>state_deltas</code> log instead, and <code>character_states</code> is the sole responsibility of the <a href="#state-materializer">State Materializer</a>, which runs at the end of <code>analyze_chapter</code>.
+        <strong>Persist to DB</strong> — <code>extraction/persist.py::persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It never writes <code>character_states</code>: state changes go through the typed <code>state_deltas</code> log instead, and <code>character_states</code> is the sole responsibility of the <a href="#state-materializer">State Materializer</a>, which runs at the end of <code>analyze_chapter</code>.
       </li>
       <li>
         <strong>Persist state deltas</strong> — <code>persist_state_deltas()</code> (<code>persist_deltas.py</code>) writes the <code>state_deltas</code> extraction pass into the <code>state_deltas</code> table: reference-only resolution (<code>create=False</code>) for the subject character, and for possession/location kinds the object/location too, so a delta naming an unknown entity is dropped rather than minting one. Rows carry <code>subject_id</code>/<code>object_id</code> as universal <code>entities.id</code> and <code>location_id</code> as the typed <code>locations.id</code>, with an <code>ordinal</code> preserving narrative order within the chapter — this is the tier-2 log the state materializer replays.
@@ -689,8 +689,8 @@ graph LR
           <strong>A missing verdict is never a pass</strong>, and
           <code>run_critic=false</code> cannot disable the check a blocking caller depends on.</li>
         <li><strong>Resubmission always clears the stale row.</strong> A pending row for a chapter is
-          superseded (marked <code>rejected</code>) the moment a new draft is judged for that same
-          chapter — whether the new draft fails again or passes cleanly. A passing resubmission does
+          superseded (marked <code>rejected</code>) atomically with parking a new failure or
+          committing a passing chapter. A failed extraction leaves the old draft pending. A passing resubmission does
           not insert a row of its own; it only clears the one left by the earlier failure. Without
           this, a chapter that failed once and then passed would leave a stale <code>pending</code>
           row in the queue forever, pointing at superseded text a reviewer can no longer accept (the
@@ -707,7 +707,9 @@ graph LR
           labelled <code>[accepted after edit; original draft FAILed]</code> rather than
           <code>[accepted despite continuity FAIL]</code> — the re-ingest critiques the edited text
           into <code>critique_reports</code>, but never re-adjudicates the blocking verdict, so the
-          flag records only that the <em>original</em> draft failed.</li>
+          flag records only that the <em>original</em> draft failed. The accepted chapter,
+          override findings, and conditional review-status update now share one transaction;
+          a failed update or competing rejection rolls back the chapter too.</li>
         <li><strong>Human writes are advisory, not unchecked.</strong> The Process page and the CLI
           run the identical five checks on the identical claims and get the identical findings;
           they simply do not treat a FAIL as a veto. This is the part the old design got wrong by
@@ -1101,7 +1103,7 @@ flowchart TD
         <tr>
           <td><code>chapters</code></td>
           <td>One row per chapter. Stores raw text, multi-granularity summaries, and embeddings.</td>
-          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (JSONB), embedding, search_tsv, source TEXT DEFAULT 'human'</code></td>
+          <td><code>novel_id, number, raw_text, summary, summary_short, summary_long, style_fingerprint (legacy JSONB), embedding, search_tsv, source TEXT DEFAULT 'human'</code></td>
         </tr>
         <tr>
           <td><code>entities</code></td>
@@ -2124,7 +2126,7 @@ flowchart LR
       </thead>
       <tbody>
         <tr><td><code>novel_entity_types</code></td><td>New table for custom entity type definitions</td></tr>
-        <tr><td><code>chapters.*</code></td><td><code>summary_short</code>, <code>summary_long</code>, <code>style_fingerprint</code> (computed at ingest by <code>pipeline/style.py</code>), <code>search_tsv</code></td></tr>
+        <tr><td><code>chapters.*</code></td><td><code>summary_short</code>, <code>summary_long</code>, <code>style_fingerprint</code> (legacy; no active writer), <code>search_tsv</code></td></tr>
         <tr><td><code>events.*</code></td><td>SVO triples (<code>subject_entity_id</code>, <code>verb</code>, <code>object_entity_id</code>), <code>story_time_ordinal</code>, <code>narrative_order</code>, <code>scene_id</code> — <strong>never got a writer; dropped in the 2026-07-11 write-spine consolidation</strong> (see <a href="#write-spine-tables">Write-Spine Tables</a>) — plus <code>search_tsv</code>, which stayed</td></tr>
         <tr><td><code>relationships.*</code></td><td><code>superseded_by_id</code>, <code>evidence_event_ids[]</code>, <code>sentiment</code></td></tr>
         <tr><td><code>scenes.*</code></td><td><code>search_tsv</code> (for BM25 retrieval)</td></tr>

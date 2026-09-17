@@ -1,10 +1,8 @@
 """reads.commitments: cutoff-aware foreshadowing/payoff reads against real Postgres.
 
-Each row keeps the raw `status` column (the novel-wide truth) and adds a
-derived `status_at_cutoff`: a commitment paid off in a chapter later than
-`up_to_chapter` still reads as 'pending' at that cutoff, matching a reader
-who hasn't gotten there yet. `age_chapters` is computed against
-`status_at_cutoff` (not the raw `status`) for the same reason.
+Status, payoff text, and payoff chapter are all masked at the cutoff. A payoff
+in a later chapter reads as pending with no payoff details. age_chapters uses
+that point-in-time status.
 """
 
 from __future__ import annotations
@@ -57,10 +55,10 @@ def list_commitments(
             "id": r["id"],
             "foreshadow_text": r["foreshadow_text"],
             "foreshadow_chapter": r["foreshadow_chapter"],
-            "payoff_text": r["payoff_text"],
-            "payoff_chapter": r["payoff_chapter"],
+            "payoff_text": r["payoff_text"] if r["status_at_cutoff"] == "satisfied" else None,
+            "payoff_chapter": r["payoff_chapter"] if r["status_at_cutoff"] == "satisfied" else None,
             "trigger_predicate": r["trigger_predicate"],
-            "status": r["status"],
+            "status": r["status_at_cutoff"],
             "status_at_cutoff": r["status_at_cutoff"],
             "weight": float(r["weight"]) if r["weight"] is not None else None,
             "related_entity_names": [

@@ -16,7 +16,7 @@ import pytest
 
 from pipeline.db.client import DBClient
 from pipeline.extraction.resolver import EntityResolver
-from pipeline.pipeline import _persist_extraction
+from pipeline.extraction.persist import persist_extraction
 
 
 @pytest.fixture(scope="module")
@@ -73,7 +73,7 @@ def _persist(db, novel_id, chapter_id, rel_overrides=None):
         "canon_facts": [],
         "relationship_updates": [rel],
     }
-    return _persist_extraction(
+    return persist_extraction(
         db, resolver=resolver, chapter_id=chapter_id,
         chapter_number=2, extracted=extracted,
     )
@@ -99,3 +99,23 @@ def test_relationship_insert_round_trips_symmetric(db, novel, symmetric):
     assert {str(row["entity_a_id"]), str(row["entity_b_id"])} == {a_id, b_id}
     assert row["rel_type"] == "rival"
     assert row["symmetric"] is symmetric
+
+
+@pytest.mark.parametrize("mutual,expected", [(False, 2), (True, 1)])
+def test_reversed_relationship_keeps_direction_unless_mutual(db, novel, mutual, expected):
+    _character(db, novel, "Alice")
+    _character(db, novel, "Bob")
+    chapter_id = _chapter(db, novel)
+    _persist(db, novel, chapter_id, {"rel_type": "mentor_of", "symmetric": mutual})
+    _persist(db, novel, chapter_id, {"entity_a": "Bob", "entity_b": "Alice", "rel_type": "mentor_of", "symmetric": mutual})
+    assert db.fetchval("SELECT count(*) FROM relationships WHERE chapter_id = %s", (chapter_id,)) == expected
+
+
+def test_backdated_relationship_does_not_appear_before_its_evidence(db, novel):
+    from reads.graphs import relationship_graph
+    _character(db, novel, "Alice")
+    _character(db, novel, "Bob")
+    chapter_id = _chapter(db, novel, number=2)
+    _persist(db, novel, chapter_id, {"from_chapter": 1})
+    assert relationship_graph(db, novel, 1)["edges"] == []
+    assert len(relationship_graph(db, novel, 2)["edges"]) == 1

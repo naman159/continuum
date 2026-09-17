@@ -15,7 +15,7 @@ export type CharacterSummary = {
   first_appearance_chapter: number | null;
 };
 
-export type CharacterStateRow = {
+type CharacterStateRow = {
   chapter_number: number;
   location: string | null;
   emotional_state: string | null;
@@ -57,7 +57,7 @@ export type SharedDynamicRow = {
   description: string | null;
 };
 
-export type CharacterDynamicRow = {
+type CharacterDynamicRow = {
   id: string;
   chapter_number: number;
   other_entity_name: string;
@@ -162,7 +162,7 @@ export type PossessionEdgeRow = {
 };
 
 
-export type ThreadEventLink = {
+type ThreadEventLink = {
   event_id: string;
   description: string;
   chapter_number: number;
@@ -190,7 +190,7 @@ export type ContinuityFlag = {
   resolved_chapter_number: number | null;
 };
 
-export type SearchResultRow = {
+type SearchResultRow = {
   kind: string;
   chapter_number: number | null;
   score: number;
@@ -206,7 +206,7 @@ export type CritiqueChapterRow = {
   warns: number;
 };
 
-export type CritiqueFinding = {
+type CritiqueFinding = {
   check_name: string;
   severity: "fail" | "warn" | "info";
   message: string;
@@ -222,8 +222,8 @@ export type CritiqueReportDetail = {
   findings: CritiqueFinding[];
 };
 
-export type GraphNode = { id: string; label: string; description: string | null };
-export type GraphEdge = {
+type GraphNode = { id: string; label: string; description: string | null };
+type GraphEdge = {
   id: string;
   from: string;
   to: string;
@@ -235,7 +235,7 @@ export type GraphEdge = {
 };
 export type RelationshipGraph = { nodes: GraphNode[]; edges: GraphEdge[] };
 
-export type EntityGraphNode = {
+type EntityGraphNode = {
   id: string;
   label: string;
   entity_type: string;
@@ -271,7 +271,7 @@ export type ObjectSummary = {
   first_appearance_chapter: number | null;
 };
 
-export type ObjectRelationship = {
+type ObjectRelationship = {
   character_name: string;
   rel_type: string | null;
   from_chapter: number | null;
@@ -319,7 +319,7 @@ export type CustomEntitySummary = {
   description: string | null;
 };
 
-export type CustomEntityRelationship = {
+type CustomEntityRelationship = {
   other_entity_name: string;
   other_entity_type: string;
   direction: "from" | "to";
@@ -338,7 +338,7 @@ export type CustomEntityDetail = {
   relationships: CustomEntityRelationship[];
 };
 
-export interface DraftFinding {
+interface DraftFinding {
   check: string;
   severity: string;
   message: string;
@@ -401,7 +401,7 @@ export async function postJson<T>(
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-export async function deleteRequest(path: string): Promise<void> {
+async function deleteRequest(path: string): Promise<void> {
   const res = await fetch(path, { method: "DELETE" });
   if (!res.ok) await throwHttpError(res);
 }

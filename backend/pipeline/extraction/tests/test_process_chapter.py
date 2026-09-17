@@ -22,7 +22,8 @@ def test_process_chapter_accepts_db_replace_and_source():
 
 
 def test_persist_extraction_inserts_relationships_with_chapter_id():
-    src = inspect.getsource(pipeline_mod._persist_extraction)
+    from pipeline.extraction.persist import persist_extraction
+    src = inspect.getsource(persist_extraction)
     assert "chapter_id" in src.split("INSERT INTO relationships")[1].split(")")[0], (
         "relationships INSERT must include chapter_id"
     )

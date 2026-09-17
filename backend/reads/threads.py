@@ -1,13 +1,8 @@
 """reads.threads: cutoff-aware plot-thread reads against real Postgres.
 
-`list_threads` serves both the wiki (all threads, filterable by the raw
-`status` column's point-in-time value) and the MCP `open_threads` tool
-(threads not yet closed as of `writing_chapter - 1`). Each row keeps the raw
-`status`/`closed_chapter` columns (the novel-wide truth) and adds a derived
-`status_at_cutoff` reflecting what a reader would see at `up_to_chapter` — a
-thread closed in a later chapter reads as 'progressing', not 'closed', at an
-earlier cutoff. Per-thread event lists are capped at the same cutoff, merged
-from the former `mcp_server.queries.list_open_threads` reference query.
+`list_threads` serves both the wiki and MCP. Status and closure fields are
+masked at the cutoff, and per-thread event lists use the same chapter bound.
+Global thread descriptions are not versioned.
 """
 
 from __future__ import annotations
@@ -81,11 +76,11 @@ def list_threads(
             "id": r["id"],
             "title": r["title"],
             "description": r.get("description"),
-            "status": r["status"],
+            "status": r["status_at_cutoff"],
             "status_at_cutoff": r["status_at_cutoff"],
             "thread_type": r.get("thread_type"),
             "opened_chapter": r.get("opened_chapter"),
-            "closed_chapter": r.get("closed_chapter"),
+            "closed_chapter": r.get("closed_chapter") if r["status_at_cutoff"] == "closed" else None,
             "events": events_by_thread.get(str(r["id"]), []),
         }
         for r in rows

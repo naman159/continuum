@@ -33,8 +33,7 @@ def _write_findings_through(
 ) -> int:
     """Record the blocking findings against the accepted chapter.
 
-    Takes a cursor (not a DBClient) so the caller can run this in the same
-    transaction as the submission's status update.
+    Takes a cursor or DBSession so these writes share the chapter transaction.
 
     `edited` reflects whether the human changed the text before accepting —
     NOT whether the edit actually fixed anything. The re-ingest runs under
@@ -79,29 +78,39 @@ def accept_submission(
 ) -> dict[str, Any]:
     """Ingest a parked draft as canon under "warn" policy (human override).
 
-    `analyze_chapter` commits the chapter in its own internal transaction, so
-    it cannot be joined with the writes below — that commit point is final
-    the moment it returns. The findings write-through and the submission's
-    status update, however, are made atomic with each other: both land or
-    neither does, so a mid-write failure never leaves flags recorded against
-    a submission that still reads 'pending'. If that second transaction
-    fails, the chapter still exists but the submission is stranded at
-    'pending' with no flags — see the re-raise below, which names the
-    situation so a human can resolve it by hand instead of retrying blindly.
-
-    The status UPDATE below is a compare-and-swap (`AND status = 'pending'`):
-    `_load_pending` above is a bare read, so two overlapping requests for the
-    same submission (two reviewers, two tabs) can both pass it before either
-    writes. Without the CAS, a reject landing after this accept's UPDATE
-    would silently flip a now-canon, flag-bearing chapter's submission back
-    to 'rejected'. With it, the loser's UPDATE matches zero rows and raises
-    below instead of clobbering the winner's resolution.
+    The chapter, original findings, and review status commit together through
+    analyze_chapter's persistence hook. A failed status write or a concurrent
+    rejection rolls back the chapter too; the pending draft remains retryable
+    after a database failure. The conditional UPDATE prevents a stale reviewer
+    from accepting a submission another reviewer has already resolved.
     """
     row = _load_pending(db, submission_id)
     text = edited_text if edited_text is not None else row["raw_text"]
     resolution_note = note
     if edited_text is not None:
         resolution_note = f"{note or 'accepted'} (edited before ingest)"
+    if not text.strip():
+        raise ValueError("accepted chapter text must not be empty")
+
+    flags_written = 0
+
+    def finalize(session, chapter_id: str) -> None:
+        nonlocal flags_written
+        resolved = session.fetchval(
+            """
+            UPDATE draft_submissions
+               SET status = 'accepted', resolved_at = now(),
+                   resolution_note = %s, raw_text = %s
+             WHERE id = %s AND status = 'pending'
+            RETURNING id
+            """,
+            (resolution_note, text, submission_id),
+        )
+        if resolved is None:
+            raise ValueError(f"draft submission {submission_id} is already resolved")
+        flags_written = _write_findings_through(
+            session, chapter_id, row["findings"] or {}, edited=edited_text is not None
+        )
 
     outcome = analyze_chapter(
         novel_id=row["novel_id"],
@@ -115,44 +124,9 @@ def accept_submission(
         replace=False,
         source="agent",
         on_continuity_fail="warn",
+        on_persist=finalize,
     )
     chapter_id = str(outcome["chapter_id"])
-
-    try:
-        with db.transaction() as cur:
-            flags_written = _write_findings_through(
-                cur, chapter_id, row["findings"] or {}, edited=edited_text is not None
-            )
-            cur.execute(
-                """
-                UPDATE draft_submissions
-                   SET status = 'accepted', resolved_at = now(),
-                       resolution_note = %s, raw_text = %s
-                 WHERE id = %s AND status = 'pending'
-                """,
-                (resolution_note, text, submission_id),
-            )
-            if cur.rowcount == 0:
-                raise ValueError(
-                    f"draft submission {submission_id} is already resolved"
-                )
-    except ValueError:
-        # A lost compare-and-swap race, not a write failure: the chapter is
-        # ingested (see docstring — that commit is final regardless), but
-        # this submission's own status update lost to a concurrent
-        # accept/reject and rolled back cleanly. Surface it as the same
-        # "already resolved" ValueError _load_pending raises on a stale read,
-        # not the RuntimeError below, which is about a genuine write failure.
-        raise
-    except Exception as exc:
-        raise RuntimeError(
-            f"chapter {chapter_id} was ingested for draft submission "
-            f"{submission_id}, but recording the continuity-flag write-through "
-            "and marking the submission accepted failed and rolled back; "
-            f"submission {submission_id} is still 'pending' with chapter "
-            f"{chapter_id} already on record — this needs manual resolution, "
-            "not a retry (a retry will hit the duplicate-chapter guard)"
-        ) from exc
 
     return {
         "accepted": True,

@@ -27,7 +27,7 @@ class StateMaterializer:
         self.db = db
         self.replay = StateReplay(db)
 
-    def materialize(self, novel_id: str, through_chapter: int) -> MaterializeResult:
+    def materialize(self, novel_id: str, through_chapter: int | None = None) -> MaterializeResult:
         snapshots_written = 0
         location_edges_written = 0
         possession_edges_written = 0
@@ -43,6 +43,15 @@ class StateMaterializer:
             cur.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(novel_id),)
             )
+            # Resolve the current horizon after acquiring the lock. A caller
+            # reading MAX(number) before waiting could otherwise overwrite a
+            # newer rebuild with an older chapter range.
+            if through_chapter is None:
+                cur.execute(
+                    "SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s",
+                    (novel_id,),
+                )
+                through_chapter = int(cur.fetchone()[0])
             # Replay on this cursor so the reads and the rebuild see one
             # consistent snapshot of the delta log.
             snapshots, location_facts, possession_facts = self.replay.replay(
@@ -152,7 +161,7 @@ class StateMaterializer:
             by_entity.setdefault(fact.entity_id, []).append(fact)
 
         written = 0
-        for entity_id, entity_facts in by_entity.items():
+        for entity_facts in by_entity.values():
             inserted_ids: list[str] = []
             for fact in entity_facts:
                 cur.execute(

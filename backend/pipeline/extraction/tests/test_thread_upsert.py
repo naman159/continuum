@@ -11,7 +11,7 @@ import uuid
 
 from pipeline.db.client import DBClient
 from pipeline.extraction.resolver import EntityResolver
-from pipeline.pipeline import _persist_extraction
+from pipeline.extraction.persist import persist_extraction
 
 
 def _seed(db: DBClient) -> tuple[str, str, str]:
@@ -32,7 +32,7 @@ def _seed(db: DBClient) -> tuple[str, str, str]:
 
 
 def _persist_thread(db: DBClient, novel_id: str, chapter_id: str, number: int, status: str) -> None:
-    _persist_extraction(
+    persist_extraction(
         db,
         resolver=EntityResolver(db, novel_id=novel_id, chapter_number=number),
         chapter_id=chapter_id,

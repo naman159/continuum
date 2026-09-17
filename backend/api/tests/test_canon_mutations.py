@@ -70,3 +70,17 @@ def test_delete_canon_fact_missing_returns_404(seed_novel_real, real_db, client)
         f"/api/novels/{seeded['novel_id']}/canon/00000000-0000-0000-0000-000000000000"
     )
     assert response.status_code == 404
+
+
+def test_create_canon_rejects_subject_from_another_novel(seed_novel_real, real_db, client):
+    first = seed_novel_real(real_db)
+    second = seed_novel_real(real_db)
+    response = client.post(
+        f"/api/novels/{first['novel_id']}/canon",
+        json={"subject_entity_id": second["char_a_eid"], "predicate": "hair_color", "value": "black"},
+    )
+    assert response.status_code == 404
+    assert real_db.fetchval(
+        "SELECT count(*) FROM canon_facts WHERE novel_id = %s AND subject_entity_id = %s",
+        (first["novel_id"], second["char_a_eid"]),
+    ) == 0

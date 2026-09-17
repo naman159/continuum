@@ -160,7 +160,7 @@ def test_resolve_any_entity_finds_entity_by_name():
             self.executed = []
 
         def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
-            return None  # no exact name / alias hit via characters table
+            return (obj_entity_id,) if "FROM entities" in query else None
 
         def fetchval(self, query, params=None, *, commit=False):
             return None

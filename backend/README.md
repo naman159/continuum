@@ -183,3 +183,15 @@ Run pytest from this directory with **this** `.venv`. The suite mixes
 `FakeDB` unit tests with integration tests that hit a real database, and the
 integration ones resolve `DATABASE_URL` from `backend/.env` — a repo-root
 venv will collect them against an uninitialized database and fail.
+
+## Public-readiness audit
+
+The [2026-09-17 audit](../docs/public-readiness.md) records the real-provider,
+database, browser, and installation checks and the remaining design limits.
+Core extraction writes now live in `pipeline/extraction/persist.py`; the main
+pipeline coordinates them. Human draft acceptance commits its review status and
+original findings with the chapter. The unused style-fingerprint writer is retired.
+
+Run `uv run ruff check .` alongside pytest. Ingest chapters sequentially per novel;
+major manuscript retcons should be processed into a fresh novel because global
+entity, canon, and thread metadata is not fully versioned.

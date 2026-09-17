@@ -724,8 +724,6 @@ def _select_roster_subset(
     return [roster[i] for i in kept]
 
 
-# Backwards-compatibility alias — existing code that imports CharacterCanonicalizer still works
-CharacterCanonicalizer = EntityCanonicalizer
 
 
 def _collect_entities_by_type(extracted: dict[str, Any]) -> dict[str, list[dict]]:
@@ -840,7 +838,6 @@ def collect_character_names(extracted: dict[str, Any]) -> set[str]:
 
 __all__ = [
     "BUILTIN_ENTITY_TYPES",
-    "CharacterCanonicalizer",       # backwards-compat alias
     "EntityCanonicalizer",
     "IntraExtractionDeduplicator",
     "collect_character_names",

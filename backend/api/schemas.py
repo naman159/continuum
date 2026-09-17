@@ -250,10 +250,9 @@ class ProcessRequest(BaseModel):
     number: int = Field(ge=1)
     text: str
     replace: bool = False
-    # None defers to CRITIC_ENABLED. The critic is a separate post-ingest
-    # judgement, so turning it off here changes nothing about what lands in
-    # the memory layer — `python -m pipeline.critic.cli` can supply the report
-    # afterwards.
+    # None defers to CRITIC_ENABLED. This human-facing endpoint records a
+    # pre-ingest critique without blocking on its verdict. A skipped review
+    # can be supplied later with `python -m pipeline.critic.cli`.
     run_critic: bool | None = None
 
 

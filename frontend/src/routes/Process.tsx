@@ -77,6 +77,9 @@ export default function Process() {
   const isRunning = Boolean(jobId) && !jobQuery.isError && job?.status !== "done" && job?.status !== "error";
 
   const result = job?.result as Record<string, unknown> | null | undefined;
+  const critique = result?.critique as {
+    status?: string; error?: string; persisted?: boolean;
+  } | null | undefined;
 
   return (
     <div>
@@ -198,6 +201,25 @@ export default function Process() {
                   Chapter processed
                 </span>
               </div>
+
+              {result?.materialized === false && (
+                <p role="alert" className="status-error">
+                  The chapter was saved, but rebuilding character state failed.
+                  Rebuild state before relying on the character and knowledge views.
+                </p>
+              )}
+              {critique && critique.status !== "ok" && (
+                <p role="alert" className="muted">
+                  The chapter was saved without a completed continuity review.
+                  {critique.error ? ` ${critique.error}` : ""}
+                </p>
+              )}
+              {critique?.persisted === false && (
+                <p role="alert" className="status-error">
+                  The chapter was saved, but its continuity report could not be
+                  stored. Run the continuity review again to restore the report.
+                </p>
+              )}
 
               {result && (
                 <div className="job-result">

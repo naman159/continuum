@@ -4,8 +4,7 @@ from pipeline.extraction.resolver import EntityResolver, ResolvedEntity
 
 def _make_db(entities=None):
     db = MagicMock()
-    db.entities = entities or []
-    db.fetchone = MagicMock(return_value=None)
+    db.fetchone = MagicMock(return_value=(entities[0]["id"],) if entities else None)
     db.fetchval = MagicMock(return_value="realm-uuid-123")
     db.execute = MagicMock()
     return db
@@ -34,7 +33,7 @@ def test_resolve_custom_entity_cache_hit():
     assert db.fetchval.call_count == 1  # only created once
 
 
-def test_resolve_custom_entity_finds_existing_in_fake_db():
+def test_resolve_custom_entity_finds_existing_in_database():
     from uuid import uuid4
     eid = uuid4()
     db = _make_db(entities=[

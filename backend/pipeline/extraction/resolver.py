@@ -151,42 +151,24 @@ class EntityResolver:
             return ResolvedEntity(cached[0], cached[1], created=False)
 
         # Check existing entity in entities table directly (by name, then alias).
-        if hasattr(self.db, "entities"):
-            entity = next(
-                (
-                    e for e in self.db.entities
-                    if str(e.get("novel_id")) == str(self.novel_id)
-                    and str(e.get("entity_type")) == entity_type
-                    and (
-                        str(e.get("name", "")).lower() == normalized_name.lower()
-                        or normalized_name.lower() in {str(a).lower() for a in (e.get("aliases") or [])}
-                    )
-                ),
-                None,
-            )
-            if entity:
-                uid = str(entity["id"])
-                self._cache[cache_key] = (uid, uid)
-                return ResolvedEntity(uid, uid, created=False)
-        else:
-            row = self.db.fetchone(
-                """
-                SELECT id FROM entities
-                WHERE novel_id = %s AND entity_type = %s
-                  AND (
-                      lower(name) = lower(%s)
-                      OR EXISTS (
-                          SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
-                      )
+        row = self.db.fetchone(
+            """
+            SELECT id FROM entities
+            WHERE novel_id = %s AND entity_type = %s
+              AND (
+                  lower(name) = lower(%s)
+                  OR EXISTS (
+                      SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
                   )
-                LIMIT 1
-                """,
-                (self.novel_id, entity_type, normalized_name, normalized_name),
-            )
-            if row:
-                uid = str(row[0])
-                self._cache[cache_key] = (uid, uid)
-                return ResolvedEntity(uid, uid, created=False)
+              )
+            LIMIT 1
+            """,
+            (self.novel_id, entity_type, normalized_name, normalized_name),
+        )
+        if row:
+            uid = str(row[0])
+            self._cache[cache_key] = (uid, uid)
+            return ResolvedEntity(uid, uid, created=False)
 
         # Create: insert into entities only.
         universal_id = str(self.db.fetchval(
@@ -225,47 +207,30 @@ class EntityResolver:
         if cached:
             return cached[1]
 
-        if hasattr(self.db, "entities"):
-            entity = next(
-                (
-                    e for e in self.db.entities
-                    if str(e.get("novel_id")) == str(self.novel_id)
-                    and (
-                        str(e.get("name", "")).lower() == normalized.lower()
-                        or normalized.lower() in {str(a).lower() for a in (e.get("aliases") or [])}
-                    )
-                ),
-                None,
-            )
-            if entity:
-                uid = str(entity["id"])
-                self._cache[cache_key] = (uid, uid)
-                return uid
-        else:
-            row = self.db.fetchone(
-                """
-                SELECT id FROM entities
-                WHERE novel_id = %s
-                  AND (
-                      lower(name) = lower(%s)
-                      OR EXISTS (
-                          SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
-                      )
+        row = self.db.fetchone(
+            """
+            SELECT id FROM entities
+            WHERE novel_id = %s
+              AND (
+                  lower(name) = lower(%s)
+                  OR EXISTS (
+                      SELECT 1 FROM unnest(aliases) AS a WHERE lower(a) = lower(%s)
                   )
-                LIMIT 1
-                """,
-                (self.novel_id, normalized, normalized, ),
-            )
-            if row:
-                uid = str(row[0])
-                self._cache[cache_key] = (uid, uid)
-                return uid
+              )
+            LIMIT 1
+            """,
+            (self.novel_id, normalized, normalized),
+        )
+        if row:
+            uid = str(row[0])
+            self._cache[cache_key] = (uid, uid)
+            return uid
 
-            for entity_type in ("character", "faction", "location", "object"):
-                found = self._lookup_typed(entity_type, normalized)
-                if found:
-                    self._cache[cache_key] = found
-                    return found[1]
+        for entity_type in ("character", "faction", "location", "object"):
+            found = self._lookup_typed(entity_type, normalized)
+            if found:
+                self._cache[cache_key] = found
+                return found[1]
 
         if not create:
             return None

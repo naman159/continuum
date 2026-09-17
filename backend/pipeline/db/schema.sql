@@ -225,6 +225,8 @@ CREATE TABLE IF NOT EXISTS continuity_flags (
 -- `summary` (existing) stays as the medium-granularity (~150 word) summary.
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS summary_short TEXT;
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS summary_long TEXT;
+-- Retained for existing databases; the unused style-analysis writer was
+-- removed in the public-release audit. No current application code reads it.
 ALTER TABLE chapters ADD COLUMN IF NOT EXISTS style_fingerprint JSONB;
 
 -- ---- Relationships: invalidate-don't-delete + evidence ----

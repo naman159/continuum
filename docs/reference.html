@@ -644,14 +644,14 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <li>Custom entity lists per registered type</li>
     </ul>
 
-    <h3>_persist_extraction()</h3>
+    <h3>persist_extraction() — extraction/persist.py</h3>
     <p>
       Writes a fully resolved extraction result to the DB. Called once per chapter inside the
       session transaction. Receives a <code>DBSession</code> (not a <code>DBClient</code>).
     </p>
     <p>
       Writes to (in order): <code>characters</code>, <code>locations</code>, <code>factions</code>,
-      <code>objects</code>, <code>entities</code> (custom), <code>character_states</code>,
+      <code>objects</code>, <code>entities</code> (custom),
       <code>relationships</code> (with <code>chapter_id</code>), <code>shared_dynamics</code>,
       <code>events</code>, <code>plot_threads</code>, <code>thread_events</code>,
       <code>continuity_flags</code>.
@@ -893,7 +893,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>
       Batch-embeds the chapter summary and all event descriptions for a processed chapter.
       Updates <code>chapters.embedding</code> and <code>events.embedding</code> in the DB.
-      Called after <code>_persist_extraction()</code>.
+      Called after <code>persist_extraction()</code>.
     </p>
   </section>
 
@@ -906,7 +906,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       added on the <code>closing-the-gap-with-sota</code> branch — <code>scenes</code>,
       <code>knows_edges</code>, <code>commitments</code> — plus the multi-granularity summary columns
       on <code>chapters</code>. Called from <code>analyze_chapter</code> inside the persistence
-      transaction, after <code>_persist_extraction()</code>.
+      transaction, after <code>persist_extraction()</code>.
     </p>
 
     <h3>persist_scenes()</h3>
@@ -1043,7 +1043,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   summary         <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- medium summary</span>
   summary_short   <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- 1-2 sentence</span>
   summary_long    <span class="sql-type">TEXT</span>,                                        <span class="sql-comment">-- detailed</span>
-  style_fingerprint <span class="sql-type">JSONB</span>,                                    <span class="sql-comment">-- deterministic ingest-time prose fingerprint, see pipeline/style.py</span>
+  style_fingerprint <span class="sql-type">JSONB</span>,                                    <span class="sql-comment">-- legacy field retained for compatibility; no active writer</span>
   embedding       <span class="sql-type">vector(__EMBEDDING_DIM__)</span>,                    <span class="sql-comment">-- pgvector</span>
   processed_at    <span class="sql-type">TIMESTAMPTZ</span>,
   source          <span class="sql-type">TEXT</span>         <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">'human'</span>,      <span class="sql-comment">-- provenance tag: 'human' | 'agent'</span>

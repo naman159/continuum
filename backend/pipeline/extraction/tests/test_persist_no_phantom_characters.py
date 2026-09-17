@@ -10,7 +10,7 @@ the sole authoritative creator; everything else resolves-or-skips.
 
 import uuid
 
-from pipeline.pipeline import _persist_extraction
+from pipeline.extraction.persist import persist_extraction
 
 
 class RecordingDB:
@@ -58,7 +58,7 @@ def _run(extracted: dict) -> RecordingDB:
 
     db = RecordingDB()
     resolver = EntityResolver(db, novel_id="n1", chapter_number=1)
-    _persist_extraction(
+    persist_extraction(
         db, resolver=resolver, chapter_id=str(uuid.uuid4()),
         chapter_number=1, extracted=extracted,
     )

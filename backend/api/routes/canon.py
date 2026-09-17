@@ -45,7 +45,7 @@ def post_canon_fact(novel_id: UUID, body: CanonFactCreate) -> dict:
         locked=body.locked,
     )
     if row is None:
-        raise HTTPException(status_code=500, detail="insert failed")
+        raise HTTPException(status_code=404, detail="Subject entity not found in this novel")
     return {"id": str(row["id"])}
 
 

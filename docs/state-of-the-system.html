@@ -244,15 +244,17 @@
   <!-- ════════════════ TL;DR ════════════════ -->
   <section id="tldr">
   <h2>TL;DR</h2>
-  <p><strong>Release check, 2026-09-16:</strong> 497 backend tests pass with three
+  <p><strong>Public-readiness audit, 2026-09-17:</strong> 504 backend tests pass with three
   synthetic provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
   A separate live Gemini run processed four actual chapters from Pride and Prejudice
   and Primal Hunter, including semantic retrieval and chapter-cutoff checks. It
   exposed quota failures being swallowed during extraction; bounded retries and
   fail-fast handling now recover transient errors and reject incomplete extraction.
   Both dependency audits are clean, and no credentials were found in the scanned
-  Git history. See the <a href="release-check.md">release check</a> for the
-  browser workflow, fixes, and verification limits.</p>
+  Git history. The follow-up also fixes review acceptance atomicity, historical reads,
+  directional relationship deduplication, and partial-completion reporting. See the
+  <a href="public-readiness.md">current audit and remaining limits</a> and the
+  <a href="release-check.md">real-Gemini release check</a>.</p>
 
   <div class="callout info">
     <strong>The one-sentence version:</strong> the analyzer-vs-generator ambiguity this page used to
@@ -488,8 +490,8 @@ flowchart TB
      and a persisted critique, not just chapters that happened to pass through a generation loop. Plan 3
      then removed the chapter-authoring code entirely — the scene-level planner, the prose drafter, and
      the orchestrated revision loop — rather than leave it as unreachable dead weight. The style
-     fingerprint that loop depended on survives as ingest-time chapter metadata
-     (<code>pipeline/style.py</code>, computed and stored on every chapter regardless of source).</p>
+     fingerprint originally survived as chapter metadata, but the 2026-09-17 audit found
+     no reader and removed its calculator and write path. Existing database values are retained.</p>
 
   <div class="callout tip">
     <strong>Decision, made.</strong> Continuum is a continuity checker / story-bible engine over
@@ -564,7 +566,7 @@ flowchart TB
       <tr><td><code>knows_edges</code> (fact_description)</td><td><code>persist_knows_edges</code> (knowledge_state_deltas pass)</td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>commitments</code></td><td><code>persist_commitments</code> (commitments pass); payoffs fuzzy-match pending commitments and flip them to <code>satisfied</code></td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>chapters.summary_short/medium/long</code></td><td><code>persist_multi_summaries</code></td><td><span class="badge green">live</span></td></tr>
-      <tr><td><code>thread_events</code></td><td><code>_persist_extraction</code></td><td><span class="badge green">live</span></td></tr>
+      <tr><td><code>thread_events</code></td><td><code>persist_extraction</code></td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>knows_edges.fact_id</code> → <code>canon_facts</code> (removed 2026-07-11)</td><td>never linked — column dropped from the schema</td><td><span class="badge yellow">removed</span></td></tr>
       <tr><td><code>canon_facts</code> (+ <code>locked</code>)</td><td><code>persist_canon_facts()</code> (pass 13) — upsert-unless-locked; contradiction → continuity_flag</td><td><span class="badge green">live</span></td></tr>
       <tr><td><code>state_deltas</code> (write-spine, added 2026-07-11)</td><td><code>persist_state_deltas()</code> (state_deltas pass, reference-only resolution)</td><td><span class="badge green">live</span></td></tr>
@@ -742,13 +744,10 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      deterministic mock path, but nothing ever consumed its output outside of the authoring loop it was
      built alongside, and that loop was never the product.</p>
 
-  <p>Task 2 of Plan 3 (2026-07-14) deleted the module, its prose-generation counterpart, and the
-     orchestration that sequenced them, in full — not disabled, not left orphaned behind a flag. The one
-     piece of that sub-system worth keeping, a deterministic per-chapter prose fingerprint (sentence
-     length, dialogue ratio, POV person, exclamation rate), was extracted into
-     <code>pipeline/style.py</code> and is now computed at ingest time for every chapter — human- or
-     agent-authored alike — and stored on <code>chapters.style_fingerprint</code> as voice metadata for
-     the wiki, independent of any authoring pipeline.</p>
+  <p>Task 2 of Plan 3 (2026-07-14) deleted the authoring module, its prose-generation
+     counterpart, and their orchestration. The retained style calculator was removed on
+     2026-09-17 after confirming that no UI, MCP tool, or retrieval path consumed it.
+     <code>chapters.style_fingerprint</code> remains only to preserve existing database data.</p>
   </section>
 
   <!-- ════════════════ STATE ════════════════ -->
@@ -849,7 +848,7 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <h2>Data Integrity — Dual Source of Truth for State <span class="badge green">Resolved 2026-07-12</span></h2>
   <p><strong>Resolved 2026-07-12.</strong> This section previously described <code>character_states</code>
      being written by two different layers with conflicting semantics — the extractor writing one row per
-     <code>entity_delta</code> directly (<code>_persist_extraction</code>), and the materializer separately
+     <code>entity_delta</code> directly (<code>persist_extraction</code>), and the materializer separately
      rebuilding snapshots by replaying <code>state_deltas</code>. That is no longer the case: the
      materializer (<code>pipeline/state/materializer.py</code>) is now the <strong>sole writer</strong> of
      <code>character_states</code> — see its own comment, "character_states: sole writer — novel-scoped

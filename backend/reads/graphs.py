@@ -52,7 +52,7 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
         JOIN characters ca ON ca.entity_id = ea.id
         JOIN characters cb ON cb.entity_id = eb.id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
-        WHERE COALESCE(r.from_chapter, rch.number, 0) <= %s
+        WHERE GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           -- Active at the cutoff: a relationship that ended before it is not
           -- a current relationship.
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
@@ -158,7 +158,7 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s
         JOIN entities eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
-        WHERE COALESCE(r.from_chapter, rch.number, 0) <= %s
+        WHERE GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
           AND r.superseded_by_id IS NULL
         """,
@@ -240,7 +240,7 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
         JOIN entities eb ON eb.id = o.entity_id AND eb.novel_id = %s
         WHERE (pe.since_chapter IS NULL OR pe.since_chapter <= %s)
-          AND (pe.until_chapter IS NULL OR pe.until_chapter >= %s)
+          AND (pe.until_chapter IS NULL OR pe.until_chapter > %s)
         """,
         (novel_id, novel_id, cutoff, cutoff),
         dict_rows=True,
@@ -259,8 +259,12 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         JOIN entities eb ON eb.id = l.entity_id   AND eb.novel_id = %s
         WHERE (lie.since_chapter IS NULL OR lie.since_chapter <= %s)
           AND (lie.until_chapter IS NULL OR lie.until_chapter >= %s)
+          AND NOT EXISTS (
+              SELECT 1 FROM located_in_edges newer
+              WHERE newer.id = lie.superseded_by_id AND newer.since_chapter <= %s
+          )
         """,
-        (novel_id, novel_id, cutoff, cutoff),
+        (novel_id, novel_id, cutoff, cutoff, cutoff),
         dict_rows=True,
     )
     raw_story.extend(dict(r) for r in loc_in_rows)

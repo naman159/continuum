@@ -7,7 +7,10 @@ venv/
 
 # Environment / local config
 .env
-.env.branch
+.env.*
+!.env.example
+.pytest_cache/
+.ruff_cache/
 
 # OS
 .DS_Store

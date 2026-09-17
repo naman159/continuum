@@ -69,13 +69,13 @@ def list_location_edges(
     where = ["e.novel_id = %s", "le.since_chapter <= %s"]
     params: list[Any] = [novel_id, cutoff]
     if active_only:
-        # superseded_by_id is how the materializer marks an edge replaced by a
-        # later one. Without this the materializer's own output contradicts
-        # itself: a character who moves twice within one chapter has the old
-        # edge closed at [N, N] and the new one open at [N, NULL], so both
-        # match "active at N" and the character reads as being in two places
-        # at once — the exact contradiction the critic exists to catch.
-        where.append("le.superseded_by_id IS NULL")
+        # A later move does not erase the location at an earlier cutoff.
+        # Same-chapter moves still collapse to the final location.
+        where.append("""NOT EXISTS (
+            SELECT 1 FROM located_in_edges newer
+            WHERE newer.id = le.superseded_by_id AND newer.since_chapter <= %s
+        )""")
+        params.append(cutoff)
         where.append("(le.until_chapter IS NULL OR le.until_chapter >= %s)")
         params.append(cutoff)
     rows = db.fetchall(
@@ -101,7 +101,7 @@ def list_location_edges(
             "location_id": r["location_id"],
             "location_name": r["location_name"],
             "since_chapter": r["since_chapter"],
-            "until_chapter": r["until_chapter"],
+            "until_chapter": r["until_chapter"] if r["until_chapter"] is not None and r["until_chapter"] <= cutoff else None,
             "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
         }
         for r in rows
@@ -116,7 +116,9 @@ def list_possession_edges(
     params: list[Any] = [novel_id, cutoff]
     if active_only:
         where.append("pe.superseded_by_id IS NULL")
-        where.append("(pe.until_chapter IS NULL OR pe.until_chapter >= %s)")
+        # Possession replay records the LOSS chapter, unlike location edges
+        # whose end is the last chapter at the previous location.
+        where.append("(pe.until_chapter IS NULL OR pe.until_chapter > %s)")
         params.append(cutoff)
     rows = db.fetchall(
         f"""
@@ -140,7 +142,7 @@ def list_possession_edges(
             "object_id": r["object_id"],
             "object_name": r["object_name"],
             "since_chapter": r["since_chapter"],
-            "until_chapter": r["until_chapter"],
+            "until_chapter": r["until_chapter"] if r["until_chapter"] is not None and r["until_chapter"] <= cutoff else None,
             "certainty": float(r["certainty"]) if r["certainty"] is not None else None,
         }
         for r in rows

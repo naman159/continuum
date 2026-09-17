@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from pipeline.pipeline import _persist_extraction
+from pipeline.extraction.persist import persist_extraction
 
 
 class RelFakeDB:
@@ -53,7 +53,7 @@ def _persist(db, rel_overrides=None):
         "canon_facts": [],
         "relationship_updates": [rel],
     }
-    return _persist_extraction(
+    return persist_extraction(
         db, resolver=resolver, chapter_id=str(uuid.uuid4()),
         chapter_number=2, extracted=extracted,
     )

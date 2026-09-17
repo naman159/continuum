@@ -78,7 +78,12 @@ def extract_draft_claims(
         raise RuntimeError(f"draft_claims: extraction failed: {exc}") from exc
     if not data:
         raise RuntimeError("draft_claims: extraction returned unparseable JSON")
-    return {k: data.get(k) if isinstance(data.get(k), list) else [] for k in _EMPTY}
+    for key in _EMPTY:
+        if not isinstance(data.get(key), list) or any(
+            not isinstance(claim, dict) for claim in data[key]
+        ):
+            raise RuntimeError(f"draft_claims: missing or malformed {key!r} list")
+    return {k: data[k] for k in _EMPTY}
 
 
 def build_draft_chapter(

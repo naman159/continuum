@@ -35,10 +35,9 @@ src/
 
 The single idea worth knowing before reading the code. Every read endpoint
 takes an optional chapter cutoff, and the UI keeps that cutoff in the URL
-(`?cap=N`) via `useChapterCap`. Setting it makes every page show the story
-as it stood at the end of chapter N — no later spoilers — which is the same
-mechanism the MCP server uses to keep a drafting agent from seeing its own
-future. Because it lives in the query string, a capped view is shareable and
+(`?cap=N`) via `useChapterCap`. It filters chapter-anchored data to the end of chapter N, using the same
+mechanism as the MCP read tools. Global identity metadata is not fully
+versioned; see the public-readiness audit for the limits of this cutoff. Because it lives in the query string, a capped view is shareable and
 survives a reload.
 
 Data fetching is TanStack Query throughout; the cap is part of each query

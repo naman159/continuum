@@ -45,8 +45,7 @@ def test_get_location_detail_events_respect_cutoff(db, seed_novel):
     seeded = seed_novel(db)
 
     before = world_reads.get_location_detail(db, seeded["novel_id"], seeded["loc_b_id"], up_to_chapter=2)
-    assert before is not None
-    assert before["events"] == []
+    assert before is None  # the location itself has not appeared yet
 
     after = world_reads.get_location_detail(db, seeded["novel_id"], seeded["loc_b_id"], up_to_chapter=3)
     assert [e["chapter_number"] for e in after["events"]] == [3]
@@ -280,3 +279,10 @@ def test_get_custom_entity_detail_404(db, seed_novel):
     seeded = seed_novel(db)
     result = world_reads.get_custom_entity_detail(db, seeded["novel_id"], str(uuid.uuid4()), up_to_chapter=3)
     assert result is None
+
+
+def test_object_detail_hides_identity_before_first_appearance(db, seed_novel):
+    seeded = seed_novel(db)
+    db.execute("UPDATE objects SET first_appearance_chapter = 3 WHERE id = %s", (seeded["obj_id"],))
+    assert world_reads.get_object_detail(db, seeded["novel_id"], seeded["obj_id"], 2) is None
+    assert world_reads.get_object_detail(db, seeded["novel_id"], seeded["obj_id"], 3) is not None

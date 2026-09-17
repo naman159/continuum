@@ -117,12 +117,13 @@ def create_canon_fact(
     row = db.fetchone(
         """
         INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked)
-        VALUES (%s, %s, %s, %s, %s, 1.0, %s)
+        SELECT e.novel_id, %s, e.id, %s, %s, 1.0, %s
+          FROM entities e WHERE e.id = %s AND e.novel_id = %s
         ON CONFLICT (novel_id, subject_entity_id, predicate)
         DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0
         RETURNING id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked
         """,
-        (str(novel_id), kind, str(subject_entity_id), predicate.strip().lower(), value, locked),
+        (kind, predicate.strip().lower(), value, locked, str(subject_entity_id), str(novel_id)),
         dict_rows=True,
         commit=True,
     )

@@ -549,3 +549,58 @@ def test_same_chapter_double_move_yields_valid_interval(db, double_move_seeded):
     assert second["since_chapter"] == 1
     assert second["until_chapter"] is None
     assert second["superseded_by_id"] is None
+
+
+def test_historical_locations_and_loss_chapter_are_consistent(db, seeded):
+    from reads.graphs import entity_graph
+    from reads.knowledge import list_location_edges, list_possession_edges
+
+    nid = seeded["novel_id"]
+    StateMaterializer(db).materialize(nid)
+    earlier = list_location_edges(db, nid, 1, True)
+    aelric = next(r for r in earlier if str(r["entity_id"]) == seeded["aelric_eid"])
+    assert str(aelric["location_id"]) == seeded["keep_id"]
+    assert aelric["until_chapter"] is None  # future move is still hidden
+    later = list_location_edges(db, nid, 3, True)
+    assert str(next(r for r in later if str(r["entity_id"]) == seeded["aelric_eid"])["location_id"]) == seeded["harbor_id"]
+    held = list_possession_edges(db, nid, 2, True)
+    assert held and held[0]["until_chapter"] is None
+    assert list_possession_edges(db, nid, 3, True) == []
+    assert not any(e["edge_kind"] == "possession" for e in entity_graph(db, nid, 3)["edges"])
+
+
+def test_current_materialization_resolves_horizon_after_waiting_for_lock(db, seeded):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from contextlib import contextmanager
+
+    nid = seeded["novel_id"]
+    waiting = Event()
+    real_transaction = db.transaction
+
+    class ObservedCursor:
+        def __init__(self, cur):
+            self.cur = cur
+
+        def execute(self, query, params=None):
+            if "pg_advisory_xact_lock" in query:
+                waiting.set()
+            return self.cur.execute(query, params)
+
+        def __getattr__(self, name):
+            return getattr(self.cur, name)
+
+    class ObservedDB:
+        @contextmanager
+        def transaction(self):
+            with real_transaction() as cur:
+                yield ObservedCursor(cur)
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        with db.transaction() as blocker:
+            blocker.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (nid,))
+            future = executor.submit(StateMaterializer(ObservedDB()).materialize, nid)
+            assert waiting.wait(timeout=5)
+            # A chapter commits while the other materializer waits on its lock.
+            db.execute("INSERT INTO chapters (novel_id, number, raw_text) VALUES (%s, 4, 'next chapter')", (nid,))
+        assert future.result(timeout=10).through_chapter == 4

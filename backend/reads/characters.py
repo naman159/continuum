@@ -120,7 +120,7 @@ def get_character_detail(
         JOIN characters c ON c.entity_id = ea.id OR c.entity_id = eb.id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE c.id = %s
-          AND COALESCE(r.from_chapter, rch.number, 0) <= %s
+          AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           -- Still in force at the cutoff, not merely started before it.
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
           AND r.superseded_by_id IS NULL

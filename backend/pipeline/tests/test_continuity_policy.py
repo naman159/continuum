@@ -314,3 +314,17 @@ def test_an_outage_under_warn_ingests_and_records_nothing(db, seed_novel, critiq
         "SELECT count(*) FROM critique_reports WHERE chapter_id = %s",
         (result["chapter_id"],),
     ) == 0
+
+
+def test_failed_report_persistence_is_visible_to_the_caller(db, seed_novel, critique, monkeypatch):
+    from pipeline import pipeline as pipeline_mod
+    novel_id = seed_novel(db)["novel_id"]
+    critique(_passing())
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("database report write failed")
+
+    monkeypatch.setattr(pipeline_mod, "persist_critique", fail)
+    result = _analyze(db, novel_id, on_continuity_fail="warn")
+    assert _chapter_count(db, novel_id, 90) == 1
+    assert result["critique"]["persisted"] is False

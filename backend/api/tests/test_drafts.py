@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
-from pipeline import drafts as drafts_mod
 from testing.drafts import _force_mock_llm  # noqa: F401  (autouse fixture)
 
 

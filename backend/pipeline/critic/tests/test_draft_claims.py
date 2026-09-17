@@ -85,3 +85,12 @@ def test_extract_draft_claims_bad_json_raises_in_real_mode():
 
     with pytest.raises(RuntimeError, match="unparseable JSON"):
         extract_draft_claims("prose", use_mock=False, completion_fn=fake_completion)
+
+
+def test_parseable_but_malformed_claims_cannot_pass_as_empty():
+    import pytest
+    for malformed in ({"unexpected": True}, {**RAW, "mentions": None}, {**RAW, "events": ["not a claim"]}):
+        def completion(**kwargs):
+            return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(malformed)))])
+        with pytest.raises(RuntimeError, match="missing or malformed"):
+            extract_draft_claims("prose", use_mock=False, completion_fn=completion)

@@ -131,55 +131,51 @@ def test_accept_without_edits_still_uses_the_despite_fail_label(db, seed_novel):
     assert flags[0]["description"].startswith("[accepted despite continuity FAIL]")
 
 
-def test_accept_rolls_back_flags_if_the_status_update_fails(db, seed_novel, monkeypatch):
-    """The findings write-through and the status UPDATE are one transaction:
-    if the UPDATE fails, the INSERTs into continuity_flags must not survive
-    either, even though the chapter itself (committed inside analyze_chapter,
-    which cannot be joined to this transaction) does.
-    """
+@pytest.mark.parametrize("failure", ["status", "flags"])
+def test_accept_rolls_back_chapter_and_review_together(db, seed_novel, monkeypatch, failure):
     novel_id = seed_novel(db)["novel_id"]
     submission_id = _park(db, novel_id)
-
-    real_transaction = db.transaction
-
-    class _RaisingCursor:
-        def __init__(self, real_cur):
-            self._real = real_cur
-
-        def execute(self, query, params=None):
-            if "UPDATE draft_submissions" in query:
-                raise RuntimeError("boom: status update failed")
-            return self._real.execute(query, params)
-
-        def __getattr__(self, name):
-            return getattr(self._real, name)
+    real_session = db.session
 
     @contextmanager
-    def _boom_transaction():
-        with real_transaction() as cur:
-            yield _RaisingCursor(cur)
+    def failing_session():
+        with real_session() as session:
+            fetchval = session.fetchval
+            execute = session.execute
 
-    monkeypatch.setattr(db, "transaction", _boom_transaction)
+            def fail_status(query, params=None, **kwargs):
+                if failure == "status" and "UPDATE draft_submissions" in query:
+                    raise RuntimeError("status write failed")
+                return fetchval(query, params, **kwargs)
 
-    with pytest.raises(RuntimeError, match="still 'pending'") as excinfo:
+            def fail_flags(query, params=None):
+                if failure == "flags" and "INSERT INTO continuity_flags" in query:
+                    raise RuntimeError("flags write failed")
+                return execute(query, params)
+
+            session.fetchval = fail_status
+            session.execute = fail_flags
+            yield session
+
+    monkeypatch.setattr(db, "session", failing_session)
+    with pytest.raises(RuntimeError, match="write failed"):
         drafts_mod.accept_submission(db, submission_id, note="deliberate retcon")
-
-    assert submission_id in str(excinfo.value)
-    assert isinstance(excinfo.value.__cause__, RuntimeError)
-    assert "boom: status update failed" in str(excinfo.value.__cause__)
-
-    chapter_id = db.fetchval(
+    assert db.fetchval(
         "SELECT id FROM chapters WHERE novel_id = %s AND number = 90", (novel_id,)
-    )
-    assert chapter_id is not None  # analyze_chapter's own commit isn't rolled back
+    ) is None
+    assert drafts_reads.get_submission(db, submission_id)["status"] == "pending"
 
-    flags = db.fetchall(
-        "SELECT id FROM continuity_flags WHERE chapter_id = %s", (str(chapter_id),)
-    )
-    assert flags == []  # rolled back together with the failed status update
+    # The failure is recoverable: retry the same draft after the DB recovers.
+    monkeypatch.setattr(db, "session", real_session)
+    assert drafts_mod.accept_submission(db, submission_id)["accepted"] is True
 
-    row = drafts_reads.get_submission(db, submission_id)
-    assert row["status"] == "pending"  # never got marked accepted
+
+def test_accept_rejects_empty_edited_text(db, seed_novel):
+    novel_id = seed_novel(db)["novel_id"]
+    submission_id = _park(db, novel_id)
+    with pytest.raises(ValueError, match="must not be empty"):
+        drafts_mod.accept_submission(db, submission_id, edited_text="  ")
+    assert drafts_reads.get_submission(db, submission_id)["status"] == "pending"
 
 
 def test_reject_marks_rejected_and_writes_no_chapter(db, seed_novel):
@@ -224,10 +220,7 @@ def test_reject_loses_a_race_to_a_concurrent_accept(db, seed_novel, monkeypatch)
 
 
 def test_accept_loses_a_race_to_a_concurrent_reject(db, seed_novel, monkeypatch):
-    """Mirror of the above: a stale-read accept must not flip an
-    already-rejected submission back to 'accepted', even though the chapter
-    it ingests (analyze_chapter's own commit, which cannot be joined to this
-    transaction) cannot be un-ingested at this point."""
+    """A stale acceptance must neither overwrite a rejection nor ingest its chapter."""
     novel_id = seed_novel(db)["novel_id"]
     submission_id = _park(db, novel_id)
     stale_row = drafts_mod._load_pending(db, submission_id)
@@ -241,6 +234,7 @@ def test_accept_loses_a_race_to_a_concurrent_reject(db, seed_novel, monkeypatch)
     row = drafts_reads.get_submission(db, submission_id)
     assert row["status"] == "rejected"
     assert row["resolution_note"] == "reviewer A rejects first"
+    assert db.fetchval("SELECT id FROM chapters WHERE novel_id = %s AND number = 90", (novel_id,)) is None
 
 
 def test_resolving_a_missing_or_resolved_submission_raises(db, seed_novel):
