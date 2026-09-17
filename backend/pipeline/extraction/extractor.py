@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
@@ -8,8 +7,6 @@ from pipeline.config import LLM_CONFIG, settings
 from pipeline.extraction.prompts import PASS_ORDER, build_system_prompt, build_user_prompt
 from pipeline.llm import load_completion as _load_completion
 from pipeline.llm import safe_json_loads as _safe_json_loads
-
-logger = logging.getLogger(__name__)
 
 
 def empty_extraction() -> dict[str, Any]:
@@ -442,7 +439,7 @@ class ChapterExtractor:
     ) -> dict[str, Any]:
         completion = _load_completion()
         if completion is None:
-            return {}
+            raise RuntimeError(f"Extraction pass {pass_name!r} requires LiteLLM; it could not be loaded")
 
         system_prompt = build_system_prompt(pass_name, custom_entity_types=custom_entity_types)
         user_prompt = build_user_prompt(pass_name, chunk, context, custom_entity_types=custom_entity_types)
@@ -461,10 +458,13 @@ class ChapterExtractor:
             if isinstance(content, list):
                 content = "".join(str(part) for part in content)
             payload = _safe_json_loads(str(content))
+            if not payload:
+                raise ValueError("model returned empty or invalid JSON")
             return payload
-        except Exception as exc:  # pragma: no cover
-            logger.warning("LLM pass failed (%s): %s", pass_name, exc)
-            return {}
+        except Exception as exc:
+            # Continuing would persist an incomplete chapter, or obscure the
+            # provider failure behind an empty-summary embedding error.
+            raise RuntimeError(f"Extraction pass {pass_name!r} failed: {exc}") from exc
 
     def _compose_from_pass_payload(self, pass_payload: dict[str, dict[str, Any]]) -> dict[str, Any]:
         chapter_summary = pass_payload.get("chapter_summary", {})

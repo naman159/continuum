@@ -16,7 +16,7 @@ class FakeProgress:
 
 def _make_fake_completion():
     def fake(**_kwargs):
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="{}"))])
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"summary":"Test summary."}'))])
     return fake
 
 
@@ -61,4 +61,4 @@ def test_extract_chapter_accumulates_progress_across_chunks(monkeypatch):
     extractor.extract_chapter(["chunk1", "chunk2"], {}, progress=progress)
 
     dones = [name for action, name in progress.calls if action == "done"]
-    assert len(dones) == len(PASS_ORDER) * 2  # 6 passes × 2 chunks = 12
+    assert len(dones) == len(PASS_ORDER) * 2

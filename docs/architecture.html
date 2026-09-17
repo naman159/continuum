@@ -612,6 +612,11 @@ graph LR
       </li>
       <li>
         <strong>LLM extraction (13 passes per chunk)</strong> — <code>ChapterExtractor</code> runs 13 sequential LLM calls per chunk. See <a href="#extraction-passes">Extraction Passes</a> for details.
+        Chat and embedding calls have a 60-second attempt timeout and up to three retries
+        for transient provider errors. Retries honor HTTP <code>Retry-After</code> and
+        Gemini's JSON <code>RetryInfo</code>, capped at 60 seconds per wait. An exhausted
+        extraction request or empty/invalid JSON aborts processing before persistence;
+        it is never converted to an empty extraction that can silently erase data.
       </li>
       <li>
         <strong>Merge across chunks</strong> — <code>merge_extractions()</code> deduplicates the results from all chunks by name/description (naïve string matching at this stage; objects are keyed by name + owner so same-named items with different owners survive the merge).

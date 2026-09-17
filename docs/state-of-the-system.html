@@ -244,8 +244,12 @@
   <!-- ════════════════ TL;DR ════════════════ -->
   <section id="tldr">
   <h2>TL;DR</h2>
-  <p><strong>Release check, 2026-09-16:</strong> 484 backend tests pass with three
-  provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
+  <p><strong>Release check, 2026-09-16:</strong> 497 backend tests pass with three
+  synthetic provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
+  A separate live Gemini run processed four actual chapters from Pride and Prejudice
+  and Primal Hunter, including semantic retrieval and chapter-cutoff checks. It
+  exposed quota failures being swallowed during extraction; bounded retries and
+  fail-fast handling now recover transient errors and reject incomplete extraction.
   Both dependency audits are clean, and no credentials were found in the scanned
   Git history. See the <a href="release-check.md">release check</a> for the
   browser workflow, fixes, and verification limits.</p>

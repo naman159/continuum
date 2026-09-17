@@ -106,6 +106,15 @@ on the model string you choose (`GEMINI_API_KEY` for `gemini/…`,
 `OPENAI_API_KEY` for `openai/…`, and so on). `.env.example` ships with the
 Gemini setup.
 
+Chat and embedding calls retry transient provider failures up to three times.
+Each attempt has a 60-second timeout; retries honor HTTP `Retry-After` and
+Gemini's `RetryInfo` delay, with waits capped at 60 seconds. Authentication
+and invalid-request errors fail immediately. If an extraction pass still fails
+or returns empty/invalid JSON, processing stops before chapter persistence.
+This matters on Gemini's free tier: one chapter requires more than thirteen
+calls once critique and entity resolution are included, so processing can
+pause at a requests-per-minute limit.
+
 ### Tokenization — three different things
 
 "Tokens" means something different in each layer, and the numbers are not

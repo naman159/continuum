@@ -6,6 +6,7 @@ from typing import Sequence
 
 from pipeline.config import settings
 from pipeline.db.client import DBClient
+from pipeline.llm import call_with_retry
 
 
 class EmbeddingError(RuntimeError):
@@ -65,7 +66,8 @@ class EmbeddingService:
             )
 
         try:
-            response = embedding(
+            response = call_with_retry(
+                embedding,
                 model=settings.embedding_model,
                 input=[text],
                 dimensions=settings.embedding_dimensions,

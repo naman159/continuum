@@ -1,6 +1,30 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
+
+from pipeline.extraction import extractor as extractor_module
 from pipeline.extraction.extractor import empty_extraction, merge_extractions, _normalize_extraction
+
+
+def test_provider_failure_stops_extraction_instead_of_returning_empty(monkeypatch):
+    def unavailable(**kwargs):
+        raise RuntimeError("Gemini quota exhausted")
+
+    monkeypatch.setattr(extractor_module, "_load_completion", lambda: unavailable)
+    with pytest.raises(RuntimeError, match="chapter_summary.*Gemini quota exhausted"):
+        extractor_module.ChapterExtractor(use_mock=False).extract_chunk("Real prose.", {})
+
+
+@pytest.mark.parametrize("content", ["", "not JSON", "{}", "[]"])
+def test_empty_or_invalid_provider_response_stops_extraction(monkeypatch, content):
+    def completion(**kwargs):
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
+
+    monkeypatch.setattr(extractor_module, "_load_completion", lambda: completion)
+    with pytest.raises(RuntimeError, match="chapter_summary.*empty or invalid JSON"):
+        extractor_module.ChapterExtractor(use_mock=False).extract_chunk("Real prose.", {})
 
 
 def test_empty_extraction_has_relationship_and_dynamics_keys():
