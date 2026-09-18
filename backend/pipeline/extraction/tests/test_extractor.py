@@ -73,3 +73,21 @@ def test_normalize_extraction_passes_through_new_fields():
     result = _normalize_extraction(raw)
     assert len(result["relationship_updates"]) == 1
     assert len(result["dynamics_updates"]) == 1
+
+
+def test_chunk_merge_keeps_relationship_endings_and_directions():
+    first, second = empty_extraction(), empty_extraction()
+    active = {"entity_a": "Alice", "entity_b": "Bob", "rel_type": "mentor",
+              "symmetric": False, "from_chapter": 1, "to_chapter": None}
+    ended = {**active, "to_chapter": 3}
+    reversed_edge = {**active, "entity_a": "Bob", "entity_b": "Alice"}
+    first["relationship_updates"] = [active]
+    second["relationship_updates"] = [dict(active), ended, reversed_edge]
+    assert merge_extractions([first, second])["relationship_updates"] == [active, ended, reversed_edge]
+
+
+def test_chunk_merge_collapses_only_explicitly_mutual_reversed_pairs():
+    extraction = empty_extraction()
+    mutual = {"entity_a": "Alice", "entity_b": "Bob", "rel_type": "friend", "symmetric": True}
+    extraction["relationship_updates"] = [mutual, {**mutual, "entity_a": "Bob", "entity_b": "Alice"}]
+    assert merge_extractions([extraction])["relationship_updates"] == [mutual]

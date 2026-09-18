@@ -123,9 +123,14 @@ def get_character_detail(
           AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           -- Still in force at the cutoff, not merely started before it.
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
-          AND r.superseded_by_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM relationships newer
+              LEFT JOIN chapters newer_ch ON newer_ch.id = newer.chapter_id
+              WHERE newer.id = r.superseded_by_id
+                AND COALESCE(newer_ch.number, newer.from_chapter, 0) <= %s
+          )
         """,
-        (character_id, cutoff, cutoff),
+        (character_id, cutoff, cutoff, cutoff),
         dict_rows=True,
     )
 

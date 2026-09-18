@@ -56,10 +56,15 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
           -- Active at the cutoff: a relationship that ended before it is not
           -- a current relationship.
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
-          AND r.superseded_by_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM relationships newer
+              LEFT JOIN chapters newer_ch ON newer_ch.id = newer.chapter_id
+              WHERE newer.id = r.superseded_by_id
+                AND COALESCE(newer_ch.number, newer.from_chapter, 0) <= %s
+          )
         ORDER BY r.from_chapter NULLS LAST, r.created_at
         """,
-        (novel_id, cutoff, cutoff),
+        (novel_id, cutoff, cutoff, cutoff),
         dict_rows=True,
     )
     edges = [
@@ -160,9 +165,14 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
-          AND r.superseded_by_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM relationships newer
+              LEFT JOIN chapters newer_ch ON newer_ch.id = newer.chapter_id
+              WHERE newer.id = r.superseded_by_id
+                AND COALESCE(newer_ch.number, newer.from_chapter, 0) <= %s
+          )
         """,
-        (novel_id, novel_id, cutoff, cutoff),
+        (novel_id, novel_id, cutoff, cutoff, cutoff),
         dict_rows=True,
     )
     edges = [dict(r) for r in edge_rows]

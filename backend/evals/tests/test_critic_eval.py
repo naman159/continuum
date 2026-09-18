@@ -34,5 +34,5 @@ def test_metrics_shape(db, seeded):
         "true_positives", "false_positives", "false_negatives",
         "per_case",
     }
-    # 4 seeded violations + 1 clean case
-    assert len(metrics["per_case"]) == 5
+    # 3 seeded violations + 1 clean case
+    assert len(metrics["per_case"]) == 4

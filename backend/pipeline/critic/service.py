@@ -3,13 +3,9 @@
 `critique_draft` is the only place a draft is judged. It runs *pre-ingest* —
 before extraction has written anything — for two reasons:
 
-  * a refusal costs one claims-extraction call instead of 13 extraction passes
-    per chunk, and
-  * a refused draft never reaches the write tier at all. Refusing after ingest
-    would mean rolling back, and `pipeline.ingestion.ingest.delete_chapter_data`
-    documents what a rollback cannot undo: entity rows, plot_threads upserts
-    and canon_facts updates from the rejected draft survive it. Rejected text
-    must not be able to mint entities.
+  * a refusal costs one claims-extraction call instead of a full extraction,
+    and
+  * rejected text never reaches persistence or entity resolution.
 
 Running pre-ingest also removes a self-comparison hazard: post-ingest, the
 chapter's own canon facts are already committed, so a mention would be checked
@@ -63,8 +59,8 @@ class DraftCritique:
     `status` separates "the critic judged this" from "the critic never ran",
     which a bare pass/fail boolean cannot express. Only `ok` carries a
     judgement; `unavailable` (critic disabled, or mock mode) and `error` (the
-    critique itself blew up) are outages. A blocking caller must refuse on all
-    three of not-ok, because an outage is not a clean bill of health.
+    critique itself blew up) are outages. A blocking caller must refuse on both
+    non-ok statuses, because an outage is not a clean bill of health.
 
     `fails`/`warns` are converted eagerly rather than in a property: converting
     a finding is itself something that can fail on a malformed report, and that
@@ -131,8 +127,6 @@ def critique_draft(
             chapter_number=chapter_number,
             text=text,
             raw_claims=raw_claims,
-            planned_thread_ids=[],
-            planned_commitment_ids=[],
         )
         report = ContinuityCritic(db).critique(draft)
         # Conversion stays inside the try: a report that cannot be turned into

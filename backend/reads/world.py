@@ -251,10 +251,15 @@ def get_object_detail(
           AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           -- Active at the cutoff, not merely started before it.
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
-          AND r.superseded_by_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM relationships newer
+              LEFT JOIN chapters newer_ch ON newer_ch.id = newer.chapter_id
+              WHERE newer.id = r.superseded_by_id
+                AND COALESCE(newer_ch.number, newer.from_chapter, 0) <= %s
+          )
         ORDER BY r.from_chapter NULLS LAST
         """,
-        (object_id, novel_id, novel_id, cutoff, cutoff),
+        (object_id, novel_id, novel_id, cutoff, cutoff, cutoff),
         dict_rows=True,
     )
     relationships = [dict(r) for r in rel_rows]
@@ -439,9 +444,14 @@ def get_custom_entity_detail(
         WHERE (r.entity_a_id = %s OR r.entity_b_id = %s)
           AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
-          AND r.superseded_by_id IS NULL
+          AND NOT EXISTS (
+              SELECT 1 FROM relationships newer
+              LEFT JOIN chapters newer_ch ON newer_ch.id = newer.chapter_id
+              WHERE newer.id = r.superseded_by_id
+                AND COALESCE(newer_ch.number, newer.from_chapter, 0) <= %s
+          )
         """,
-        (entity_id, entity_id, cutoff, cutoff),
+        (entity_id, entity_id, cutoff, cutoff, cutoff),
         dict_rows=True,
     )
     relationships = []

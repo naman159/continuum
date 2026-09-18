@@ -74,42 +74,57 @@ def persist_extraction(
             symmetric = None
         # Direction matters: A mentors B and B mentors A are different facts.
         # Only explicitly mutual relationships may deduplicate a reversed pair.
-        duplicate = db.fetchone(
+        previous = db.fetchone(
             """
-            SELECT id FROM relationships
+            SELECT r.id, r.from_chapter, r.to_chapter, r.notes
+              FROM relationships r
+              LEFT JOIN chapters ch ON ch.id = r.chapter_id
              WHERE rel_type IS NOT DISTINCT FROM %s
                AND superseded_by_id IS NULL
                AND (from_chapter IS NULL OR from_chapter <= %s)
                AND (to_chapter IS NULL OR to_chapter >= %s)
+               AND (ch.number IS NULL OR ch.number <= %s)
                AND (
                      (entity_a_id = %s AND entity_b_id = %s)
                   OR (%s AND "symmetric" IS TRUE AND entity_a_id = %s AND entity_b_id = %s)
                )
+             ORDER BY ch.number DESC NULLS LAST, r.created_at DESC, r.id
              LIMIT 1
             """,
-            (rel.get("rel_type"), chapter_number, chapter_number,
+            (rel.get("rel_type"), chapter_number, chapter_number, chapter_number,
              a_universal, b_universal, symmetric is True, b_universal, a_universal),
+            dict_rows=True,
         )
-        if duplicate:
+        end = rel.get("to_chapter")
+        if previous and (end is None or end == previous["to_chapter"]):
             continue
-        db.execute(
+        # An explicit ending is new evidence, not a duplicate of the active
+        # relationship. Retain the old assertion for earlier chapter cutoffs.
+        relationship_id = db.fetchval(
             """
             INSERT INTO relationships (
                 entity_a_id, entity_b_id, rel_type, "symmetric", from_chapter, to_chapter, notes, chapter_id
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
             """,
             (
                 a_universal,
                 b_universal,
                 rel.get("rel_type"),
                 symmetric,
-                rel.get("from_chapter"),
-                rel.get("to_chapter"),
-                rel.get("notes"),
+                previous["from_chapter"] if previous else rel.get("from_chapter"),
+                end,
+                rel.get("notes") or (previous["notes"] if previous else None),
                 chapter_id,
             ),
+            commit=True,
         )
+        if previous:
+            db.execute(
+                "UPDATE relationships SET superseded_by_id = %s WHERE id = %s",
+                (relationship_id, previous["id"]),
+            )
 
     # The extractor may emit several dynamics for the same pair in one chapter
     # (including with entity_a/entity_b swapped); UNIQUE(entity_a_id,

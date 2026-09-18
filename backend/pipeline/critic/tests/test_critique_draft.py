@@ -29,7 +29,7 @@ def _fail() -> Finding:
 
 
 def _warn() -> Finding:
-    return Finding(check="thread_coverage", severity=Severity.WARN, message="cold thread")
+    return Finding(check="commitments", severity=Severity.WARN, message="possible payoff")
 
 
 @pytest.fixture

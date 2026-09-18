@@ -1,7 +1,7 @@
 """Critic precision/recall eval.
 
 Builds labeled DraftChapter cases against the seeded reads-test novel:
-four seeded violations (each targeting one deterministic check) plus one
+three seeded violations (each targeting one deterministic check) plus one
 clean draft, then measures whether the critic flags exactly the violations.
 
 A case counts as "flagged" when the report contains at least one finding
@@ -34,18 +34,6 @@ def build_cases(db: DBClient, seeded: dict[str, Any]) -> list[dict[str, Any]]:
         VALUES (%s, %s, 1, 'observation')
         """,
         (seeded["char_a_id"], "the iron compass points to the sunken vault"),
-    )
-
-    two_places = DraftChapter(
-        novel_id=novel_id,
-        chapter_number=4,
-        text="Aria haggled at Fogmere Docks at noon; at the same hour she read in the Sable Archive.",
-        location_claims=[
-            {"character_id": seeded["char_a_id"], "location_id": seeded["loc_a_id"],
-             "quote": "Aria haggled at Fogmere Docks at noon"},
-            {"character_id": seeded["char_a_id"], "location_id": seeded["loc_b_id"],
-             "quote": "at the same hour she read in the Sable Archive"},
-        ],
     )
 
     unknown_knowledge = DraftChapter(
@@ -84,10 +72,6 @@ def build_cases(db: DBClient, seeded: dict[str, Any]) -> list[dict[str, Any]]:
         novel_id=novel_id,
         chapter_number=4,
         text="Aria stood alone in the Sable Archive, compass in hand, sure of its secret.",
-        location_claims=[
-            {"character_id": seeded["char_a_id"], "location_id": seeded["loc_b_id"],
-             "quote": "Aria stood alone in the Sable Archive"},
-        ],
         possession_claims=[
             {"character_id": seeded["char_a_id"], "object_id": seeded["obj_id"],
              "quote": "compass in hand"},
@@ -101,12 +85,10 @@ def build_cases(db: DBClient, seeded: dict[str, Any]) -> list[dict[str, Any]]:
     )
 
     return [
-        {"name": "two_places_at_once", "draft": two_places,
-         "should_flag": True, "expected_check": "location_possession"},
         {"name": "unknown_knowledge", "draft": unknown_knowledge,
          "should_flag": True, "expected_check": "knowledge_state"},
         {"name": "wrong_possessor", "draft": wrong_possessor,
-         "should_flag": True, "expected_check": "location_possession"},
+         "should_flag": True, "expected_check": "possession"},
         {"name": "canon_contradiction", "draft": canon_contradiction,
          "should_flag": True, "expected_check": "entity_mention"},
         {"name": "clean_draft", "draft": clean,

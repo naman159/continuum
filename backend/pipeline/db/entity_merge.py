@@ -174,17 +174,31 @@ def merge_entities(
         )
         cur.execute("UPDATE relationships SET entity_a_id = %s WHERE entity_a_id = %s", (tgt, src))
         cur.execute("UPDATE relationships SET entity_b_id = %s WHERE entity_b_id = %s", (tgt, src))
-        # Repointing can leave duplicate (pair, rel_type) edges (one originally
-        # tgt<->X, one src<->X). Keep the oldest, drop the rest, matching the
-        # persist-time dedupe invariant.
+        # Collapse only equivalent assertions. Different directions, chapters,
+        # or intervals carry evidence and must survive an identity merge.
         cur.execute(
             """
             DELETE FROM relationships a
              USING relationships b
              WHERE a.id <> b.id
                AND a.rel_type IS NOT DISTINCT FROM b.rel_type
-               AND LEAST(a.entity_a_id::text, a.entity_b_id::text) = LEAST(b.entity_a_id::text, b.entity_b_id::text)
-               AND GREATEST(a.entity_a_id::text, a.entity_b_id::text) = GREATEST(b.entity_a_id::text, b.entity_b_id::text)
+               AND a.symmetric IS NOT DISTINCT FROM b.symmetric
+               AND a.chapter_id IS NOT DISTINCT FROM b.chapter_id
+               AND a.from_chapter IS NOT DISTINCT FROM b.from_chapter
+               AND a.to_chapter IS NOT DISTINCT FROM b.to_chapter
+               AND a.notes IS NOT DISTINCT FROM b.notes
+               AND a.evidence_event_ids IS NOT DISTINCT FROM b.evidence_event_ids
+               AND a.sentiment IS NOT DISTINCT FROM b.sentiment
+               AND a.superseded_by_id IS NULL AND b.superseded_by_id IS NULL
+               AND NOT EXISTS (
+                   SELECT 1 FROM relationships predecessor
+                    WHERE predecessor.superseded_by_id IN (a.id, b.id)
+               )
+               AND (
+                    (a.entity_a_id = b.entity_a_id AND a.entity_b_id = b.entity_b_id)
+                    OR (a.symmetric IS TRUE AND b.symmetric IS TRUE
+                        AND a.entity_a_id = b.entity_b_id AND a.entity_b_id = b.entity_a_id)
+               )
                AND (a.entity_a_id = %s OR a.entity_b_id = %s)
                AND (b.entity_a_id = %s OR b.entity_b_id = %s)
                AND (a.created_at > b.created_at

@@ -18,7 +18,7 @@ from pipeline.llm import safe_json_loads
 
 
 _EMPTY: dict[str, list] = {
-    "mentions": [], "knowledge_claims": [], "location_claims": [],
+    "mentions": [], "knowledge_claims": [],
     "possession_claims": [], "events": [],
 }
 
@@ -36,7 +36,6 @@ _CLAIMS_SCHEMA = {
                           "source_type": "dialogue|observation|inference|witnessed|told|assumed",
                           "learned_this_chapter": "boolean — true only if the character acquires this fact within this draft; false if they act on knowledge from before",
                           "quote": "string"}],
-    "location_claims": [{"character_name": "string", "location_name": "string", "quote": "string"}],
     "possession_claims": [{"character_name": "string", "object_name": "string", "quote": "string"}],
     "events": [{"description": "string", "event_type": "action|revelation|death|arrival|conflict|other"}],
 }
@@ -93,8 +92,6 @@ def build_draft_chapter(
     chapter_number: int,
     text: str,
     raw_claims: dict[str, list],
-    planned_thread_ids: list[str],
-    planned_commitment_ids: list[str],
 ) -> DraftChapter:
     # The same names repeat across a draft's claims; memoize the read-only
     # lookups so one draft costs one query per distinct (type, name).
@@ -148,29 +145,6 @@ def build_draft_chapter(
             "quote": k.get("quote"),
         })
 
-    # One claim per character: the LAST location the draft puts them in.
-    # check_location_possession FAILs when a character has >1 distinct location
-    # claim in a chapter, so emitting one claim per LLM assertion failed every
-    # character who simply walked somewhere — which is most chapters. The
-    # claim that matters is where the character ends up, since that is what
-    # gets compared against prior state.
-    #
-    # Keyed on the RESOLVED character_id, not the surface name: two spellings
-    # that resolve to one character (an alias the resolver already knows) must
-    # collapse together, or the check FAILs on a name variant.
-    location_by_char: dict[str, dict] = {}
-    for c in raw_claims.get("location_claims", []):
-        if not isinstance(c, dict):
-            continue
-        cid = _char(str(c.get("character_name", "")))
-        loc = _find("location", str(c.get("location_name", "")))
-        if cid is None or loc is None:
-            continue
-        location_by_char[str(cid)] = {
-            "character_id": cid, "location_id": loc[0], "quote": c.get("quote"),
-        }
-    location_claims: list[dict] = list(location_by_char.values())
-
     possession_claims: list[dict] = []
     for c in raw_claims.get("possession_claims", []):
         if not isinstance(c, dict):
@@ -189,11 +163,8 @@ def build_draft_chapter(
         text=text,
         mentions=mentions,
         knowledge_claims=knowledge_claims,
-        location_claims=location_claims,
         possession_claims=possession_claims,
         events=events,
-        planned_thread_ids=planned_thread_ids,
-        planned_commitment_ids=planned_commitment_ids,
     )
 
 

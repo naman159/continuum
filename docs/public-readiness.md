@@ -1,4 +1,4 @@
-# Public-readiness audit — 2026-09-17
+# Public-readiness audit — updated 2026-09-18
 
 **Recommendation: publish as an experimental, local-first project.** The core
 architecture is coherent and the tested workflows work. The remaining limitations
@@ -9,6 +9,37 @@ This audit followed the [real-Gemini release check](release-check.md). It covere
 runtime code, entry points, database boundaries, historical reads, frontend
 imports and dependencies, installation, tests, CI, and the current documentation.
 The repository's visibility was not changed.
+
+## Follow-up: remove unused paths (2026-09-18)
+
+The critic now runs four checks with production inputs: canon assertions,
+knowledge, possessions, and possible commitment payoffs. Removed the unused
+planned-thread check, planned-commitment branch, planner fields, and the location
+claims whose adapter made the two-locations failure unreachable. Removed the
+corresponding fixture-only evaluation and tests. Plot-thread extraction and
+browsing remain supported; a chapter planner is not part of this analyzer.
+
+Explicit relationship endings now append a chapter-anchored assertion and
+supersede the earlier one. All five read paths evaluate supersession at the
+requested cutoff. Deleting the ending chapter restores the previous assertion;
+reopening a relationship creates a new interval. Entity merging preserves
+relationship direction and assertion history, deduplicating only equivalent rows.
+The relationship tests now use real PostgreSQL instead of recording SQL strings
+in a fake database. Chunk merging also preserves endings and directional pairs
+before they reach persistence.
+
+The updated backend suite passes **506 tests**, with three paid fixture
+evaluations skipped. A fresh Gemini request on the saved Primal Hunter chapter 2
+returned all four required claim lists; the real critic produced one possession
+warning and no failures. All 38 browser checks passed against the isolated
+real-novel library, with no browser exceptions or failed requests. Python lint
+and documentation link checks passed. This is integration evidence, not a recall score.
+
+Existing installations should run `uv run novel-pipeline init-db` from `backend/`
+after updating. Schema version 3 changes the relationship supersession foreign
+key to `ON DELETE SET NULL`, preserving the predecessor on chapter replacement.
+Existing data is retained. Old stored findings keep their original check labels;
+new possession findings use `possession`.
 
 ## Correctness fixes
 
@@ -90,14 +121,14 @@ are substantial, but they are documentation rather than runtime dependencies.
    thread metadata can survive from the old interpretation. Replacing earlier
    chapters does not re-extract later ones. For a major rewrite, process the
    revised manuscript sequentially into a fresh novel.
-3. **Relationship lifecycle support is incomplete.** Repeated active assertions
-   are deduplicated; a later assertion of the same relationship's ending can be
-   skipped. Relationship changes need a versioned assertion history before this
-   can be advertised as a complete temporal relationship model.
-4. **The critic is a heuristic assistant.** Knowledge matching uses word overlap;
-   location claims collapse to the last location per character, so the current
-   adapter cannot exercise the checker's multiple-location failure branch.
-   Unknown/unresolved entities drop out of some checks. Four successful chapters
+3. **Relationship vocabulary remains free-form.** Explicit endings are preserved,
+   but different labels can describe one relationship. The system does not infer
+   that “father” and “parent_of” are equivalent, or that a new relationship label
+   implicitly ends a different one. Those changes require explicit evidence.
+4. **The critic is a heuristic assistant.** Knowledge and commitment matching use
+   word overlap. Simultaneous-location checking and planner validation are outside
+   its supported scope. Unknown/unresolved entities drop out of some checks.
+   Four successful chapters
    and zero findings do not establish detection recall or extraction completeness.
 5. **Operate locally and process chapters sequentially per novel.** There is no
    authentication. Jobs are in memory and need one server process; restarts lose

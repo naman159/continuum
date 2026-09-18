@@ -1,5 +1,11 @@
 # Part 8 — The Critic
 
+> Historical design walkthrough. As of 2026-09-18, the active critic has four
+> checks: canon assertions, knowledge, possession, and possible commitment payoffs.
+> Planner-dependent checks and location-claim checking were removed because they
+> had no working production path. See the [current architecture](../architecture.html#critic).
+
+
 *Part 8 of the Continuum series. [Part 7](07-search.md) finished the query side: we can
 look facts up exactly and find passages fuzzily. Everything so far is passive — you have
 to ask. This post builds the part that speaks up on its own.*

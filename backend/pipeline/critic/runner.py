@@ -1,4 +1,4 @@
-"""Orchestrator for the 5 typed continuity checks.
+"""Orchestrator for the 4 typed continuity checks.
 
 Each check is a pure function over (DB snapshot, draft facts). The runner
 collects findings into a single CritiqueReport and labels overall pass/fail
@@ -11,15 +11,14 @@ from pipeline.critic.checks import (
     check_commitments,
     check_entity_mentions,
     check_knowledge_state,
-    check_location_possession,
-    check_thread_coverage,
+    check_possession,
 )
 from pipeline.critic.types import CritiqueReport, DraftChapter
 from pipeline.db.client import DBClient
 
 
 class ContinuityCritic:
-    """Run all 5 typed checks against a DraftChapter."""
+    """Run all 4 typed checks against a DraftChapter."""
 
     def __init__(self, db: DBClient) -> None:
         self.db = db
@@ -36,11 +35,9 @@ class ContinuityCritic:
             )
         )
         report.findings.extend(
-            check_location_possession(
+            check_possession(
                 self.db,
-                draft.novel_id,
                 draft.chapter_number,
-                draft.location_claims,
                 draft.possession_claims,
             )
         )
@@ -57,12 +54,7 @@ class ContinuityCritic:
                 self.db,
                 draft.novel_id,
                 draft.chapter_number,
-                draft.planned_commitment_ids,
                 draft.events,
             )
         )
-        report.findings.extend(
-            check_thread_coverage(self.db, draft.planned_thread_ids, draft.events)
-        )
-
         return report

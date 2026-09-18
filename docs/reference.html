@@ -527,13 +527,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>list_chapters</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Chapters written before <code>writing_chapter</code> (number, title, summary, <code>critique: {passed, fails, warns} | null</code>) for orientation <span class="badge blue">orientation</span>. <strong>Fixed 2026-08-16</strong> — previously took no cutoff and passed <code>None</code>, returning <code>summary_long</code> for every unwritten chapter and handing the drafting agent the rest of the book.</td></tr>
         <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Hybrid (semantic + keyword) search over prose and extracted facts — "has X happened yet?"</td></tr>
         <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character. State history rows dropped the broken <code>relationships</code> column and gained <code>appearance</code>; event rows gained involved-character/location/object/faction name arrays. A character whose <code>first_appearance_chapter</code> is beyond the cutoff is reported not-found — same existence semantics as <code>list_characters</code>, so a writing agent never sees a character who hasn't been introduced yet.</td></tr>
-        <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history </td></tr>
         <tr><td><code>relationships</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Character relationship graph (nodes + typed edges). Edge keys are now <code>from</code>/<code>to</code>/<code>label</code> (renamed from the old <code>source</code>/<code>target</code>/<code>rel_type</code>), each edge carries a computed <code>symmetric</code> flag, and characters with no edge are pruned from <code>nodes</code>.</td></tr>
         <tr><td><code>open_threads</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Plot threads whose <code>status_at_cutoff</code> is not <code>closed</code> as of <code>writing_chapter − 1</code>, each with capped event history. Point-in-time accurate for any chapter, not just the next unwritten one. Spoiler masking: for any thread not yet closed at the cutoff, <code>closed_chapter</code> is nulled and <code>status</code> is overwritten with <code>status_at_cutoff</code> so a later real closure never leaks.</td></tr>
-        <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing whose <code>status_at_cutoff</code> is <code>pending</code> as of <code>writing_chapter − 1</code>. Point-in-time accurate for any chapter, not just the next unwritten one <span class="badge orange">SOTA</span>. Spoiler masking: <code>payoff_text</code>/<code>payoff_chapter</code> are nulled and <code>status</code> is forced to <code>"pending"</code> so a later real payoff never leaks.</td></tr>
+        <tr><td><code>unresolved_commitments</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Foreshadowing whose <code>status_at_cutoff</code> is <code>pending</code> as of <code>writing_chapter − 1</code>. Point-in-time accurate for any chapter, not just the next unwritten one . Spoiler masking: <code>payoff_text</code>/<code>payoff_chapter</code> are nulled and <code>status</code> is forced to <code>"pending"</code> so a later real payoff never leaks.</td></tr>
         <tr><td><code>timeline_events</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Story events grouped by chapter, from chapters before <code>writing_chapter</code> (fixed 2026-07-12 — previously non-functional, see callout above)</td></tr>
-        <tr><td><code>canon_facts</code></td><td><code>novel_id, writing_chapter, locked_only=False</code></td><td>yes</td><td>Established world facts as of <code>writing_chapter − 1</code>; <code>locked_only=True</code> limits to hard-continuity facts <span class="badge orange">SOTA</span>. <strong>Fixed 2026-08-16</strong> — <code>writing_chapter</code> was optional and defaulted to <code>None</code>, which resolves to <code>MAX(number)</code> and leaked facts sourced from unwritten chapters.</td></tr>
-        <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter <span class="badge orange">SOTA</span></td></tr>
+        <tr><td><code>canon_facts</code></td><td><code>novel_id, writing_chapter, locked_only=False</code></td><td>yes</td><td>Established world facts as of <code>writing_chapter − 1</code>; <code>locked_only=True</code> limits to hard-continuity facts . <strong>Fixed 2026-08-16</strong> — <code>writing_chapter</code> was optional and defaulted to <code>None</code>, which resolves to <code>MAX(number)</code> and leaked facts sourced from unwritten chapters.</td></tr>
+        <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter </td></tr>
         <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. A revision aid, not the enforcement point — <code>save_chapter</code> runs the same checks itself and will refuse a draft that fails them regardless of whether this was called first, so skipping it doesn't let a bad draft through <span class="badge purple">GEN</span></td></tr>
         <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code>. <strong>The one blocking caller:</strong> it asks <code>analyze_chapter</code> for <code>on_continuity_fail="block"</code>, so the pre-extraction critique refuses the write instead of ingesting with findings attached. Refusal returns <code>{ingested: false, status, submission_id, reason: "fail"|"error"|"unavailable", fails: [...], warns: [...]}</code>. For <code>reason: "fail"</code> or <code>"error"</code> the draft is parked and <code>status</code> is <code>"pending_review"</code> with a real <code>submission_id</code> — revise against <code>fails</code> and resubmit; a resubmission supersedes the parked draft. For <code>reason: "unavailable"</code> (the critique is off, or is running without a real model) nothing is parked, since there is no verdict to record: <code>status</code> is <code>"refused"</code> and <code>submission_id</code> is <code>null</code> — an outage, not a verdict, so hold the text and retry later. A clean pass returns <code>{ingested: true, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run. Still refuses to overwrite an existing chapter (<code>replace=False</code>), independent of the policy. Note: the tool hardcodes <code>use_mock_llm=None</code>, so exercising this path always makes real LLM calls <span class="badge purple">GEN</span></td></tr>
       </tbody>
@@ -900,7 +900,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
   <!-- ══════════ PERSIST_EXTRAS ══════════ -->
   <section id="persist-extras">
-    <h2>persist_extras <span class="badge orange">SOTA</span></h2>
+    <h2>persist_extras </h2>
     <p>
       Lives in <code>backend/pipeline/extraction/persist_extras.py</code>. Populates the SOTA tables
       added on the <code>closing-the-gap-with-sota</code> branch — <code>scenes</code>,
@@ -1267,7 +1267,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="schema-scenes">
-    <h2>Schema: scenes <span class="badge orange">SOTA</span></h2>
+    <h2>Schema: scenes </h2>
     <pre><code><span class="sql-kw">CREATE TABLE</span> scenes (
   id                 <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   chapter_id         <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> chapters,
@@ -1288,7 +1288,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="schema-canon">
-    <h2>Schema: canon_facts <span class="badge orange">SOTA</span></h2>
+    <h2>Schema: canon_facts </h2>
     <pre><code><span class="sql-kw">CREATE TABLE</span> canon_facts (
   id               <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   novel_id         <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
@@ -1366,7 +1366,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="schema-knows">
-    <h2>Schema: knows_edges <span class="badge orange">SOTA</span></h2>
+    <h2>Schema: knows_edges </h2>
     <pre><code><span class="sql-kw">CREATE TABLE</span> knows_edges (
   id               <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   character_id     <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> characters,
@@ -1388,7 +1388,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="schema-commitments">
-    <h2>Schema: commitments <span class="badge orange">SOTA</span></h2>
+    <h2>Schema: commitments </h2>
     <pre><code><span class="sql-kw">CREATE TABLE</span> commitments (
   id                  <span class="sql-type">UUID</span>        <span class="sql-constraint">PRIMARY KEY DEFAULT</span> gen_random_uuid(),
   novel_id            <span class="sql-type">UUID</span>        <span class="sql-constraint">NOT NULL REFERENCES</span> novels,
@@ -1416,7 +1416,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="schema-bitemp">
-    <h2>Schema: Bitemporal Edges <span class="badge orange">SOTA</span></h2>
+    <h2>Schema: Bitemporal Edges </h2>
     <p>Two tables tracking "who was where" and "who had what" over time.</p>
 
     <pre><code><span class="sql-kw">CREATE TABLE</span> located_in_edges (
@@ -1453,7 +1453,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
 
   <section id="schema-temporal-runs">
-    <h2>Schema: materialized_state_runs <span class="badge orange">SOTA</span></h2>
+    <h2>Schema: materialized_state_runs </h2>
     <p>Audit log for state-derivation runs.</p>
 
     <pre><code><span class="sql-kw">CREATE TABLE</span> materialized_state_runs (
@@ -1476,7 +1476,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <strong>Removed:</strong> <code>temporal_constraints</code> (event-ordering constraints) was
       dropped in the write-spine consolidation — it never got a writer (the extractor never emitted
       temporal relations). <code>pipeline/critic/checks/temporal_check.py</code>, which queried it, was
-      removed 2026-07-12 — the critic now runs five checks, not six.
+      removed 2026-07-12 — the critic now runs four checks after the 2026-09-18 removal of unused planner-dependent paths.
     </div>
   </section>
 
@@ -1871,7 +1871,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <li><strong>Relationship edges</strong> (<code>edge_kind: "relationship"</code>) — from the <code>relationships</code> table. Rendered as solid blue arrows labelled with <code>rel_type</code>; the arrowhead is dropped when the edge's computed <code>symmetric</code> flag is true (mutual relationship types like <code>spouse_of</code>).</li>
       <li><strong>Dynamic edges</strong> (<code>edge_kind: "dynamic"</code>) — from <code>shared_dynamics</code>. Rendered as dashed gray lines; hover shows story moment description.</li>
       <li><strong>Event edges</strong> (<code>edge_kind: "event"</code>) — co-occurrence from <code>events</code> (character↔character and character→location). Rendered as dashed gray lines; hover shows event description(s).</li>
-      <li><strong>Possession/location edges</strong> (<code>edge_kind: "possession"</code>, <code>"location"</code>) — from <code>possesses_edges</code> and <code>located_in_edges</code>; wired for future data.</li>
+      <li><strong>Possession/location edges</strong> (<code>edge_kind: "possession"</code>, <code>"location"</code>) — from <code>possesses_edges</code> and <code>located_in_edges</code>; populated by state replay.</li>
     </ul>
     <p>Multiple records between the same entity pair from the same source are collapsed into one story edge (tooltip shows all descriptions). At most two edges per pair: one relationship + one story edge. Each edge carries optional <code>edge_kind</code> and <code>tooltip</code> fields.</p>
 
@@ -1893,7 +1893,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   </section>
 
   <section id="api-sota">
-    <h2>API: SOTA Endpoints <span class="badge orange">SOTA</span></h2>
+    <h2>API: SOTA Endpoints </h2>
 
     <table>
       <thead><tr><th>Path</th><th>Params</th><th>Returns</th></tr></thead>

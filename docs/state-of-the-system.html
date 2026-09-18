@@ -244,7 +244,7 @@
   <!-- ════════════════ TL;DR ════════════════ -->
   <section id="tldr">
   <h2>TL;DR</h2>
-  <p><strong>Public-readiness audit, 2026-09-17:</strong> 504 backend tests pass with three
+  <p><strong>Public-readiness audit, updated 2026-09-18:</strong> 506 backend tests pass with three
   synthetic provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
   A separate live Gemini run processed four actual chapters from Pride and Prejudice
   and Primal Hunter, including semantic retrieval and chapter-cutoff checks. It
@@ -253,7 +253,9 @@
   Both dependency audits are clean, and no credentials were found in the scanned
   Git history. The follow-up also fixes review acceptance atomicity, historical reads,
   directional relationship deduplication, and partial-completion reporting. CI now
-  includes Python lint and uses the published <code>setup-uv@v10.1.0</code> release. See the
+  includes Python lint and uses the published <code>setup-uv@v10.1.0</code> release.
+  The follow-up removes unused critic paths and preserves explicit relationship endings
+  across chapter cutoffs and entity merges. See the
   <a href="public-readiness.md">current audit and remaining limits</a> and the
   <a href="release-check.md">real-Gemini release check</a>.</p>
 
@@ -793,7 +795,7 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
   <!-- ════════════════ CRITIC SCORECARD ════════════════ -->
   <section id="critic-scorecard">
   <h2>Critic Check Scorecard</h2>
-  <p>All five checks have live producers, but <strong>having a producer and being able to fire are
+  <p>Historically the five-check catalog overstated its coverage: <strong>having a producer and being able to fire are
      different things</strong>, and this table used to conflate them. A 2026-08-16 audit traced each
      check end-to-end from <code>pipeline.py</code> and found that on the ingestion spine three of
      the five were structurally incapable of emitting a finding, because
@@ -811,37 +813,21 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
      build a draft is exactly the divergence the merge existed to close. Mock runs now report
      <code>status="unavailable"</code> rather than falling back to a mode that passes vacuously.</p>
 
-  <div class="callout warn">
-    <strong>Prerequisite fixed in the same change.</strong> <code>build_draft_chapter()</code>
-    emitted one location claim per LLM assertion with no per-character collapse, while
-    <code>check_location_possession</code> FAILs a character with more than one distinct location in
-    a chapter — so any character who simply walked somewhere failed the critique, which under
-    <code>on_continuity_fail="block"</code> refuses the save. Claims now collapse to the character's
-    last location, keyed on the <em>resolved</em> character id, so a known alias cannot split one
-    character into two claimants. <strong>The cost of that fix, named here because it is not
-    obvious:</strong> with at most one location claim per character, <code>location_possession</code>'s
-    two-places-at-once FAIL branch became unreachable from the only adapter production uses.
-  </div>
-
+  <p><strong>Cleanup, 2026-09-18.</strong> The critic now has four checks with production
+     inputs. The planner-dependent thread check and planned-commitment branch were deleted.
+     The adapter's location claims and the unreachable two-locations failure were also deleted;
+     chapter-level location assertions cannot distinguish movement from simultaneity.</p>
   <table>
-    <thead><tr><th>Check</th><th>Reads</th><th>Can it fire? (one path, every caller)</th></tr></thead>
+    <thead><tr><th>Check</th><th>Evidence</th><th>Finding</th></tr></thead>
     <tbody>
-      <tr><td><code>entity_mention</code></td><td><code>canon_facts</code></td><td><span class="badge green">Fires</span> — bounds comparison to <code>source_chapter &lt; chapter_number</code> rather than comparing against the row this chapter just wrote (fixed 2026-08-16; moot now that the critique runs before this chapter's facts are written, but still load-bearing for a standalone re-run). Note it FAILs only against a <em>locked</em> fact, and locking is manual. Until 2026-09-04 it could barely fire even then: the check indexes canon by the exact <code>(entity, predicate)</code> tuple, and the two independent LLM calls that write the fact and the claim were told different things about predicate naming — one got a vocabulary, the other just "string snake_case" — so a draft claiming <code>has_eye_color</code> was never compared against a fact stored as <code>eye_color</code>. Both prompts now share one <code>CANON_PREDICATES</code> constant.</td></tr>
-      <tr><td><code>knowledge_state</code></td><td><code>knows_edges</code></td><td><span class="badge green">Fires</span> — real <code>learned_this_chapter</code> booleans from the claims extractor</td></tr>
-      <tr><td><code>location_possession</code></td><td><code>possesses_edges</code></td><td><span class="badge yellow">Partly</span> — the possession half fires on real claims. The two-places-at-once FAIL does not: claims collapse to one location per resolved character (see the callout above), so the <code>&gt;1 distinct location</code> branch is unreachable from the production adapter. It fires only in <code>critic_eval</code>, which builds a <code>DraftChapter</code> by hand.</td></tr>
-      <tr><td><code>commitments</code></td><td><code>commitments</code></td><td><span class="badge yellow">Partly</span> — the "planned foreshadow was planted" half is gated on <code>planned_commitment_ids=[]</code> and never runs. The accidental-payoff half does, and since 2026-08-16 ignores stopwords and only considers commitments foreshadowed at or before this chapter.</td></tr>
-      <tr><td><code>thread_coverage</code></td><td><code>thread_events</code></td><td><span class="badge red">No</span> — <code>planned_thread_ids=[]</code> makes the check return <code>[]</code> on its first line. Awaits a planner integration; this is the one check with no live caller.</td></tr>
-      <tr><td><code>temporal_consistency</code> (deleted 2026-07-12)</td><td><code>temporal_constraints</code> + <code>events.story_time_ordinal</code> (both removed 2026-07-11)</td><td><span class="badge red">N/A</span> — check itself removed, not just hollow</td></tr>
+      <tr><td><code>entity_mention</code></td><td>Earlier canon facts</td><td>Contradiction: FAIL for locked facts, WARN otherwise</td></tr>
+      <tr><td><code>knowledge_state</code></td><td>Prior knowledge edges and extracted learning claims</td><td>FAIL for unsupported prior knowledge; matching is heuristic</td></tr>
+      <tr><td><code>possession</code></td><td>Possession entering the chapter</td><td>WARN for an unsupported possession; a pickup may explain it</td></tr>
+      <tr><td><code>commitments</code></td><td>Pending commitments and draft events</td><td>WARN for a possible payoff based on content-word overlap</td></tr>
     </tbody>
   </table>
-
-  <p><strong>What this means for <code>critique_reports.passed</code>:</strong> before 2026-08-16 it
-     was effectively a constant <code>true</code> for ingested chapters. At the current default it
-     carries real signal for canon contradictions, knowledge violations, and location/possession
-     contradictions. <code>thread_coverage</code> and the planned half of <code>commitments</code>
-     remain dormant pending a planner that supplies <code>planned_*_ids</code> — they are dormant by
-     design rather than broken, since nothing in an analyzer-only system produces a plan to check
-     against.</p>
+  <p>The deterministic evaluation no longer scores a location failure that production
+     could not produce. Passing the checks is not proof of continuity or extraction recall.</p>
   </section>
 
   <!-- ════════════════ DUAL TRUTH ════════════════ -->
@@ -1339,59 +1325,11 @@ flowchart TB
       set materially larger than one clean draft.
     </li>
     <li>
-      <span class="phase-tag">Planner-dependent checks</span><br>
-      <strong><code>thread_coverage</code> and the planned half of <code>commitments</code> have no
-      live caller.</strong> Both gate on <code>planned_thread_ids</code> /
-      <code>planned_commitment_ids</code>, which every current caller passes as <code>[]</code>.
-      This is dormancy by design, not breakage: an analyzer-only system produces no plan to check a
-      draft against. Note <code>thread_coverage</code> also builds <code>event_ids</code> from an
-      <code>id</code> field neither adapter attaches, so if a planner were wired up today it would
-      warn on every thread unconditionally — fix that at the same time.<br>
-      <em>Done when:</em> either a planner supplies the ids and the <code>id</code> plumbing is
-      fixed, or both branches are deleted rather than left as latent false positives.
-    </li>
-    <li>
-      <span class="phase-tag">location_possession's FAIL branch is unreachable in production</span><br>
-      <strong><code>check_location_possession</code> FAILs a character asserted in more than one
-      location in a chapter, but no production caller can give it more than one.</strong>
-      <code>build_draft_chapter</code> collapses location claims to one per resolved character — a
-      deliberate fix, since emitting one claim per assertion FAILed every character who simply walked
-      somewhere. The FAIL branch survives, and fires in <code>critic_eval</code>, which constructs a
-      <code>DraftChapter</code> by hand. So the eval scores a path production never takes. Found
-      2026-09-04 while collapsing the gate into the critique.<br>
-      <em>Done when:</em> either the check compares claims against prior state (a character claimed
-      somewhere incompatible with the location edge they entered the chapter on, which is a real
-      contradiction the collapse does not hide), or the branch is deleted and
-      <code>critic_eval</code>'s case with it — but not left scoring a case that cannot occur.
-    </li>
-    <li>
-      <span class="phase-tag">Nothing ever supersedes a relationship</span><br>
-      <strong><code>relationships.superseded_by_id</code> is read in five places and written by
-      none.</strong> The column exists, every relationship read filters on it, and no code path has
-      ever set it — 0 rows across all three ingested novels. So when a later chapter restates a
-      relationship differently, the old row simply stays. Two cases that look identical in the data
-      and are not:
-      <ul>
-        <li><em>The extractor said it differently.</em> Chapter 1 writes
-          <code>Mr. Bennet parent_of Lizzy</code>, chapter 2 writes
-          <code>Mr. Bennet father Lizzy</code>. One fact, two rows, two edges between the same pair
-          in the graph. This is entity resolution's problem in a different table: the predicate
-          vocabulary is free-form, so the same relationship gets two names.</li>
-        <li><em>The world changed.</em> Chapter 1 writes
-          <code>Mrs. Bennet acquaintance Mrs. Long</code>, chapter 2 writes
-          <code>rival</code> — Mrs. Bennet's view genuinely sours. Here the old row <em>should</em>
-          close (<code>to_chapter</code>) and the new one should point back at it. That is what
-          <code>superseded_by_id</code> is for, and it is the same supersession-versus-contradiction
-          distinction the canon-fact and knowledge tiers face.</li>
-      </ul>
-      On a 2-chapter Pride and Prejudice ingest, 5 of 12 character pairs carry more than one edge:
-      4 are the first kind, 1 is the second. Note this is not the same defect as the
-      <code>to_chapter</code> interval bug fixed 2026-09-04 — that one made relationships vanish;
-      this one makes them accumulate.<br>
-      <em>Done when:</em> a later chapter's restatement of an existing pair either merges into the
-      existing row (same relationship, different wording) or closes it and links the replacement
-      (genuine change), and the choice between those two is made by something better than string
-      equality on <code>rel_type</code>.
+      <span class="phase-tag">Relationship vocabulary</span><br>
+      Explicit endings now supersede earlier assertions without hiding them from earlier chapter
+      views. Entity merging preserves assertion history and direction. Different labels such as
+      <code>father</code> and <code>parent_of</code> can still describe one fact; the system does not
+      infer semantic equivalence or automatically close one relationship when another label appears.
     </li>
     <li>
       <span class="phase-tag">Cross-type duplicate prevention</span><br>
@@ -1437,9 +1375,8 @@ flowchart TB
       docstring names the fix. The stored <code>fact_description</code> and the draft-claim's
       <code>fact_description</code> come from two independent LLM calls that rarely agree verbatim,
       so false rejections should dominate false acceptances. This matters more than the phrasing
-      "one of five checks" suggests: with <code>entity_mention</code> FAILing only against a
-      manually-locked canon fact and <code>location_possession</code>'s FAIL branch unreachable from
-      the production adapter, this and a locked-fact contradiction are the only two live hard-reject
+      "one of four checks" suggests: with <code>entity_mention</code> FAILing only against a
+      manually-locked canon fact, this and a locked-fact contradiction are the only two live hard-reject
       grounds — and locking is manual, so on a database where nobody has locked anything this is the
       only one. Its precision ceiling was invisible until 2026-08-24, when a FAIL first
       became able to refuse a write. See <a href="#write-gate">Refusing a Write</a>.<br>

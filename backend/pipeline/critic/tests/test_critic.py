@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 
 from pipeline.critic import ContinuityCritic
 from pipeline.critic.types import DraftChapter, Severity
@@ -115,49 +116,7 @@ def test_entity_mention_warns_when_unlocked(db):
 
 
 # ---------------------------------------------------------------------------
-# location/possession
-
-
-def test_location_check_flags_two_places_at_once(db):
-    novel_id = _make_novel(db)
-    try:
-        ch_id = _make_chapter(db, novel_id, 1)
-        char_eid = _make_entity(db, novel_id, "character", "Mira")
-        with db.transaction() as cur:
-            cur.execute(
-                "INSERT INTO characters (novel_id, entity_id, name) VALUES (%s,%s,%s) RETURNING id",
-                (novel_id, char_eid, "Mira"),
-            )
-            mira_id = str(cur.fetchone()[0])
-        loc_a_eid = _make_entity(db, novel_id, "location", "Keep")
-        loc_b_eid = _make_entity(db, novel_id, "location", "Harbor")
-        with db.transaction() as cur:
-            cur.execute(
-                "INSERT INTO locations (novel_id, entity_id, name) VALUES (%s,%s,%s) RETURNING id",
-                (novel_id, loc_a_eid, "Keep"),
-            )
-            loc_a = str(cur.fetchone()[0])
-            cur.execute(
-                "INSERT INTO locations (novel_id, entity_id, name) VALUES (%s,%s,%s) RETURNING id",
-                (novel_id, loc_b_eid, "Harbor"),
-            )
-            loc_b = str(cur.fetchone()[0])
-        draft = DraftChapter(
-            novel_id=novel_id,
-            chapter_number=2,
-            text="...",
-            location_claims=[
-                {"character_id": mira_id, "location_id": loc_a, "quote": "Mira in the keep"},
-                {"character_id": mira_id, "location_id": loc_b, "quote": "Mira at the harbor"},
-            ],
-        )
-        report = ContinuityCritic(db).critique(draft)
-        assert not report.passed
-        finding = next(f for f in report.fails if f.check == "location_possession")
-        assert "2 locations" in finding.message
-        _ = ch_id  # quiet linter
-    finally:
-        _cleanup(db, novel_id)
+# possession
 
 
 def test_possession_check_warns_when_object_not_held(db):
@@ -186,7 +145,7 @@ def test_possession_check_warns_when_object_not_held(db):
         )
         report = ContinuityCritic(db).critique(draft)
         # Possession warn (not FAIL) — chapter could be introducing the pickup.
-        warn = next(f for f in report.warns if f.check == "location_possession")
+        warn = next(f for f in report.warns if f.check == "possession")
         assert "possession edge" in warn.message
     finally:
         _cleanup(db, novel_id)
@@ -224,7 +183,7 @@ def test_possession_check_warns_when_object_lost_in_previous_chapter(db):
             ],
         )
         report = ContinuityCritic(db).critique(draft)
-        warn = next(f for f in report.warns if f.check == "location_possession")
+        warn = next(f for f in report.warns if f.check == "possession")
         assert "possession edge" in warn.message
     finally:
         _cleanup(db, novel_id)
@@ -332,59 +291,25 @@ def test_knowledge_state_passes_when_prior_edge_exists(db):
         _cleanup(db, novel_id)
 
 
-# ---------------------------------------------------------------------------
-# commitment
 
-
-def test_commitment_warns_on_unkept_planned_commitment(db):
+@pytest.mark.parametrize("event,foreshadow_chapter,expected", [
+    ("the silver compass unlocks the sunken vault", 1, 1),
+    ("the sailor will return to the harbor", 1, 0),
+    ("the silver compass unlocks the sunken vault", 5, 0),
+])
+def test_commitment_payoff_check_uses_prior_evidence(db, event, foreshadow_chapter, expected):
     novel_id = _make_novel(db)
     try:
-        with db.transaction() as cur:
-            cur.execute(
-                """
-                INSERT INTO commitments
-                    (novel_id, foreshadow_text, foreshadow_chapter, status)
-                VALUES (%s, %s, %s, 'pending') RETURNING id
-                """,
-                (novel_id, "a sword glints in the firelight", 2),
-            )
-            cid = str(cur.fetchone()[0])
-        draft = DraftChapter(
-            novel_id=novel_id,
-            chapter_number=4,
-            text="...",
-            planned_commitment_ids=[cid],
+        db.execute(
+            "INSERT INTO commitments (novel_id, foreshadow_text, foreshadow_chapter, status) "
+            "VALUES (%s,%s,%s,'pending')",
+            (novel_id, "the silver compass will unlock the sunken vault", foreshadow_chapter),
         )
-        report = ContinuityCritic(db).critique(draft)
-        warns = [f for f in report.warns if f.check == "commitments"]
-        assert len(warns) >= 1
-    finally:
-        _cleanup(db, novel_id)
-
-
-# ---------------------------------------------------------------------------
-# thread_coverage
-
-
-def test_thread_coverage_warns_when_thread_not_touched(db):
-    novel_id = _make_novel(db)
-    try:
-        with db.transaction() as cur:
-            cur.execute(
-                "INSERT INTO plot_threads (novel_id, title) VALUES (%s, %s) RETURNING id",
-                (novel_id, "Aelric's vengeance"),
-            )
-            tid = str(cur.fetchone()[0])
-        draft = DraftChapter(
-            novel_id=novel_id,
-            chapter_number=3,
-            text="...",
-            planned_thread_ids=[tid],
-            events=[],
-        )
-        report = ContinuityCritic(db).critique(draft)
-        warns = [f for f in report.warns if f.check == "thread_coverage"]
-        assert len(warns) == 1
-        assert tid in warns[0].message
+        report = ContinuityCritic(db).critique(DraftChapter(
+            novel_id=novel_id, chapter_number=3, text=event,
+            events=[{"description": event}],
+        ))
+        assert len([f for f in report.warns if f.check == "commitments"]) == expected
+        assert report.passed
     finally:
         _cleanup(db, novel_id)

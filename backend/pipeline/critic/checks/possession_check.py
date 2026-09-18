@@ -1,14 +1,8 @@
-"""Location and possession consistency check.
+"""Warn when a draft claims possession unsupported by the preceding chapter.
 
-For each (character, location) claimed in the draft, verify the character
-was plausibly there given the active located_in_edges at chapter_number - 1.
-A character can be at a new location (movement is normal) — what we flag is
-*another character* simultaneously asserted to be in two places, or a
-possession claim for an item the character does not currently hold.
-
-Inputs:
-    location_claims: list of {character_id, location_id, quote}
-    possession_claims: list of {character_id, object_id, quote}
+A pickup within the draft may be legitimate, so this produces warnings rather
+than blocking findings. Location consistency needs scene/time evidence and is
+not inferred merely from a character visiting multiple places in a chapter.
 """
 
 from __future__ import annotations
@@ -17,42 +11,12 @@ from pipeline.critic.types import Finding, Severity
 from pipeline.db.client import DBClient
 
 
-def check_location_possession(
+def check_possession(
     db: DBClient,
-    novel_id: str,
     chapter_number: int,
-    location_claims: list[dict],
     possession_claims: list[dict],
 ) -> list[Finding]:
     findings: list[Finding] = []
-
-    # ---- location: detect two-places-at-once within this draft.
-    by_char: dict[str, list[dict]] = {}
-    for c in location_claims:
-        cid = c.get("character_id")
-        lid = c.get("location_id")
-        if not cid or not lid:
-            continue
-        by_char.setdefault(str(cid), []).append(c)
-
-    for cid, claims in by_char.items():
-        distinct_locs = {str(c["location_id"]) for c in claims}
-        if len(distinct_locs) > 1:
-            findings.append(
-                Finding(
-                    check="location_possession",
-                    severity=Severity.FAIL,
-                    message=(
-                        f"Character {cid} is asserted in {len(distinct_locs)} "
-                        f"locations within the same chapter without a transition event."
-                    ),
-                    quote=claims[0].get("quote"),
-                    context={
-                        "character_id": cid,
-                        "locations": sorted(distinct_locs),
-                    },
-                )
-            )
 
     # ---- possession: was the object held entering this chapter?
     if possession_claims:
@@ -86,7 +50,7 @@ def check_location_possession(
                     continue
                 findings.append(
                     Finding(
-                        check="location_possession",
+                        check="possession",
                         severity=Severity.WARN,
                         message=(
                             f"Character {cid} is shown holding object {oid}, but "

@@ -65,9 +65,8 @@ class CritiqueReport:
 class DraftChapter:
     """Input to the Critic: the draft + the structured facts extracted from it.
 
-    Constructing this is the caller's job. In the eventual pipeline this is
-    populated by the Extractor running on the draft prose; in tests it's
-    constructed directly.
+    The draft-claims adapter extracts these facts from prose and resolves
+    existing entity names without creating entities.
     """
 
     novel_id: str
@@ -77,16 +76,10 @@ class DraftChapter:
     mentions: list[dict[str, Any]] = field(default_factory=list)
     # [{character_id, fact_description, source_type}] — knowledge implied by the draft
     knowledge_claims: list[dict[str, Any]] = field(default_factory=list)
-    # [{character_id, location_id}] — characters at locations per the draft
-    location_claims: list[dict[str, Any]] = field(default_factory=list)
     # [{character_id, object_id}] — characters possessing objects per the draft
     possession_claims: list[dict[str, Any]] = field(default_factory=list)
-    # Events extracted from the draft (used for temporal + commitment checks)
+    # Events extracted from the draft (used for commitment checks)
     events: list[dict[str, Any]] = field(default_factory=list)
-    # Plot threads the caller declared this chapter would advance.
-    planned_thread_ids: list[str] = field(default_factory=list)
-    # Commitment IDs the caller declared this chapter would plant/satisfy.
-    planned_commitment_ids: list[str] = field(default_factory=list)
 
 
 def normalize_text(text: str) -> str:

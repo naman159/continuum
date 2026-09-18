@@ -290,6 +290,6 @@ def test_src_tgt_relationship_deleted_before_repoint():
     first_update_idx = next(i for i, q in enumerate(sql) if "UPDATE relationships" in q)
     assert pair_delete_idx < first_update_idx
     # post-repoint pair dedupe present
-    assert any("GREATEST" in q and "DELETE FROM relationships" in q for q in sql)
+    assert any("a.symmetric IS TRUE" in q and "DELETE FROM relationships" in q for q in sql)
     # knows_edges.fact_id was dropped from the schema; merge must not reference it
     assert not any("fact_id" in q for q in sql)

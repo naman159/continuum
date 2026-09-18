@@ -502,7 +502,7 @@ history, not intent.</p>
 <h3>Refusing a write</h3>
 
 <p>This is the one place Continuum is more than a data layer. Every write runs the
-<strong>CRITIQUE</strong> phase before extraction — the same five checks, once, for
+<strong>CRITIQUE</strong> phase before extraction — the same four checks, once, for
 every caller. What differs is what a FAIL <em>costs</em>, and that is the caller's
 <code>on_continuity_fail</code> policy rather than anything the pipeline infers about
 who is writing:</p>

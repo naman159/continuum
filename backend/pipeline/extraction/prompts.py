@@ -122,7 +122,7 @@ PASS_SCHEMAS = {
                 "rel_type": "string",
                 "symmetric": "boolean|null  # true if genuinely mutual, false if one-sided, null if unclear",
                 "from_chapter": "integer|null  # chapter the relationship is first established",
-                "to_chapter": "integer|null  # ALWAYS null unless the text shows it ENDING",
+                "to_chapter": "integer|null  # final active chapter, inclusive; null unless the text shows it ENDING",
                 "notes": "string|null",
             }
         ]
@@ -347,7 +347,9 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
           - to_chapter: null in almost every case. Set it ONLY when this chunk shows the
             relationship ending — a death, a divorce, a formal severing, an explicit
             renunciation. A relationship the text simply states, shows, or implies is
-            still in force, so it gets to_chapter: null.
+            still in force, so it gets to_chapter: null. When an ending is explicit,
+            use the final chapter in which the relationship holds (inclusive):
+            it remains visible at that chapter's cutoff and is absent after it.
           - NEVER set to_chapter equal to from_chapter to mean "this is what I saw in
             this chapter". A relationship is assumed to persist once established; a
             to_chapter says it STOPPED being true, and readers of this data will believe

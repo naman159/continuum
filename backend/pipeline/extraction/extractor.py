@@ -253,7 +253,7 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             seen_flags.add(key)
             merged["continuity_flags"].append(flag)
 
-    seen_relationships: set[tuple[str, str, str]] = set()
+    seen_relationships: set[tuple[str, str, str, bool, str, str]] = set()
     for extraction in extractions:
         for rel in extraction.get("relationship_updates", []):
             a = str(rel.get("entity_a", "")).strip().lower()
@@ -261,7 +261,13 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
             rel_type = str(rel.get("rel_type", "")).strip().lower()
             if not a or not b:
                 continue
-            key = (min(a, b), max(a, b), rel_type)
+            # Chunk merging must preserve the same evidence as persistence:
+            # directed pairs are distinct, and an ending in a later chunk
+            # must survive an earlier assertion that the relationship holds.
+            mutual = rel.get("symmetric") is True
+            pair = (min(a, b), max(a, b)) if mutual else (a, b)
+            key = (*pair, rel_type, mutual,
+                   str(rel.get("from_chapter")), str(rel.get("to_chapter")))
             if key in seen_relationships:
                 continue
             seen_relationships.add(key)

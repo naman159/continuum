@@ -231,6 +231,11 @@ ALTER TABLE chapters ADD COLUMN IF NOT EXISTS style_fingerprint JSONB;
 
 -- ---- Relationships: invalidate-don't-delete + evidence ----
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS superseded_by_id UUID REFERENCES relationships(id);
+-- Replacing the chapter containing a newer assertion restores its predecessor.
+-- Retrofit the original FK as well as initializing fresh databases.
+ALTER TABLE relationships DROP CONSTRAINT IF EXISTS relationships_superseded_by_id_fkey;
+ALTER TABLE relationships ADD CONSTRAINT relationships_superseded_by_id_fkey
+    FOREIGN KEY (superseded_by_id) REFERENCES relationships(id) ON DELETE SET NULL;
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS evidence_event_ids UUID[] DEFAULT '{}';
 ALTER TABLE relationships ADD COLUMN IF NOT EXISTS sentiment FLOAT;
 -- NULL = extractor didn't judge it; the API falls back to a static label heuristic

@@ -195,3 +195,12 @@ original findings with the chapter. The unused style-fingerprint writer is retir
 Run `uv run ruff check .` alongside pytest. Ingest chapters sequentially per novel;
 major manuscript retcons should be processed into a fresh novel because global
 entity, canon, and thread metadata is not fully versioned.
+
+### 2026-09-18 cleanup
+
+The critic has four active checks: canon assertions, knowledge, possession, and
+possible commitment payoffs. Unused planner and location-claim paths were removed.
+Relationship endings now preserve earlier assertions and chapter-cutoff reads.
+Run `uv run novel-pipeline init-db` after updating an existing installation to
+apply schema version 3's foreign-key update. See the
+[public-readiness audit](../docs/public-readiness.md) for verification and limits.

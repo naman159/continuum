@@ -554,7 +554,7 @@ graph LR
 │   │   │   ├── persist_deltas.py <span class="cmt"># Persist typed state_deltas (reference-only resolution)</span>
 │   │   │   ├── persist_canon.py  <span class="cmt"># Persist canon_facts (lock/contradiction semantics)</span>
 │   │   │   └── persist_extras.py <span class="cmt"># Persist SOTA tables (scenes, knows, etc.)</span>
-│   │   ├── <span class="dir">critic/</span>           <span class="cmt"># ContinuityCritic: 5 typed checks</span>
+│   │   ├── <span class="dir">critic/</span>           <span class="cmt"># ContinuityCritic: 4 typed checks</span>
 │   │   │   ├── runner.py         <span class="cmt"># Orchestrates all checks → CritiqueReport</span>
 │   │   │   ├── adapter.py        <span class="cmt"># Draft/extraction → critic bridge (extract_draft_claims, build_draft_chapter, build_draft_from_extraction)</span>
 │   │   │   ├── types.py          <span class="cmt"># DraftChapter, CritiqueReport, Finding</span>
@@ -711,7 +711,7 @@ graph LR
           override findings, and conditional review-status update now share one transaction;
           a failed update or competing rejection rolls back the chapter too.</li>
         <li><strong>Human writes are advisory, not unchecked.</strong> The Process page and the CLI
-          run the identical five checks on the identical claims and get the identical findings;
+          run the identical four checks on the identical claims and get the identical findings;
           they simply do not treat a FAIL as a veto. This is the part the old design got wrong by
           omission: because the gate was a separate module reachable only via
           <code>source != 'human'</code>, "human" was a string any caller could pass to skip the
@@ -992,9 +992,12 @@ flowchart TD
     <h3>Relationship dedupe &amp; repair</h3>
     <p>
       Persisting a relationship first checks for an existing <em>active</em> edge with the same
-      unordered entity pair and rel_type (<code>superseded_by_id IS NULL</code>) and skips the insert
-      when found — so "Jake–Sara: rival" re-extracted in ten chapters stays one edge. Different
-      rel_types between the same pair coexist by design.
+      directed entity pair and <code>rel_type</code>; a reversed pair matches only when both
+      assertions are explicitly symmetric. An unchanged active relationship is skipped.
+      An explicit ending creates a chapter-anchored assertion and links the prior row through
+      <code>superseded_by_id</code>. Reads apply that link only once the ending's source chapter
+      is visible. Deleting the ending chapter restores the prior assertion. Different
+      relationship labels still coexist; semantic equivalence is not inferred.
     </p>
     <p>
       <strong>Repair: entity merge.</strong> When dedup gets it wrong, <code>merge_entities</code>
@@ -1227,7 +1230,12 @@ flowchart TD
     </table>
 
     <div class="callout info">
-      <strong>Bitemporal edges</strong> (<code>since_chapter</code>, <code>until_chapter</code>) allow tracking "Asha had the sword from chapter 2 to chapter 7, then Kira had it from chapter 7 onward" — without storing multiple snapshots. A <code>NULL until_chapter</code> means "still true." <code>until_chapter</code> is <em>inclusive</em> (the materializer stitches it as the next fact's <code>since_chapter − 1</code>), so every "active at chapter N" filter uses <code>until_chapter &gt;= N</code> — the list endpoints, the entity graph, and the critic's location/possession check all share this convention.
+      <strong>Temporal intervals</strong> retain prior state without copying every edge for every
+      chapter. A <code>NULL until_chapter</code> means the interval remains open. Location intervals
+      end inclusively at the chapter before the next move. Possession intervals end exclusively
+      at the loss chapter. Relationship <code>to_chapter</code> is the final active chapter,
+      inclusive. The critic checks possession entering the draft chapter, while the wiki displays
+      state at the selected chapter's end.
     </div>
   </section>
 
@@ -1760,10 +1768,9 @@ flowchart LR
     <p>
       <code>backend/pipeline/critic/</code> provides <code>ContinuityCritic</code>, which validates
       a <code>DraftChapter</code> (extracted facts before persistence) against existing DB state.
-      It runs <strong>5 typed checks</strong> in sequence and returns a <code>CritiqueReport</code>.
-      (A sixth check, temporal consistency, was retired — it queried the never-populated
-      <code>temporal_constraints</code> table, which was dropped from the schema; see
-      <a href="#write-spine-tables">Write-Spine Tables</a>.)
+      It runs <strong>4 typed checks</strong> in sequence and returns a <code>CritiqueReport</code>.
+      Unused planner-dependent checks and the unreachable two-locations branch were removed
+      on 2026-09-18. The critic makes no claim to detect simultaneous-location contradictions.
     </p>
 
     <table>
@@ -1771,11 +1778,10 @@ flowchart LR
         <tr><th>Check</th><th>File</th><th>What It Validates</th></tr>
       </thead>
       <tbody>
-        <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN. Compares only against canon with <code>source_chapter &lt; chapter_number</code> — on the ingestion spine <code>persist_canon_facts()</code> has already written this chapter's own facts by the time the critique runs, so without that bound every mention was compared against the row it had just produced and the check could never disagree with itself. Values are compared with separators and punctuation folded, so canon <code>"storm-grey"</code> vs. a draft's <code>"storm grey"</code> is not a FAIL.</td></tr>
-        <tr><td>Location &amp; possession</td><td><code>location_possession_check.py</code></td><td>Character location/possession claims don't contradict active bitemporal edges</td></tr>
+        <tr><td>Entity mentions</td><td><code>entity_mention_check.py</code></td><td>Draft mentions don't contradict <code>canon_facts</code> for an entity (e.g. eye colour, role); locked-fact contradiction → FAIL, unlocked → WARN. Compares only against canon with <code>source_chapter &lt; chapter_number</code> — the critique runs before persistence; the cutoff also prevents self-comparison when re-critiquing a saved chapter. Values are compared with separators and punctuation folded, so canon <code>"storm-grey"</code> vs. a draft's <code>"storm grey"</code> is not a FAIL.</td></tr>
+        <tr><td>Possession</td><td><code>possession_check.py</code></td><td>Warns when a claimed possession lacks an active edge entering the chapter; a pickup within the draft may be legitimate</td></tr>
         <tr><td>Knowledge state</td><td><code>knowledge_state_check.py</code></td><td>Knows-edges don't contradict existing theory-of-mind state. Claims the draft marks as learned this chapter (<code>learned_this_chapter</code>, an explicit boolean from the claims extractor) are exempt; the rest are matched against <code>knows_edges</code> by word overlap, since the stored and claimed phrasings come from independent LLM calls</td></tr>
-        <tr><td>Commitments</td><td><code>commitment_check.py</code></td><td>Pending commitments are either advanced or acknowledged</td></tr>
-        <tr><td>Thread coverage</td><td><code>thread_coverage_check.py</code></td><td>Open plot threads from prior chapters receive some mention</td></tr>
+        <tr><td>Commitments</td><td><code>commitment_check.py</code></td><td>Warns when a draft event resembles the payoff of a pending commitment; word overlap supplies evidence for review</td></tr>
       </tbody>
     </table>
 
@@ -1870,10 +1876,10 @@ flowchart LR
       <div class="card">
         <h4>Critic precision/recall</h4>
         <p>
-          Seeds four known continuity violations (one per deterministic check) plus one clean draft
+          Seeds three known continuity violations plus one clean draft
           against the seeded reads-test novel, then asserts <code>ContinuityCritic</code> flags every
           violation and produces no false positive on the clean draft — exact <strong>1.0</strong>
-          precision and recall, deterministic.
+          precision and recall on these fixtures only; this is regression coverage, not a measurement of real-model detection accuracy.
         </p>
       </div>
       <div class="card">
@@ -2093,7 +2099,7 @@ flowchart LR
         <tr><th>Module</th><th>What It Does</th></tr>
       </thead>
       <tbody>
-        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 5 typed checks against DB state; <code>persist.py</code> writes the report to <code>critique_reports</code>/<code>critique_findings</code></td></tr>
+        <tr><td><code>pipeline/critic/</code></td><td><code>ContinuityCritic</code> — 4 typed checks against DB state; <code>persist.py</code> writes the report to <code>critique_reports</code>/<code>critique_findings</code></td></tr>
         <tr><td><code>pipeline/retrieval/</code></td><td><code>HybridRetriever</code> — BM25 + dense → RRF → MMR. An <code>LLMReranker</code> stage sat between RRF and MMR until 2026-09-03; it was unreachable at any setting (<code>reads/search.py</code> hardcoded <code>use_rerank=False</code> <em>and</em> supplied no reranker) and was deleted rather than switched on.</td></tr>
         <tr><td><code>pipeline/state/</code></td><td><code>StateMaterializer</code> — deterministic, idempotent state derivation from <code>state_deltas</code></td></tr>
       </tbody>

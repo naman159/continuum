@@ -17,18 +17,22 @@ checked with real Gemini calls on four saved novel chapters, database regression
 tests, and browser checks. See the [public-readiness audit](docs/public-readiness.md)
 for the evidence, fixes, and remaining limitations.
 
+After updating an existing installation, run `uv run novel-pipeline init-db`
+from `backend/` to apply the current schema without deleting stored chapters.
+
 Chapter-anchored state, events, and search honor the selected cutoff. Global
 metadata such as aliases, descriptions, and canon facts is not fully versioned.
-The critic provides heuristic findings, not a guarantee of continuity. Process
+The critic checks canon assertions, knowledge, possessions, and possible commitment
+payoffs. It provides heuristic findings, not a guarantee of continuity. Process
 chapters sequentially within a novel; for substantial retcons, reprocess the
 revised manuscript into a fresh novel.
 
 ## Architecture (two spines, one database)
 
 - **Write spine** — `analyze_chapter` (`backend/pipeline/pipeline.py`):
-  CRITIQUE (5 deterministic continuity checks) → INGEST → EXTRACT (13 LLM
+  CRITIQUE (4 deterministic continuity checks) → INGEST → EXTRACT (13 LLM
   passes, including typed `state_deltas`) → PERSIST (one transaction,
-  immutable extraction tier) → MATERIALIZE (`StateReplay` folds deltas into
+  chapter assertions) → MATERIALIZE (`StateReplay` folds deltas into
   projections; sole writer of `character_states` and the bitemporal edge
   tables) → RECORD the critique against the committed chapter.
   The critique runs **first and exactly once**, for every caller: before
