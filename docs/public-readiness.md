@@ -1,4 +1,4 @@
-# Public-readiness audit — updated 2026-09-18
+# Public-readiness audit — updated 2026-09-19
 
 **Recommendation: publish as an experimental, local-first project.** The core
 architecture is coherent and the tested workflows work. The remaining limitations
@@ -9,6 +9,16 @@ This audit followed the [real-Gemini release check](release-check.md). It covere
 runtime code, entry points, database boundaries, historical reads, frontend
 imports and dependencies, installation, tests, CI, and the current documentation.
 The repository's visibility was not changed.
+
+## Architecture conformance follow-up (2026-09-19)
+
+The [conformance audit](architecture-conformance.md) confirmed the shared module
+boundaries but found additional open consistency gaps. Real-Gemini stored results
+show knowledge edges and snapshot knowledge diverging. Alias writes precede the
+chapter transaction; sequential chapter processing is not enforced; some enrichment
+failures are only logged. These findings were documented, not fixed in this review.
+Prior passing tests demonstrate the tested workflows, not universal consistency.
+The recommendation remains limited to an explicitly experimental local project.
 
 ## Follow-up: remove unused paths (2026-09-18)
 

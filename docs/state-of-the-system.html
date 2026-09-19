@@ -244,6 +244,11 @@
   <!-- ════════════════ TL;DR ════════════════ -->
   <section id="tldr">
   <h2>TL;DR</h2>
+  <p><strong>Architecture conformance, 2026-09-19:</strong> the shared write coordinator,
+  read layer, and three state projections match the intended module boundaries. Open gaps
+  include two independent knowledge sources, alias writes before the chapter transaction,
+  unenforced per-novel sequencing, and logged-only enrichment failures. These were identified,
+  not fixed, in the <a href="architecture-conformance.md">conformance review</a>.</p>
   <p><strong>Public-readiness audit, updated 2026-09-18:</strong> 506 backend tests pass with three
   synthetic provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
   A separate live Gemini run processed four actual chapters from Pride and Prejudice
@@ -900,9 +905,11 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     <code>DBClient.session()</code> block, bound to a single pooled connection. <code>DBSession</code>
     accepts the same <code>commit=</code> keyword the older per-statement helpers pass, but silently
     ignores it — commit/rollback ownership belongs entirely to the enclosing session, which commits once
-    on clean exit and rolls back the whole phase on any exception (see
+    on clean exit and rolls back the phase on an escaping exception (see
     <a href="reference.html#db-client">Reference: DBClient / DBSession</a>). A failure inside that block
-    now leaves <em>no</em> partial chapter, not a partially-written one.
+    rolls back the chapter if it escapes the session. Caught enrichment failures may still
+    commit a chapter with missing rows, and earlier canonicalizer alias writes are outside
+    this transaction; the conformance review identifies both limits.
   </p>
   <p>
     <strong>Amended 2026-08-16.</strong> The single-transaction claim above was correct, but until
@@ -922,7 +929,8 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     The two phases that run <em>after</em> that commit — MATERIALIZE and CRITIQUE — are deliberately
     <strong>not</strong> inside the same transaction: they're derived, idempotent, and re-runnable, so a
     failure there is caught, logged, and reported via <code>materialized: False</code> /
-    <code>critique: None</code> in the result rather than rolling back an already-saved chapter. That's
+    <code>critique.persisted: False</code> in the result rather than rolling back an already-saved
+    chapter. A skipped critique has <code>critique: None</code>. That's
     a design choice, not the atomicity gap this section used to describe.
   </p>
 

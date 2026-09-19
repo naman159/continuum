@@ -595,15 +595,14 @@ graph LR
     <h2>Pipeline Overview</h2>
     <p>
       The pipeline lives in <code>backend/pipeline/pipeline.py</code>. The entry point for processing a
-      chapter is <code>analyze_chapter()</code>. Here's the full flow:
+      chapter is <code>analyze_chapter()</code>. The
+      <a href="architecture-conformance.md">2026-09-19 conformance audit</a> separates the
+      implemented boundaries from open consistency gaps. Here's the processing flow:
     </p>
 
     <ol class="steps">
       <li>
-        <strong>0 · CRITIQUE — every caller, exactly once</strong> — runs before anything else. <code>critique_draft()</code> (<code>pipeline/critic/service.py</code>) runs <code>extract_draft_claims()</code> (one LLM call) → <code>build_draft_chapter()</code> → <code>ContinuityCritic.critique()</code> against the raw, unextracted text. It returns a <code>DraftCritique</code> and never raises: <code>status="ok"</code> carries a real verdict, <code>"error"</code> means the critique itself blew up, and <code>"unavailable"</code> means it never ran (<code>CRITIC_ENABLED=false</code>, or no real model — an empty mock draft would pass every check vacuously, so mock mode is an outage rather than a pass). This is the <em>only</em> critique the chapter gets; phase 5 persists this report rather than computing a second one. Running before chunking and the 13-pass extractor is what makes a refusal cost one LLM call instead of thirteen — and, more importantly, what keeps refused text out of the write tier entirely, since <code>delete_chapter_data</code> cannot undo the entity rows, <code>plot_threads</code> upserts and <code>canon_facts</code> updates a rejected draft would leave behind. What a FAIL costs is the caller's <code>on_continuity_fail</code> policy, not this function's business — see <a href="#continuity-policy">Blocking vs Advisory</a> below.</li>
-      <li>
-        <strong>Ingest raw text</strong> — <code>ingest_chapter()</code> inserts the raw chapter text into the <code>chapters</code> table. Duplicate (novel_id, chapter_number) is rejected.
-      </li>
+        <strong>0 · CRITIQUE — once when enabled</strong> — runs before extraction. Advisory callers may skip it; blocking callers always require it. <code>critique_draft()</code> (<code>pipeline/critic/service.py</code>) runs <code>extract_draft_claims()</code> (one LLM call) → <code>build_draft_chapter()</code> → <code>ContinuityCritic.critique()</code> against the raw, unextracted text. It returns a <code>DraftCritique</code> and never raises: <code>status="ok"</code> carries a real verdict, <code>"error"</code> means the critique itself blew up, and <code>"unavailable"</code> means it never ran (<code>CRITIC_ENABLED=false</code>, or no real model — an empty mock draft would pass every check vacuously, so mock mode is an outage rather than a pass). This is the <em>only</em> critique the chapter gets; phase 5 persists this report rather than computing a second one. Running before chunking and the 13-pass extractor is what makes a refusal cost one LLM call instead of thirteen — and, more importantly, what keeps refused text out of the write tier entirely, since <code>delete_chapter_data</code> cannot undo the entity rows, <code>plot_threads</code> upserts and <code>canon_facts</code> updates a rejected draft would leave behind. What a FAIL costs is the caller's <code>on_continuity_fail</code> policy, not this function's business — see <a href="#continuity-policy">Blocking vs Advisory</a> below.</li>
       <li>
         <strong>Load story context</strong> — <code>load_story_context()</code> fetches existing characters, locations, open plot threads, recent events, and custom entity types from the DB. Characters and locations are <em>selected, not dumped</em>: entities whose name or alias appears in the chapter text always make the cut, the remainder back-fills by recency, and the lists are capped at <code>CONTEXT_MAX_CHARACTERS</code> (default 40) / <code>CONTEXT_MAX_LOCATIONS</code> (default 30) so prompt size stays bounded as the cast grows. The result is injected into every LLM prompt so the model knows what already exists.
       </li>
@@ -629,6 +628,12 @@ graph LR
       </li>
       <li>
         <strong>Entity resolution</strong> — <code>EntityResolver</code> maps every entity name to an existing DB entity (exact name → alias → character partial-name match → create new). Returns UUIDs. Only the <code>new_entities</code> pass is allowed to <em>create</em> characters; every other pass resolves with <code>create=False</code> (resolve-or-skip) so a name it merely references can't mint a phantom character.
+      </li>
+      <li>
+        <strong>Begin chapter transaction and ingest raw text</strong> — after extraction and
+        canonicalization, <code>ingest_chapter()</code> inserts the chapter inside the same session
+        as its assertions. Canonicalizer alias writes currently occur before this session and
+        survive a later chapter failure; this is an open transaction-boundary gap.
       </li>
       <li>
         <strong>Persist to DB</strong> — <code>extraction/persist.py::persist_extraction()</code> writes entities, events, relationships, shared dynamics, plot threads, continuity flags. It never writes <code>character_states</code>: state changes go through the typed <code>state_deltas</code> log instead, and <code>character_states</code> is the sole responsibility of the <a href="#state-materializer">State Materializer</a>, which runs at the end of <code>analyze_chapter</code>.
@@ -1803,6 +1808,12 @@ flowchart LR
       and also owns <code>located_in_edges</code> and <code>possesses_edges</code> — purely
       deterministic and idempotent given the same delta log.
     </p>
+    <p><strong>Ownership limit:</strong> <code>knows_edges</code> is written directly by
+      <code>persist_knows_edges()</code> from a separate extraction pass. Snapshot knowledge
+      comes from <code>state_deltas</code>, so the two views can disagree. Entity repair and
+      deletion also update references in the three projections. See the
+      <a href="architecture-conformance.md">conformance audit</a> for real-data evidence.</p>
+
 
     <p>
       <code>StateReplay</code> (<code>replay.py</code>) reads <code>state_deltas</code> for a novel

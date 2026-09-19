@@ -30,12 +30,12 @@ revised manuscript into a fresh novel.
 ## Architecture (two spines, one database)
 
 - **Write spine** — `analyze_chapter` (`backend/pipeline/pipeline.py`):
-  CRITIQUE (4 deterministic continuity checks) → INGEST → EXTRACT (13 LLM
-  passes, including typed `state_deltas`) → PERSIST (one transaction,
-  chapter assertions) → MATERIALIZE (`StateReplay` folds deltas into
-  projections; sole writer of `character_states` and the bitemporal edge
-  tables) → RECORD the critique against the committed chapter.
-  The critique runs **first and exactly once**, for every caller: before
+  CRITIQUE (4 deterministic continuity checks) → EXTRACT (13 LLM passes,
+  including typed `state_deltas`) → DEDUPLICATE/CANONICALIZE → PERSIST
+  (insert/replace the chapter and its assertions in one transaction) →
+  MATERIALIZE (`StateReplay` derives `character_states`, `located_in_edges`,
+  and `possesses_edges`) → RECORD the critique against the committed chapter.
+  When enabled, the critique runs **first and once**: before
   extraction, so a refusal costs one claims-extraction call instead of 13
   passes per chunk and refused text never mints entities. The later phase
   only persists the report the first one produced. What a FAIL *costs* is the
@@ -50,13 +50,18 @@ revised manuscript into a fresh novel.
   or was human-overridden through the Review queue with the blocking
   findings recorded on it; rows from the un-blocking callers carry their
   findings without that guarantee.
-- **Read layer** — `backend/reads/`: every public function takes
-  `up_to_chapter` (None = whole novel) so both the wiki and MCP serve
-  spoiler-safe, point-in-time views. API routes and MCP tools contain no
-  SQL — enforced by contract tests.
+- **Read layer** — `backend/reads/`: shared story queries take `up_to_chapter`
+  (None = whole novel); registry and review-queue helpers are exempt.
+  Both the wiki and MCP use those queries. Cutoffs cover chapter-anchored data;
+  global metadata is not fully historical. API routes and MCP tool handlers
+  contain no SQL — enforced by contract tests.
 
-Chapter `raw_text` is ground truth: projections can always be deleted and
-rebuilt, and novels can be re-processed after schema changes.
+Stored `state_deltas` deterministically rebuild the three materialized projections.
+Reprocessing chapter `raw_text` invokes extraction again and may produce different
+facts. The workflow also has known consistency gaps: alias writes precede the
+chapter transaction, knowledge has two independent sources, and some enrichment
+failures are only logged. See the [architecture conformance audit](docs/architecture-conformance.md)
+for the implemented boundaries and prioritized corrections.
 
 ## Docs (start here)
 
