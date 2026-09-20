@@ -379,7 +379,7 @@ repo is a consumer of these.</p>
     <tr>
       <td class="step-n">2</td>
       <td><code>backend/pipeline/pipeline.py</code></td>
-      <td><code>analyze_chapter</code> — the phase sequence: CRITIQUE → INGEST → EXTRACT → PERSIST → MATERIALIZE → RECORD. Pure library; the <code>novel-pipeline</code> CLI is in <code>pipeline/cli.py</code>.</td>
+      <td><code>analyze_chapter</code> — the phase sequence: CRITIQUE → EXTRACT → PERSIST → MATERIALIZE → RECORD. Pure library; the <code>novel-pipeline</code> CLI is in <code>pipeline/cli.py</code>.</td>
     </tr>
     <tr>
       <td class="step-n">3</td>
@@ -389,7 +389,7 @@ repo is a consumer of these.</p>
     <tr>
       <td class="step-n">4</td>
       <td><code>backend/pipeline/state/</code></td>
-      <td><code>StateReplay</code> folds typed <code>state_deltas</code> into projections. Sole writer of <code>character_states</code> and the bitemporal edge tables.</td>
+      <td><code>StateReplay</code> folds typed <code>state_deltas</code> and <code>knows_edges</code> into projections. Sole writer of <code>character_states</code> and the bitemporal edge tables.</td>
     </tr>
     <tr>
       <td class="step-n">5</td>
@@ -534,8 +534,8 @@ caller-agnostic is what stops it drifting into two different notions of "consist
 
 <p><strong>Current assessment:</strong> see the <a href="public-readiness.md">public-readiness audit</a> for code cleanup, correctness fixes, clean-install results, and the limits of historical metadata and continuity detection.</p>
 <p>The <a href="architecture-conformance.md">2026-09-19 architecture conformance review</a>
-traces module boundaries, transaction scope, and data ownership, including remaining
-knowledge consistency and temporal-history gaps.</p>
+records the knowledge, transaction, history, sequencing, and enrichment corrections,
+including the migration boundary for old imports.</p>
 
 <p>See the <a href="release-check.md">2026-09-16 release check</a> for the
 verification results, review fixes, and remaining limits.</p>

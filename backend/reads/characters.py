@@ -12,6 +12,8 @@ import difflib
 from typing import Any
 from uuid import UUID
 
+from pipeline.db.history import metadata_table
+
 from reads.common import resolve_cutoff
 from reads.relationship_types import resolve_symmetric
 
@@ -19,9 +21,9 @@ from reads.relationship_types import resolve_symmetric
 def list_characters(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
-        """
+        f"""
         SELECT id, name, aliases, description, first_appearance_chapter
-        FROM characters
+        FROM {metadata_table('characters', novel_id, cutoff)} characters
         WHERE novel_id = %s
           AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)
         ORDER BY name
@@ -47,9 +49,9 @@ def get_character_detail(
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     identity_row = db.fetchone(
-        """
+        f"""
         SELECT id, name, aliases, description, first_appearance_chapter, entity_id
-        FROM characters WHERE id = %s AND novel_id = %s
+        FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE id = %s AND novel_id = %s
         """,
         (character_id, novel_id),
         dict_rows=True,
@@ -104,7 +106,7 @@ def get_character_detail(
         dict_rows=True,
     )
     rels_rows = db.fetchall(
-        """
+        f"""
         SELECT r.id, r.entity_a_id, r.entity_b_id, r.rel_type, r.symmetric,
                r.from_chapter, r.to_chapter, r.notes
         -- Endpoints are deliberately untyped. The `c.entity_id = ...` join
@@ -115,9 +117,9 @@ def get_character_detail(
         -- rel_to_row below already resolves the other endpoint's type for
         -- exactly this reason; that code was unreachable until now.
         FROM relationships r
-        JOIN entities ea ON ea.id = r.entity_a_id
-        JOIN entities eb ON eb.id = r.entity_b_id
-        JOIN characters c ON c.entity_id = ea.id OR c.entity_id = eb.id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = r.entity_a_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = r.entity_b_id
+        JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.entity_id = ea.id OR c.entity_id = eb.id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE c.id = %s
           AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
@@ -137,19 +139,19 @@ def get_character_detail(
     # Typed-id -> name maps, one per typed table: events.involved_* store the
     # typed ids, and character_states.location_id FKs to locations(id) too.
     char_name_rows = db.fetchall(
-        "SELECT id, name FROM characters WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     char_name = {r["id"]: r["name"] for r in char_name_rows}
     loc_rows = db.fetchall(
-        "SELECT id, name FROM locations WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('locations', novel_id, cutoff)} locations WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     location_name = {r["id"]: r["name"] for r in loc_rows}
     obj_rows = db.fetchall(
-        "SELECT id, name FROM objects WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('objects', novel_id, cutoff)} objects WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     object_name = {r["id"]: r["name"] for r in obj_rows}
     faction_rows = db.fetchall(
-        "SELECT id, name FROM factions WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('factions', novel_id, cutoff)} factions WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     faction_name = {r["id"]: r["name"] for r in faction_rows}
 
@@ -194,7 +196,7 @@ def get_character_detail(
             other_universal = rel["entity_a_id"]
             direction = "to"
         other_entity = db.fetchone(
-            "SELECT name, entity_type FROM entities WHERE id = %s",
+            f"SELECT name, entity_type FROM {metadata_table('entities', novel_id, cutoff)} entities WHERE id = %s",
             (other_universal,),
             dict_rows=True,
         )
@@ -212,15 +214,15 @@ def get_character_detail(
         }
 
     dyn_rows = db.fetchall(
-        """
+        f"""
         SELECT sd.id, ch.number AS chapter_number,
                e_other.name AS other_entity_name,
                e_other.entity_type AS other_entity_type,
                sd.description
         FROM shared_dynamics sd
         JOIN chapters ch ON ch.id = sd.chapter_id
-        JOIN characters c ON (c.entity_id = sd.entity_a_id OR c.entity_id = sd.entity_b_id)
-        JOIN entities e_other ON e_other.id = (
+        JOIN {metadata_table('characters', novel_id, cutoff)} c ON (c.entity_id = sd.entity_a_id OR c.entity_id = sd.entity_b_id)
+        JOIN {metadata_table('entities', novel_id, cutoff)} e_other ON e_other.id = (
             CASE WHEN c.entity_id = sd.entity_a_id THEN sd.entity_b_id ELSE sd.entity_a_id END
         )
         WHERE c.id = %s AND ch.novel_id = %s AND ch.number <= %s
@@ -252,9 +254,10 @@ def get_character_page(
     (identity, current_state, history, relationships, events, spoiler_cap) —
     an MCP writing agent may depend on those keys.
     """
+    cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     character = db.fetchone(
-        """
-        SELECT id FROM characters
+        f"""
+        SELECT id FROM {metadata_table('characters', novel_id, cutoff)} characters
         WHERE novel_id = %s AND lower(name) = lower(%s)
         LIMIT 1
         """,
@@ -263,7 +266,7 @@ def get_character_page(
     )
     if character is None:
         rows = db.fetchall(
-            "SELECT name FROM characters WHERE novel_id = %s",
+            f"SELECT name FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE novel_id = %s",
             (novel_id,),
             dict_rows=True,
         )

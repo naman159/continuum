@@ -64,11 +64,6 @@ def persist_state_deltas(
                     logger.warning("state_delta: unresolvable possession %r — dropped", delta)
                     continue
                 object_id = resolved_obj.universal_id
-            elif kind == "knowledge":
-                detail = str(delta.get("fact", "")).strip()
-                if not detail:
-                    continue
-                change = "learn"
             elif kind == "status":
                 attribute = str(delta.get("attribute", "")).strip()
                 detail = str(delta.get("value", "")).strip()

@@ -20,6 +20,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from pipeline.db.history import metadata_table
+
 from reads.common import merge_story_edges, resolve_cutoff
 from reads.relationship_types import resolve_symmetric
 
@@ -28,10 +30,10 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     char_rows = db.fetchall(
-        """
+        f"""
         SELECT c.id, e.name, c.first_appearance_chapter
-        FROM entities e
-        JOIN characters c ON c.entity_id = e.id
+        FROM {metadata_table('entities', novel_id, cutoff)} e
+        JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.entity_id = e.id
         WHERE e.novel_id = %s AND e.entity_type = 'character'
           AND (c.first_appearance_chapter IS NULL OR c.first_appearance_chapter <= %s)
         ORDER BY e.name
@@ -43,14 +45,14 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
     character_id_set = {n["id"] for n in nodes}
 
     rels_raw = db.fetchall(
-        """
+        f"""
         SELECT r.id, ca.id AS char_a_id, cb.id AS char_b_id,
                r.rel_type, r.symmetric, r.from_chapter, r.notes
         FROM relationships r
-        JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s AND ea.entity_type = 'character'
-        JOIN entities eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
-        JOIN characters ca ON ca.entity_id = ea.id
-        JOIN characters cb ON cb.entity_id = eb.id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = r.entity_a_id AND ea.novel_id = %s AND ea.entity_type = 'character'
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = r.entity_b_id AND eb.entity_type = 'character'
+        JOIN {metadata_table('characters', novel_id, cutoff)} ca ON ca.entity_id = ea.id
+        JOIN {metadata_table('characters', novel_id, cutoff)} cb ON cb.entity_id = eb.id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           -- Active at the cutoff: a relationship that ended before it is not
@@ -92,14 +94,14 @@ def relationship_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None)
 def list_shared_dynamics(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     raw = db.fetchall(
-        """
+        f"""
         SELECT sd.id, sd.entity_a_id, ea.name AS entity_a_name,
                sd.entity_b_id, eb.name AS entity_b_name,
                sd.description, ch.number AS chapter_number
         FROM shared_dynamics sd
         JOIN chapters ch ON ch.id = sd.chapter_id
-        JOIN entities ea ON ea.id = sd.entity_a_id
-        JOIN entities eb ON eb.id = sd.entity_b_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = sd.entity_a_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = sd.entity_b_id
         WHERE ch.novel_id = %s AND ch.number <= %s
         ORDER BY ch.number
         """,
@@ -124,17 +126,17 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     node_rows = db.fetchall(
-        """
+        f"""
         SELECT e.id::text AS id,
                e.name AS label,
                e.entity_type,
                COALESCE(c.id, l.id, o.id, f.id, e.id)::text AS native_id,
                NULL::text AS description
-        FROM entities e
-        LEFT JOIN characters c ON c.entity_id = e.id
-        LEFT JOIN locations  l ON l.entity_id = e.id
-        LEFT JOIN objects    o ON o.entity_id = e.id
-        LEFT JOIN factions   f ON f.entity_id = e.id
+        FROM {metadata_table('entities', novel_id, cutoff)} e
+        LEFT JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.entity_id = e.id
+        LEFT JOIN {metadata_table('locations', novel_id, cutoff)}  l ON l.entity_id = e.id
+        LEFT JOIN {metadata_table('objects', novel_id, cutoff)}    o ON o.entity_id = e.id
+        LEFT JOIN {metadata_table('factions', novel_id, cutoff)}   f ON f.entity_id = e.id
         WHERE e.novel_id = %s
           -- The typed LEFT JOINs are mutually exclusive, so COALESCE picks
           -- the one first_appearance anchor this entity has; factions and
@@ -152,7 +154,7 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     nodes = [dict(r) for r in node_rows]
 
     edge_rows = db.fetchall(
-        """
+        f"""
         SELECT r.id::text AS id,
                r.entity_a_id::text AS "from",
                r.entity_b_id::text AS "to",
@@ -160,8 +162,8 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
                r.symmetric AS symmetric,
                r.from_chapter AS chapter_number
         FROM relationships r
-        JOIN entities ea ON ea.id = r.entity_a_id AND ea.novel_id = %s
-        JOIN entities eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = r.entity_a_id AND ea.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = r.entity_b_id AND eb.novel_id = %s
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s
           AND (r.to_chapter IS NULL OR r.to_chapter >= %s)
@@ -184,15 +186,15 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     raw_story: list[dict] = []
 
     dyn_rows = db.fetchall(
-        """
+        f"""
         SELECT sd.entity_a_id::text AS "from",
                sd.entity_b_id::text AS "to",
                'dynamic'            AS edge_kind,
                sd.description       AS description
         FROM shared_dynamics sd
         JOIN chapters ch ON ch.id = sd.chapter_id
-        JOIN entities ea ON ea.id = sd.entity_a_id AND ea.novel_id = %s
-        JOIN entities eb ON eb.id = sd.entity_b_id AND eb.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = sd.entity_a_id AND ea.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = sd.entity_b_id AND eb.novel_id = %s
         WHERE ch.number <= %s
         """,
         (novel_id, novel_id, cutoff),
@@ -201,17 +203,17 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     raw_story.extend(dict(r) for r in dyn_rows)
 
     ev_char_rows = db.fetchall(
-        """
+        f"""
         SELECT ca.entity_id::text AS "from",
                cb.entity_id::text AS "to",
                'event'            AS edge_kind,
                e.description      AS description
         FROM events e
         JOIN chapters ch ON ch.id = e.chapter_id
-        JOIN characters ca ON ca.id = ANY(e.involved_characters)
-        JOIN characters cb ON cb.id = ANY(e.involved_characters) AND cb.id > ca.id
-        JOIN entities ea ON ea.id = ca.entity_id AND ea.novel_id = %s
-        JOIN entities eb ON eb.id = cb.entity_id AND eb.novel_id = %s
+        JOIN {metadata_table('characters', novel_id, cutoff)} ca ON ca.id = ANY(e.involved_characters)
+        JOIN {metadata_table('characters', novel_id, cutoff)} cb ON cb.id = ANY(e.involved_characters) AND cb.id > ca.id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = ca.entity_id AND ea.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = cb.entity_id AND eb.novel_id = %s
         WHERE ch.number <= %s
         """,
         (novel_id, novel_id, cutoff),
@@ -220,17 +222,17 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     raw_story.extend(dict(r) for r in ev_char_rows)
 
     ev_loc_rows = db.fetchall(
-        """
+        f"""
         SELECT c.entity_id::text AS "from",
                l.entity_id::text AS "to",
                'event'           AS edge_kind,
                e.description     AS description
         FROM events e
         JOIN chapters ch ON ch.id = e.chapter_id
-        JOIN characters c ON c.id = ANY(e.involved_characters)
-        JOIN locations  l ON l.id = ANY(e.involved_locations)
-        JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
-        JOIN entities eb ON eb.id = l.entity_id AND eb.novel_id = %s
+        JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = ANY(e.involved_characters)
+        JOIN {metadata_table('locations', novel_id, cutoff)}  l ON l.id = ANY(e.involved_locations)
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = c.entity_id AND ea.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = l.entity_id AND eb.novel_id = %s
         WHERE ch.number <= %s
         """,
         (novel_id, novel_id, cutoff),
@@ -239,16 +241,16 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     raw_story.extend(dict(r) for r in ev_loc_rows)
 
     poss_rows = db.fetchall(
-        """
+        f"""
         SELECT c.entity_id::text AS "from",
                o.entity_id::text AS "to",
                'possession'      AS edge_kind,
                NULL::text        AS description
         FROM possesses_edges pe
-        JOIN characters c ON c.id = pe.character_id
-        JOIN objects    o ON o.id = pe.object_id
-        JOIN entities ea ON ea.id = c.entity_id AND ea.novel_id = %s
-        JOIN entities eb ON eb.id = o.entity_id AND eb.novel_id = %s
+        JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = pe.character_id
+        JOIN {metadata_table('objects', novel_id, cutoff)}    o ON o.id = pe.object_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = c.entity_id AND ea.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = o.entity_id AND eb.novel_id = %s
         WHERE (pe.since_chapter IS NULL OR pe.since_chapter <= %s)
           AND (pe.until_chapter IS NULL OR pe.until_chapter > %s)
         """,
@@ -258,15 +260,15 @@ def entity_graph(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> di
     raw_story.extend(dict(r) for r in poss_rows)
 
     loc_in_rows = db.fetchall(
-        """
+        f"""
         SELECT lie.entity_id::text AS "from",
                l.entity_id::text   AS "to",
                'location'          AS edge_kind,
                NULL::text          AS description
         FROM located_in_edges lie
-        JOIN locations l ON l.id = lie.location_id
-        JOIN entities ea ON ea.id = lie.entity_id AND ea.novel_id = %s
-        JOIN entities eb ON eb.id = l.entity_id   AND eb.novel_id = %s
+        JOIN {metadata_table('locations', novel_id, cutoff)} l ON l.id = lie.location_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = lie.entity_id AND ea.novel_id = %s
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = l.entity_id   AND eb.novel_id = %s
         WHERE (lie.since_chapter IS NULL OR lie.since_chapter <= %s)
           AND (lie.until_chapter IS NULL OR lie.until_chapter >= %s)
           AND NOT EXISTS (

@@ -112,3 +112,24 @@ def test_schema_drift_ignores_equivalent_constraint_and_index_names():
                 'ALTER TABLE chapters RENAME CONSTRAINT "renamed chapter unique" '
                 'TO chapters_novel_id_number_key'
             )
+
+
+def test_upgrade_preserves_legacy_knowledge_and_rebuilds_snapshots(db, seed_novel):
+    seeded = seed_novel(db)
+    nid = seeded['novel_id']
+    row = db.fetchone('SELECT id,entity_id FROM characters WHERE novel_id=%s ORDER BY name LIMIT 1', (nid,))
+    cid, eid = row
+    chapter_id = db.fetchval('SELECT id FROM chapters WHERE novel_id=%s AND number=1', (nid,))
+    db.execute('ALTER TABLE state_deltas DROP CONSTRAINT state_deltas_kind_check')
+    try:
+        db.execute("INSERT INTO state_deltas(chapter_id,kind,subject_id,detail) VALUES(%s,'knowledge',%s,'Preserve the old fact.')", (chapter_id, eid))
+        db.execute("INSERT INTO knows_edges(character_id,fact_description,learned_chapter,source_type) VALUES(%s,'Keep the enriched fact.',1,'observation')", (cid,))
+        init_db()
+        init_db()
+        facts = {r[0] for r in db.fetchall('SELECT fact_description FROM knows_edges WHERE character_id=%s', (cid,))}
+        snapshot = db.fetchval('SELECT knowledge FROM character_states s JOIN chapters c ON c.id=s.chapter_id WHERE s.character_id=%s ORDER BY c.number DESC LIMIT 1', (cid,))
+        assert {'Preserve the old fact.', 'Keep the enriched fact.'} <= facts
+        assert set(snapshot) == facts
+        assert db.fetchval("SELECT count(*) FROM knows_edges WHERE character_id=%s AND fact_description='Preserve the old fact.'", (cid,)) == 1
+    finally:
+        init_db()

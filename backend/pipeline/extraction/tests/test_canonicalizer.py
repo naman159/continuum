@@ -112,6 +112,8 @@ def test_existing_with_valid_anchor_appends_alias(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges == {"character": {"the master of Pemberley": "11111111-1111-1111-1111-111111111111"}}
     darcy = next(r for r in roster_rows if r["name"] == "Mr. Darcy")
     assert "the master of Pemberley" in darcy["aliases"]
@@ -135,6 +137,8 @@ def test_existing_with_missing_anchor_is_rejected(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges == {}
     darcy = next(r for r in roster_rows if r["name"] == "Mr. Darcy")
     assert darcy["aliases"] == []
@@ -159,6 +163,8 @@ def test_existing_with_anchor_not_in_text_is_rejected(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges == {}
     darcy = next(r for r in roster_rows if r["name"] == "Mr. Darcy")
     assert darcy["aliases"] == []
@@ -182,6 +188,8 @@ def test_candidate_already_in_aliases_is_noop(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"Lizzy"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     elizabeth = next(r for r in roster_rows if r["name"] == "Elizabeth Bennet")
     assert elizabeth["aliases"].count("Lizzy") == 1
     assert not any("UPDATE characters" in q for q, _ in db.executed)
@@ -194,6 +202,8 @@ def test_malformed_json_response_is_safe(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"the master of Pemberley"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges == {}
     assert all("UPDATE characters" not in q for q, _ in db.executed)
 
@@ -216,6 +226,8 @@ def test_new_verdict_does_nothing_to_roster(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"John Smith"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert all("UPDATE characters" not in q for q, _ in db.executed)
     for row in roster_rows:
         assert row["aliases"] == ([] if row["name"] != "Elizabeth Bennet" else ["Lizzy"])
@@ -234,6 +246,8 @@ def test_already_known_candidates_are_not_sent_to_llm(roster_rows):
         chapter_text=CHAPTER_TEXT,
         candidate_names_by_type={"character": {"Mr. Darcy", "Lizzy"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert calls == []
 
 
@@ -586,6 +600,8 @@ def test_entity_canonicalizer_handles_location_type():
         chapter_text=chapter_text,
         candidate_names_by_type={"character": set(), "location": {"Netherfield"}, "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges.get("location", {}).get("Netherfield") == "aaaa0000-0000-0000-0000-000000000001"
     assert "Netherfield" in location_roster[0]["aliases"]
 
@@ -603,6 +619,8 @@ def test_entity_canonicalizer_skips_type_with_no_candidates():
         chapter_text="text",
         candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert calls == []
 
 
@@ -703,6 +721,8 @@ def test_location_merges_without_anchor():
         chapter_text="Jake walked to his office building and swiped his badge.",
         candidate_names_by_type={"character": set(), "location": {"Jake's office building"}, "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges.get("location", {}).get("Jake's office building") == "loc-0001-0000-0000-0000-000000000001"
     # Reasoning-only evidence merges for this chapter but must NOT persist the
     # alias: a hallucinated alias would reroute every future mention.
@@ -737,6 +757,8 @@ def test_lexically_close_merge_persists_alias_without_anchor():
         chapter_text="The Empire tightened its grip.",
         candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": {"the Empire"}},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges.get("faction", {}).get("the Empire") == "fac-0001-0000-0000-0000-000000000001"
     assert "the Empire" in faction_roster[0]["aliases"]
 
@@ -769,6 +791,8 @@ def test_reasoning_only_merge_rejects_alias_for_dissimilar_names():
         chapter_text="She climbed the North Tower at dawn.",
         candidate_names_by_type={"character": set(), "location": {"North Tower"}, "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert location_roster[0]["aliases"] == []
 
 
@@ -799,6 +823,8 @@ def test_object_merges_without_anchor():
         chapter_text="Jake raised the blade and cut through the air.",
         candidate_names_by_type={"character": set(), "location": set(), "object": {"the blade"}, "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges.get("object", {}).get("the blade") == "obj-0001-0000-0000-0000-000000000001"
 
 
@@ -829,6 +855,8 @@ def test_faction_merges_without_anchor():
         chapter_text="The Empire tightened its grip on the outer systems.",
         candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": {"the Empire"}},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges.get("faction", {}).get("the Empire") == "fac-0001-0000-0000-0000-000000000001"
 
 
@@ -851,6 +879,8 @@ def test_character_still_requires_anchor_when_absent(roster_rows):
         chapter_text="A tall man entered the room.",
         candidate_names_by_type={"character": {"the tall man"}, "location": set(), "object": set(), "faction": set()},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges == {}
 
 
@@ -1037,6 +1067,8 @@ def test_canonicalizer_deterministic_merge_skips_llm():
         chapter_text="The Galactic Empire advanced.",
         candidate_names_by_type={"faction": {"The Galactic Empire"}},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert calls == [], "normalized-equal candidate must not reach the LLM"
     assert merges["faction"]["The Galactic Empire"] == "fac-0001-0000-0000-0000-000000000001"
     assert "The Galactic Empire" in faction_roster[0]["aliases"]
@@ -1060,6 +1092,8 @@ def test_canonicalizer_ambiguous_normalized_match_goes_to_llm():
         chapter_text="An order was given.",
         candidate_names_by_type={"faction": {"the order!"}},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert len(calls) == 1, "ambiguous candidates must be deferred to the LLM"
     assert merges == {}
 
@@ -1109,6 +1143,8 @@ def test_canonicalizer_custom_type_merges_via_entities_table():
         chapter_text="They crossed into the Ninety-Third Universe.",
         candidate_names_by_type={"realm": {"the Ninety-Third Universe"}},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     assert merges["realm"]["the Ninety-Third Universe"] == "ent-0001"
     assert "the Ninety-Third Universe" in entity_rows[0]["aliases"]
     assert any("UPDATE entities" in q for q, _ in db.executed)
@@ -1276,6 +1312,8 @@ def test_lexically_close_but_ambiguous_does_not_persist_alias():
         chapter_text="The Empire tightened its grip.",
         candidate_names_by_type={"character": set(), "location": set(), "object": set(), "faction": {"the Empire"}},
     )
+    assert not db.executed, "Canonicalization must not write before persistence"
+    canon.persist_aliases(db)
     # Merge still honored for this chapter…
     assert merges.get("faction", {}).get("the Empire") == "fac-0001-0000-0000-0000-000000000001"
     # …but neither roster row gains the ambiguous alias.

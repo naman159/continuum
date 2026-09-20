@@ -112,4 +112,5 @@ def save_chapter(
         "chapter_id": str(outcome.get("chapter_id")),
         "materialized": bool(outcome.get("materialized")),
         "critique": outcome.get("critique"),
+        "enrichment": outcome.get("enrichment"),
     }

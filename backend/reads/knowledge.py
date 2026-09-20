@@ -7,6 +7,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from pipeline.db.history import metadata_table
+
 from reads.common import resolve_cutoff
 
 
@@ -28,7 +30,7 @@ def list_knows_edges(
                k.fact_description, k.learned_chapter, k.source_type,
                k.source_event_id, k.certainty, k.shared_with
           FROM knows_edges k
-          JOIN characters c ON c.id = k.character_id
+          JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = k.character_id
          WHERE {' AND '.join(where)}
          ORDER BY k.learned_chapter, c.name
         """,
@@ -39,7 +41,7 @@ def list_knows_edges(
     name_by_id: dict[str, str] = {}
     if all_shared_ids:
         chars = db.fetchall(
-            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
+            f"SELECT id, name FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE id = ANY(%s::uuid[])",
             (all_shared_ids,),
             dict_rows=True,
         )
@@ -84,8 +86,8 @@ def list_location_edges(
                le.location_id, loc.name AS location_name,
                le.since_chapter, le.until_chapter, le.certainty
           FROM located_in_edges le
-          JOIN entities e ON e.id = le.entity_id
-          LEFT JOIN locations loc ON loc.id = le.location_id
+          JOIN {metadata_table('entities', novel_id, cutoff)} e ON e.id = le.entity_id
+          LEFT JOIN {metadata_table('locations', novel_id, cutoff)} loc ON loc.id = le.location_id
          WHERE {' AND '.join(where)}
          ORDER BY le.since_chapter, e.name
         """,
@@ -126,8 +128,8 @@ def list_possession_edges(
                pe.object_id, o.name AS object_name,
                pe.since_chapter, pe.until_chapter, pe.certainty
           FROM possesses_edges pe
-          JOIN characters c ON c.id = pe.character_id
-          LEFT JOIN objects o ON o.id = pe.object_id
+          JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = pe.character_id
+          LEFT JOIN {metadata_table('objects', novel_id, cutoff)} o ON o.id = pe.object_id
          WHERE {' AND '.join(where)}
          ORDER BY pe.since_chapter, c.name
         """,
@@ -161,8 +163,8 @@ def list_canon_facts(
         f"""
         SELECT cf.id, cf.kind, cf.subject_entity_id, e.name AS subject_name,
                cf.predicate, cf.value, cf.source_chapter, cf.confidence, cf.locked
-          FROM canon_facts cf
-          LEFT JOIN entities e ON e.id = cf.subject_entity_id
+          FROM {metadata_table('canon_facts', novel_id, cutoff)} cf
+          LEFT JOIN {metadata_table('entities', novel_id, cutoff)} e ON e.id = cf.subject_entity_id
          WHERE {' AND '.join(where)}
          ORDER BY cf.locked DESC, e.name NULLS LAST, cf.predicate
         """,

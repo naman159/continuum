@@ -9,6 +9,7 @@ export default function Review() {
   const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState("");
+  const [notices, setNotices] = useState<string[]>([]);
   const [edited, setEdited] = useState<string | null>(null);
 
   const listQuery = useQuery({
@@ -35,7 +36,15 @@ export default function Review() {
       }
       return api.rejectDraft(selectedId!, note);
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
+      const warnings: string[] = [];
+      if ("accepted" in result) {
+        warnings.push(...(result.enrichment?.warnings ?? []));
+        if (!result.materialized) warnings.push("The chapter was accepted, but rebuilding state failed. Rebuild state before relying on the character views.");
+        if (result.critique?.status !== "ok") warnings.push("The chapter was accepted without a completed continuity review.");
+        if (result.critique?.persisted === false) warnings.push("The continuity report could not be saved. Run the review again.");
+      }
+      setNotices(warnings);
       setSelectedId(null);
       setNote("");
       setEdited(null);
@@ -71,6 +80,11 @@ export default function Review() {
       </p>
 
       {error && <p className="status-error">{error}</p>}
+      {notices.length > 0 && (
+        <ul role="alert" className="status-error">
+          {notices.map((notice, index) => <li key={index}>{notice}</li>)}
+        </ul>
+      )}
 
       {!error && rows.length === 0 && (
         <div className="empty-state">

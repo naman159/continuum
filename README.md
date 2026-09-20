@@ -20,12 +20,15 @@ for the evidence, fixes, and remaining limitations.
 After updating an existing installation, run `uv run novel-pipeline init-db`
 from `backend/` to apply the current schema without deleting stored chapters.
 
-Chapter-anchored state, events, and search honor the selected cutoff. Global
-metadata such as aliases, descriptions, and canon facts is not fully versioned.
-The critic checks canon assertions, knowledge, possessions, and possible commitment
-payoffs. It provides heuristic findings, not a guarantee of continuity. Process
-chapters sequentially within a novel; for substantial retcons, reprocess the
-revised manuscript into a fresh novel.
+Chapter state, events, search, and metadata honor the selected cutoff. A per-novel
+lock enforces sequential chapter processing across CLI, API, and MCP. Replacing a
+chapter rebuilds it and all later chapters atomically, including fresh model calls.
+The critic provides heuristic findings, not a guarantee of continuity.
+
+Existing databases acquire a metadata baseline at their latest chapter during
+upgrade. Earlier aliases/descriptions cannot be reconstructed from the old mutable
+records: older historical metadata reads and replacements are explicitly refused.
+Re-import the original chapters into a new novel to establish complete history.
 
 ## Architecture (two spines, one database)
 
@@ -53,15 +56,16 @@ revised manuscript into a fresh novel.
 - **Read layer** — `backend/reads/`: shared story queries take `up_to_chapter`
   (None = whole novel); registry and review-queue helpers are exempt.
   Both the wiki and MCP use those queries. Cutoffs cover chapter-anchored data;
-  global metadata is not fully historical. API routes and MCP tool handlers
+  versioned metadata uses the same cutoff. API routes and MCP tool handlers
   contain no SQL — enforced by contract tests.
 
-Stored `state_deltas` deterministically rebuild the three materialized projections.
-Reprocessing chapter `raw_text` invokes extraction again and may produce different
-facts. The workflow also has known consistency gaps: alias writes precede the
-chapter transaction, knowledge has two independent sources, and some enrichment
-failures are only logged. See the [architecture conformance audit](docs/architecture-conformance.md)
-for the implemented boundaries and prioritized corrections.
+Stored `state_deltas` and the single knowledge source, `knows_edges`, deterministically
+rebuild the state projections. Alias changes and metadata versions commit with the
+chapter. Database or embedding failures abort persistence; unresolved references
+and optional deduplication outages are returned as enrichment warnings in the UI
+and MCP results. Reprocessing raw text invokes extraction again and may produce
+different facts. See the [architecture conformance audit](docs/architecture-conformance.md)
+for the enforced boundaries, regression checks, and remaining limits.
 
 ## Docs (start here)
 

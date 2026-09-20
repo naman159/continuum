@@ -24,7 +24,7 @@ class _CursorReader:
     """Runs replay's reads on one caller-supplied cursor.
 
     DBClient.fetchall checks out a fresh pooled connection per call, so
-    replay's four reads would otherwise land in four different transaction
+    replay's reads would otherwise land in four different transaction
     snapshots. A chapter committed between them yields deltas whose chapter_id
     is missing from the map built by the first read, and those deltas are
     dropped silently.
@@ -79,13 +79,34 @@ class StateReplay:
         deltas = db.fetchall(
             """
             SELECT d.kind, d.subject_id, d.object_id, d.location_id, d.change,
-                   d.attribute, d.detail, d.certainty, d.event_id, d.chapter_id
+                   d.attribute, d.detail, d.certainty, d.event_id, d.chapter_id, d.ordinal
               FROM state_deltas d
               JOIN chapters c ON c.id = d.chapter_id
              WHERE c.novel_id = %s AND c.number <= %s
              ORDER BY c.number ASC, d.ordinal ASC, d.id ASC
             """,
             (novel_id, through_chapter), dict_rows=True,
+        )
+
+        # Knowledge has one owner: enriched assertions in knows_edges. Merge
+        # those events into chapter order so knowledge-only chapters still carry
+        # location/goals/condition forward, exactly like status changes.
+        learnings = db.fetchall(
+            """
+            SELECT c.entity_id AS subject_id, k.fact_description AS detail,
+                   ch.id AS chapter_id, 'knowledge' AS kind
+              FROM knows_edges k
+              JOIN characters c ON c.id = k.character_id
+              JOIN chapters ch ON ch.novel_id = c.novel_id AND ch.number = k.learned_chapter
+             WHERE c.novel_id = %s AND k.learned_chapter <= %s
+               AND k.superseded_by_id IS NULL
+             ORDER BY k.learned_chapter, k.created_at, k.id
+            """,
+            (novel_id, through_chapter), dict_rows=True,
+        )
+        events = sorted(
+            [*deltas, *learnings],
+            key=lambda event: (chapter_number_by_id[str(event["chapter_id"])], event.get("ordinal", 0)),
         )
 
         # snapshots[character_id][chapter_number] = StateSnapshot
@@ -114,7 +135,7 @@ class StateReplay:
                 )
             return per_char[chapter_number]
 
-        for d in deltas:
+        for d in events:
             chapter_number = chapter_number_by_id.get(str(d["chapter_id"]))
             if chapter_number is None:
                 continue

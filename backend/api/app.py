@@ -4,7 +4,8 @@ import argparse
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
+from psycopg.errors import NoDataFound
 from fastapi.staticfiles import StaticFiles
 
 from api.routes import (
@@ -31,6 +32,18 @@ from api.routes import (
 )
 
 app = FastAPI(title="Continuum Wiki API")
+
+
+@app.exception_handler(NoDataFound)
+async def unavailable_history(_request, exc):
+    return JSONResponse(status_code=409, content={"detail": str(exc).splitlines()[0]})
+
+
+@app.exception_handler(ValueError)
+async def invalid_operation(_request, exc):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 app.include_router(novels.router)
 app.include_router(characters.router)
 app.include_router(locations.router)

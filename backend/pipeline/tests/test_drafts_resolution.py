@@ -12,7 +12,7 @@ from reads import drafts as drafts_reads
 from testing.drafts import _force_mock_llm  # noqa: F401  (autouse fixture)
 
 
-def _park(db, novel_id: str, number: int = 90, text: str = "Elara walked in.") -> str:
+def _park(db, novel_id: str, number: int = 4, text: str = "Elara walked in.") -> str:
     findings = {
         "fails": [{"check": "knowledge_state", "severity": "FAIL",
                    "message": "Elara knows something she shouldn't",
@@ -24,7 +24,7 @@ def _park(db, novel_id: str, number: int = 90, text: str = "Elara walked in.") -
             """
             INSERT INTO draft_submissions
                 (novel_id, chapter_number, title, raw_text, status, findings)
-            VALUES (%s, %s, 'Ch 90', %s, 'pending', %s::jsonb)
+            VALUES (%s, %s, 'Ch 4', %s, 'pending', %s::jsonb)
             RETURNING id
             """,
             (novel_id, number, text, json.dumps(findings)),
@@ -49,7 +49,7 @@ def test_accept_ingests_the_draft_and_marks_it_accepted(db, seed_novel):
 
     assert int(
         db.fetchval(
-            "SELECT COUNT(*) FROM chapters WHERE novel_id = %s AND number = 90",
+            "SELECT COUNT(*) FROM chapters WHERE novel_id = %s AND number = 4",
             (novel_id,),
         )
     ) == 1
@@ -161,7 +161,7 @@ def test_accept_rolls_back_chapter_and_review_together(db, seed_novel, monkeypat
     with pytest.raises(RuntimeError, match="write failed"):
         drafts_mod.accept_submission(db, submission_id, note="deliberate retcon")
     assert db.fetchval(
-        "SELECT id FROM chapters WHERE novel_id = %s AND number = 90", (novel_id,)
+        "SELECT id FROM chapters WHERE novel_id = %s AND number = 4", (novel_id,)
     ) is None
     assert drafts_reads.get_submission(db, submission_id)["status"] == "pending"
 
@@ -190,7 +190,7 @@ def test_reject_marks_rejected_and_writes_no_chapter(db, seed_novel):
     assert row["resolution_note"] == "off voice"
     assert int(
         db.fetchval(
-            "SELECT COUNT(*) FROM chapters WHERE novel_id = %s AND number = 90",
+            "SELECT COUNT(*) FROM chapters WHERE novel_id = %s AND number = 4",
             (novel_id,),
         )
     ) == 0
@@ -234,7 +234,7 @@ def test_accept_loses_a_race_to_a_concurrent_reject(db, seed_novel, monkeypatch)
     row = drafts_reads.get_submission(db, submission_id)
     assert row["status"] == "rejected"
     assert row["resolution_note"] == "reviewer A rejects first"
-    assert db.fetchval("SELECT id FROM chapters WHERE novel_id = %s AND number = 90", (novel_id,)) is None
+    assert db.fetchval("SELECT id FROM chapters WHERE novel_id = %s AND number = 4", (novel_id,)) is None
 
 
 def test_resolving_a_missing_or_resolved_submission_raises(db, seed_novel):

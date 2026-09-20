@@ -9,6 +9,7 @@ from pipeline.config import settings
 from pipeline.critic.persist import persist_critique
 from pipeline.critic.service import critique_draft
 from pipeline.db.client import DBClient, DBSession
+from pipeline.db.history import capture_metadata, restore_metadata
 from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
     EntityCanonicalizer,
@@ -35,7 +36,7 @@ from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _normalize_custom_entities(
@@ -86,6 +87,13 @@ def init_db(schema_path: str | None = None) -> None:
                 "INSERT INTO schema_version (version) VALUES (%s)",
                 (SCHEMA_VERSION,),
             )
+        with db.session() as session:
+            novels = session.fetchall("SELECT n.id, COALESCE(MAX(c.number), 0) FROM novels n LEFT JOIN chapters c ON c.novel_id = n.id GROUP BY n.id")
+            for novel_id, horizon in novels:
+                if session.fetchval("SELECT baseline_chapter FROM metadata_history WHERE novel_id = %s", (novel_id,)) is None:
+                    capture_metadata(session, str(novel_id), horizon)
+        for novel_id, _ in novels:
+            StateMaterializer(db).materialize(str(novel_id))
         _assert_embedding_dimension_matches(db)
     _assert_no_schema_drift(schema_path)
 
@@ -298,276 +306,359 @@ def analyze_chapter(
     """
     owned = db is None
     client = db if db is not None else DBClient()
+    options = dict(
+        novel_id=novel_id, use_mock_llm=use_mock_llm, chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap, progress=progress, run_critic=run_critic,
+    )
     try:
-        # Fail fast on duplicates before paying for LLM extraction.
-        existing = client.fetchval(
-            "SELECT id FROM chapters WHERE novel_id = %s AND number = %s",
-            (novel_id, chapter_number),
-        )
-        if existing is not None and not replace:
-            raise ValueError(
-                f"Chapter {chapter_number} already exists for novel {novel_id}. "
-                "Pass replace=True to re-process it."
-            )
-
-        # ---- phase 0: CRITIQUE ----
-        # The one place a draft is judged, for every caller. Runs before
-        # EXTRACT so a blocking refusal costs one claims-extraction call
-        # instead of 13 passes per chunk, and so refused text never reaches
-        # the write tier (delete_chapter_data cannot undo entity creation).
-        # Independent of `replace`: re-processing is exactly when a
-        # contradiction is most likely.
-        critique = None
-        want_critique = settings.critic_enabled if run_critic is None else run_critic
-        if on_continuity_fail == "block":
-            # A caller that blocks on FAIL cannot opt out of the check that
-            # produces the FAIL — otherwise run_critic=False is a bypass.
-            want_critique = True
-        if want_critique:
-            critique = critique_draft(
-                client,
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                text=raw_text,
-                use_mock_llm=use_mock_llm,
-            )
-
-        if on_continuity_fail == "block" and critique is not None and not critique.passed:
-            # An outage ("unavailable": critic off, or mock mode) parks
-            # nothing: there is no verdict for a human to adjudicate, so
-            # telling the caller "pending_review" would claim a review that
-            # isn't happening. A real FAIL, or an error while critiquing,
-            # parks the text so the author's work isn't lost.
-            if critique.status == "unavailable":
-                logger.error(
-                    "refusing write for novel %s ch %s: %s",
-                    novel_id, chapter_number, critique.error,
+        with client.novel_lock(novel_id):
+            last = int(client.fetchval("SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s", (novel_id,)) or 0)
+            existing = client.fetchval("SELECT id FROM chapters WHERE novel_id = %s AND number = %s", (novel_id, chapter_number))
+            if existing is not None and not replace:
+                raise ValueError(f"Chapter {chapter_number} already exists. Pass replace=True to re-process it.")
+            if chapter_number < 1 or (existing is None and chapter_number != last + 1):
+                raise ValueError(f"Process chapters in order: expected chapter {last + 1}, received {chapter_number}.")
+            if existing is None:
+                if last and client.fetchval(
+                    "SELECT through_chapter FROM materialized_state_runs WHERE novel_id = %s ORDER BY materialized_at DESC LIMIT 1", (novel_id,)
+                ) != last:
+                    StateMaterializer(client).materialize(novel_id, already_locked=True)
+                return _process_chapter(
+                    client=client, chapter_number=chapter_number, raw_text=raw_text,
+                    chapter_title=chapter_title, source=source,
+                    on_continuity_fail=on_continuity_fail, on_persist=on_persist, **options,
                 )
-                return {
-                    "ingested": False,
-                    "status": "refused",
-                    "submission_id": None,
-                    "reason": critique.status,
-                    "error": critique.error,
-                    "fails": [],
-                    "warns": [],
-                }
-            submission_id = park_draft(
-                client,
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                title=chapter_title,
-                raw_text=raw_text,
-                findings={
-                    "fails": critique.fails,
-                    "warns": critique.warns,
-                    **({"error": critique.error} if critique.error else {}),
-                },
-            )
-            return {
-                "ingested": False,
-                "status": "pending_review",
-                "submission_id": submission_id,
-                "reason": "fail" if critique.status == "ok" else critique.status,
-                "fails": critique.fails,
-                "warns": critique.warns,
-            }
 
-        custom_entity_types = [
-            dict(r)
-            for r in client.fetchall(
-                "SELECT name, description FROM novel_entity_types WHERE novel_id = %s ORDER BY name",
-                (novel_id,),
-                dict_rows=True,
-            )
-        ]
-
-        context = load_story_context(
-            client,
-            novel_id,
-            chapter_number,
-            custom_entity_types=custom_entity_types,
-            chapter_text=raw_text,
-        )
-        chunks = sliding_window_chunks(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
-        extractor = ChapterExtractor(use_mock=use_mock_llm)
-        extracted = extractor.extract_chapter(
-            chunks=chunks,
-            context=context,
-            progress=progress,
-            custom_entity_types=custom_entity_types or None,
-        )
-        extracted["custom_entities"] = _normalize_custom_entities(
-            extracted.get("custom_entities", []), custom_entity_types
-        )
-
-        if progress is not None:
-            progress.on_pass_start("intra_dedup")
-        deduplicator = IntraExtractionDeduplicator(use_mock=use_mock_llm)
-        extracted = deduplicator.deduplicate(extracted, raw_text)
-        if progress is not None:
-            progress.on_pass_done("intra_dedup")
-
-        # Canonicalizer alias writes are intentionally OUTSIDE the transaction
-        # below: they're additive metadata, harmless if persistence later fails,
-        # and re-processing resolves onto them.
-        if progress is not None:
-            progress.on_pass_start("canonicalization")
-        canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
-        merges = canonicalizer.canonicalize(
-            chapter_text=raw_text,
-            candidate_names_by_type=collect_names_by_type(extracted),
-        )
-        # Rewrite merged candidates to their targets' canonical names so
-        # every merge takes effect this chapter — for reasoning-only
-        # (non-persisted-alias) merges this rename is the only mechanism.
-        extracted = apply_merges_to_extraction(client, extracted, merges)
-        if progress is not None:
-            progress.on_pass_done("canonicalization")
-
-        # ---- everything below is one transaction ----
-        # The session pins one pooled connection across the embedding network
-        # calls below; jobs.py limits processing to two worker threads.
-        with client.session() as s:
-            if replace:
-                delete_chapter_data(s, novel_id=novel_id, chapter_number=chapter_number)
-            chapter_id = ingest_chapter(
-                s,
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                title=chapter_title,
-                raw_text=raw_text,
-                source=source,
-            )
-            resolver = EntityResolver(s, novel_id=novel_id, chapter_number=chapter_number)
-            event_rows = persist_extraction(
-                s,
-                resolver=resolver,
-                chapter_id=chapter_id,
-                chapter_number=chapter_number,
-                extracted=extracted,
-            )
-
-            embedding_service = EmbeddingService(use_mock=use_mock_llm)
-            embed_chapter_and_events(
-                s,
-                chapter_id=chapter_id,
-                chapter_summary=extracted.get("summary", ""),
-                event_rows=event_rows,
-                service=embedding_service,
-                # persist_multi_summaries re-embeds the chapter from summary_medium;
-                # skip the throwaway embedding when that will happen.
-                embed_chapter=not (extracted.get("summary_medium") or "").strip(),
-            )
-
-            s.execute(
-                """
-                UPDATE chapters
-                SET summary = %s,
-                    processed_at = now()
-                WHERE id = %s
-                """,
-                (extracted.get("summary", ""), chapter_id),
-            )
-            persist_multi_summaries(
-                s,
-                chapter_id=chapter_id,
-                summary_short=extracted.get("summary_short", ""),
-                summary_medium=extracted.get("summary_medium", ""),
-                summary_long=extracted.get("summary_long", ""),
-                embedder=embedding_service,
-            )
-            persist_scenes(
-                s,
-                chapter_id=chapter_id,
-                scenes_data=extracted.get("scenes", []),
-                resolver=resolver,
-                embedder=embedding_service,
-            )
-            persist_knows_edges(
-                s,
-                chapter_number=chapter_number,
-                learnings=extracted.get("learnings", []),
-                resolver=resolver,
-            )
-            persist_commitments(
-                s,
-                novel_id=novel_id,
-                chapter_number=chapter_number,
-                foreshadows=extracted.get("foreshadows_introduced", []),
-                payoffs=extracted.get("payoffs_delivered", []),
-                resolver=resolver,
-                embedder=embedding_service,
-            )
-            persist_canon_facts(
-                s,
-                novel_id=novel_id,
-                chapter_id=chapter_id,
-                chapter_number=chapter_number,
-                facts=extracted.get("canon_facts", []),
-                resolver=resolver,
-            )
-            persist_state_deltas(
-                s,
-                chapter_id=chapter_id,
-                deltas=extracted.get("state_deltas", []),
-                resolver=resolver,
-            )
-            if on_continuity_fail == "block":
-                # Resolve the parked draft only when its replacement commits.
-                # Extraction or persistence failures must leave it reviewable.
-                supersede_pending(
-                    s,
-                    novel_id=novel_id,
-                    chapter_number=chapter_number,
-                    note="superseded by a passing resubmission",
+            # A retcon rebuilds the affected suffix in one transaction. Models
+            # read the restored prefix through this same session. Other readers
+            # continue seeing the original novel until the replacement commits.
+            with client.session() as session:
+                suffix = session.fetchall(
+                    "SELECT number, title, raw_text, source FROM chapters WHERE novel_id = %s AND number >= %s ORDER BY number",
+                    (novel_id, chapter_number), dict_rows=True,
                 )
-            if on_persist is not None:
-                on_persist(s, chapter_id)
-
-        # ---- phase 4: MATERIALIZE / phase 5: RECORD THE CRITIQUE ----
-        # Both derive from the committed data and are idempotent; a failure
-        # here must not roll back the saved chapter. materialized/critique in
-        # the result tell callers whether a manual re-run is needed.
-        materialized = False
-        critique_summary: dict[str, Any] | None = None
-        try:
-            StateMaterializer(client).materialize(novel_id)
-            materialized = True
-        except Exception:
-            logger.exception("materialize failed for novel %s; re-run pipeline.state.cli", novel_id)
-        # No second judgement: this persists the phase-0 report against the row
-        # that now exists. The chapter could not get a critique_reports row
-        # before it had a chapter_id, which is the only reason recording it is
-        # a separate phase from producing it. An outage at phase 0 leaves
-        # nothing to record — `python -m pipeline.critic.cli` supplies it later.
-        if critique is not None:
-            critique_summary = critique.summary()
-            if critique.report is not None:
-                try:
-                    persist_critique(client, chapter_id=chapter_id, report=critique.report)
-                except Exception:
-                    critique_summary = {**critique_summary, "persisted": False}
-                    logger.exception(
-                        "recording the critique failed for chapter %s of novel %s; "
-                        "re-run pipeline.critic.cli", chapter_number, novel_id,
+                for chapter in reversed(suffix):
+                    delete_chapter_data(session, novel_id=novel_id, chapter_number=chapter["number"])
+                restore_metadata(session, novel_id, chapter_number - 1)
+                StateMaterializer(session).materialize(novel_id, already_locked=True)
+                results = []
+                for chapter in suffix:
+                    target = chapter["number"] == chapter_number
+                    result = _process_chapter(
+                        client=session, chapter_number=chapter["number"],
+                        raw_text=raw_text if target else chapter["raw_text"],
+                        chapter_title=chapter_title if target else chapter["title"],
+                        source=source if target else chapter["source"],
+                        on_continuity_fail=on_continuity_fail if target else "warn",
+                        on_persist=on_persist if target else None, strict=True, **options,
                     )
-                else:
-                    critique_summary = {**critique_summary, "persisted": True}
-
-        return {
-            "chapter_id": chapter_id,
-            "chunks": len(chunks),
-            "summary_preview": extracted.get("summary", "")[:200],
-            "new_characters": len(extracted.get("new_entities", {}).get("characters", [])),
-            "new_locations": len(extracted.get("new_entities", {}).get("locations", [])),
-            "events": len(extracted.get("events", [])),
-            "state_deltas": len(extracted.get("state_deltas", [])),
-            "thread_updates": len(extracted.get("thread_updates", [])),
-            "continuity_flags": len(extracted.get("continuity_flags", [])),
-            "materialized": materialized,
-            "critique": critique_summary,
-        }
+                    if result.get("ingested") is False:
+                        raise _ReplacementRefused(result)
+                    results.append(result)
+                return {**results[0], "rebuilt_chapters": [c["number"] for c in suffix], "rebuild_results": results}
+    except _ReplacementRefused as refused:
+        result = dict(refused.result)
+        # The parked row was part of the rolled-back rebuild. Park it against
+        # the unchanged original novel so review never points to a vanished row.
+        if result.get("status") == "pending_review":
+            result["submission_id"] = park_draft(
+                client, novel_id=novel_id, chapter_number=chapter_number,
+                title=chapter_title, raw_text=raw_text,
+                findings={"fails": result.get("fails", []), "warns": result.get("warns", [])},
+            )
+        return result
     finally:
         if owned:
             client.close()
+
+
+class _ReplacementRefused(Exception):
+    def __init__(self, result: dict[str, Any]):
+        self.result = result
+        super().__init__("Replacement refused; original chapters preserved")
+
+
+def _process_chapter(
+    *, client: DBClient | DBSession, novel_id: str, chapter_number: int,
+    raw_text: str, chapter_title: str | None, use_mock_llm: bool | None,
+    chunk_size: int, chunk_overlap: int, progress: Any,
+    source: Literal["human", "agent"], run_critic: bool | None,
+    on_continuity_fail: Literal["warn", "block"],
+    on_persist: Callable[[DBSession, str], None] | None, strict: bool = False,
+) -> dict[str, Any]:
+    """Process one append while the caller owns novel admission."""
+    # ---- phase 0: CRITIQUE ----
+    # The one place a draft is judged, for every caller. Runs before
+    # EXTRACT so a blocking refusal costs one claims-extraction call
+    # instead of 13 passes per chunk, and so refused text never reaches
+    # the write tier (delete_chapter_data cannot undo entity creation).
+    # Independent of `replace`: re-processing is exactly when a
+    # contradiction is most likely.
+    critique = None
+    want_critique = settings.critic_enabled if run_critic is None else run_critic
+    if on_continuity_fail == "block":
+        # A caller that blocks on FAIL cannot opt out of the check that
+        # produces the FAIL — otherwise run_critic=False is a bypass.
+        want_critique = True
+    if want_critique:
+        critique = critique_draft(
+            client,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            text=raw_text,
+            use_mock_llm=use_mock_llm,
+        )
+
+    if on_continuity_fail == "block" and critique is not None and not critique.passed:
+        # An outage ("unavailable": critic off, or mock mode) parks
+        # nothing: there is no verdict for a human to adjudicate, so
+        # telling the caller "pending_review" would claim a review that
+        # isn't happening. A real FAIL, or an error while critiquing,
+        # parks the text so the author's work isn't lost.
+        if critique.status == "unavailable":
+            logger.error(
+                "refusing write for novel %s ch %s: %s",
+                novel_id, chapter_number, critique.error,
+            )
+            return {
+                "ingested": False,
+                "status": "refused",
+                "submission_id": None,
+                "reason": critique.status,
+                "error": critique.error,
+                "fails": [],
+                "warns": [],
+            }
+        submission_id = park_draft(
+            client,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            title=chapter_title,
+            raw_text=raw_text,
+            findings={
+                "fails": critique.fails,
+                "warns": critique.warns,
+                **({"error": critique.error} if critique.error else {}),
+            },
+        )
+        return {
+            "ingested": False,
+            "status": "pending_review",
+            "submission_id": submission_id,
+            "reason": "fail" if critique.status == "ok" else critique.status,
+            "fails": critique.fails,
+            "warns": critique.warns,
+        }
+
+    custom_entity_types = [
+        dict(r)
+        for r in client.fetchall(
+            "SELECT name, description FROM novel_entity_types WHERE novel_id = %s ORDER BY name",
+            (novel_id,),
+            dict_rows=True,
+        )
+    ]
+
+    context = load_story_context(
+        client,
+        novel_id,
+        chapter_number,
+        custom_entity_types=custom_entity_types,
+        chapter_text=raw_text,
+    )
+    chunks = sliding_window_chunks(raw_text, chunk_size=chunk_size, overlap=chunk_overlap)
+    extractor = ChapterExtractor(use_mock=use_mock_llm)
+    extracted = extractor.extract_chapter(
+        chunks=chunks,
+        context=context,
+        progress=progress,
+        custom_entity_types=custom_entity_types or None,
+    )
+    extracted["custom_entities"] = _normalize_custom_entities(
+        extracted.get("custom_entities", []), custom_entity_types
+    )
+
+    if progress is not None:
+        progress.on_pass_start("intra_dedup")
+    deduplicator = IntraExtractionDeduplicator(use_mock=use_mock_llm)
+    extracted = deduplicator.deduplicate(extracted, raw_text)
+    if progress is not None:
+        progress.on_pass_done("intra_dedup")
+
+    # Resolve names before persistence; alias changes are only planned here.
+    if progress is not None:
+        progress.on_pass_start("canonicalization")
+    canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
+    merges = canonicalizer.canonicalize(
+        chapter_text=raw_text,
+        candidate_names_by_type=collect_names_by_type(extracted),
+    )
+    # Rewrite merged candidates to their targets' canonical names so
+    # every merge takes effect this chapter — for reasoning-only
+    # (non-persisted-alias) merges this rename is the only mechanism.
+    extracted = apply_merges_to_extraction(client, extracted, merges)
+    if progress is not None:
+        progress.on_pass_done("canonicalization")
+
+    # ---- everything below is one transaction ----
+    # The session pins one pooled connection across the embedding network
+    # calls below; jobs.py limits processing to two worker threads.
+    enrichment_warnings: list[str] = [*deduplicator.warnings, *canonicalizer.warnings]
+    with client.session() as s:
+        if s.fetchval("SELECT baseline_chapter FROM metadata_history WHERE novel_id = %s", (novel_id,)) is None:
+            capture_metadata(s, novel_id, chapter_number - 1)
+        canonicalizer.persist_aliases(s)
+        chapter_id = ingest_chapter(
+            s,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            title=chapter_title,
+            raw_text=raw_text,
+            source=source,
+        )
+        resolver = EntityResolver(s, novel_id=novel_id, chapter_number=chapter_number)
+        event_rows = persist_extraction(
+            s,
+            resolver=resolver,
+            chapter_id=chapter_id,
+            chapter_number=chapter_number,
+            extracted=extracted,
+        )
+
+        embedding_service = EmbeddingService(use_mock=use_mock_llm)
+        embed_chapter_and_events(
+            s,
+            chapter_id=chapter_id,
+            chapter_summary=extracted.get("summary", ""),
+            event_rows=event_rows,
+            service=embedding_service,
+            # persist_multi_summaries re-embeds the chapter from summary_medium;
+            # skip the throwaway embedding when that will happen.
+            embed_chapter=not (extracted.get("summary_medium") or "").strip(),
+        )
+
+        s.execute(
+            """
+            UPDATE chapters
+            SET summary = %s,
+                processed_at = now()
+            WHERE id = %s
+            """,
+            (extracted.get("summary", ""), chapter_id),
+        )
+        persist_multi_summaries(
+            s,
+            chapter_id=chapter_id,
+            summary_short=extracted.get("summary_short", ""),
+            summary_medium=extracted.get("summary_medium", ""),
+            summary_long=extracted.get("summary_long", ""),
+            embedder=embedding_service,
+        )
+        scene_ids = persist_scenes(
+            s,
+            chapter_id=chapter_id,
+            scenes_data=extracted.get("scenes", []),
+            resolver=resolver,
+            embedder=embedding_service,
+            warnings=enrichment_warnings,
+        )
+        knowledge_ids = persist_knows_edges(
+            s,
+            chapter_number=chapter_number,
+            learnings=extracted.get("learnings", []),
+            resolver=resolver,
+            warnings=enrichment_warnings,
+        )
+        commitment_ids = persist_commitments(
+            s,
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            foreshadows=extracted.get("foreshadows_introduced", []),
+            payoffs=extracted.get("payoffs_delivered", []),
+            resolver=resolver,
+            embedder=embedding_service,
+            warnings=enrichment_warnings,
+        )
+        persist_canon_facts(
+            s,
+            novel_id=novel_id,
+            chapter_id=chapter_id,
+            chapter_number=chapter_number,
+            facts=extracted.get("canon_facts", []),
+            resolver=resolver,
+        )
+        deltas_written = persist_state_deltas(
+            s,
+            chapter_id=chapter_id,
+            deltas=extracted.get("state_deltas", []),
+            resolver=resolver,
+        )
+        if deltas_written < len(extracted.get("state_deltas", [])):
+            enrichment_warnings.append(f"State changes skipped: {len(extracted.get('state_deltas', [])) - deltas_written} unresolved or invalid deltas.")
+        capture_metadata(s, novel_id, chapter_number)
+        if on_continuity_fail == "block":
+            # Resolve the parked draft only when its replacement commits.
+            # Extraction or persistence failures must leave it reviewable.
+            supersede_pending(
+                s,
+                novel_id=novel_id,
+                chapter_number=chapter_number,
+                note="superseded by a passing resubmission",
+            )
+        if on_persist is not None:
+            on_persist(s, chapter_id)
+
+    # ---- phase 4: MATERIALIZE / phase 5: RECORD THE CRITIQUE ----
+    # Both derive from the committed data and are idempotent; a failure
+    # here must not roll back the saved chapter. materialized/critique in
+    # the result tell callers whether a manual re-run is needed.
+    materialized = False
+    critique_summary: dict[str, Any] | None = None
+    try:
+        StateMaterializer(client).materialize(novel_id, already_locked=True)
+        materialized = True
+    except Exception:
+        if strict:
+            raise
+        logger.exception("materialize failed for novel %s; re-run pipeline.state.cli", novel_id)
+    # No second judgement: this persists the phase-0 report against the row
+    # that now exists. The chapter could not get a critique_reports row
+    # before it had a chapter_id, which is the only reason recording it is
+    # a separate phase from producing it. An outage at phase 0 leaves
+    # nothing to record — `python -m pipeline.critic.cli` supplies it later.
+    if critique is not None:
+        critique_summary = critique.summary()
+        if critique.report is not None:
+            try:
+                persist_critique(client, chapter_id=chapter_id, report=critique.report)
+            except Exception:
+                if strict:
+                    raise
+                critique_summary = {**critique_summary, "persisted": False}
+                logger.exception(
+                    "recording the critique failed for chapter %s of novel %s; "
+                    "re-run pipeline.critic.cli", chapter_number, novel_id,
+                )
+            else:
+                critique_summary = {**critique_summary, "persisted": True}
+
+    return {
+        "chapter_id": chapter_id,
+        "chunks": len(chunks),
+        "summary_preview": extracted.get("summary", "")[:200],
+        "new_characters": len(extracted.get("new_entities", {}).get("characters", [])),
+        "new_locations": len(extracted.get("new_entities", {}).get("locations", [])),
+        "events": len(extracted.get("events", [])),
+        "state_deltas": len(extracted.get("state_deltas", [])),
+        "thread_updates": len(extracted.get("thread_updates", [])),
+        "continuity_flags": len(extracted.get("continuity_flags", [])),
+        "enrichment": {
+            "scenes": {"extracted": len(extracted.get("scenes", [])), "written": len(scene_ids)},
+            "knowledge": {"extracted": len(extracted.get("learnings", [])), "written": len(knowledge_ids)},
+            "foreshadows": {"extracted": len(extracted.get("foreshadows_introduced", [])), "written": len(commitment_ids["inserted"])},
+            "payoffs": {"extracted": len(extracted.get("payoffs_delivered", [])), "written": len(commitment_ids["satisfied"])},
+            "warnings": enrichment_warnings,
+        },
+        "materialized": materialized,
+        "critique": critique_summary,
+    }

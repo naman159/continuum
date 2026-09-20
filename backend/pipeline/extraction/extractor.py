@@ -72,7 +72,7 @@ def _safe_float(value: Any) -> float:
         return 0.0
 
 
-_VALID_DELTA_KINDS = {"possession", "location", "knowledge", "status"}
+_VALID_DELTA_KINDS = {"possession", "location", "status"}
 _VALID_STATUS_ATTRIBUTES = {
     "emotional_state", "goals", "physical_state", "appearance", "notes"
 }
@@ -99,8 +99,6 @@ def _clean_state_delta(item: Any) -> dict[str, Any] | None:
         item["change"] = change
     elif kind == "location":
         item["change"] = "move"
-    elif kind == "knowledge":
-        item["change"] = "learn"
     else:  # status
         item["change"] = "update"
         if str(item.get("attribute", "")).strip() not in _VALID_STATUS_ATTRIBUTES:

@@ -40,6 +40,9 @@ class FakeConn:
         self.row_factories.append(row_factory)
         return FakeCursor(self)
 
+    def execute(self, query, params=None):
+        self.statements.append((query, params))
+
     def commit(self):
         self.committed += 1
 
@@ -69,7 +72,7 @@ def test_session_shares_one_connection_and_commits_once():
         s.execute("INSERT 1", (1,))
         s.execute("INSERT 2", (2,))
         assert s.fetchval("SELECT x") == "value"
-    assert [q for q, _ in conn.statements] == ["INSERT 1", "INSERT 2", "SELECT x"]
+    assert [q for q, _ in conn.statements] == ["SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", "INSERT 1", "INSERT 2", "SELECT x"]
     assert conn.committed == 1
     assert conn.rolled_back == 0
 

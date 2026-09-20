@@ -16,9 +16,9 @@ class ClaimsFakeDB:
 
     def fetchone(self, query, params=None, *, dict_rows=False, commit=False):
         name = str(params[1]).lower() if params and len(params) > 1 else ""
-        if "FROM characters" in query and name == "jake":
+        if ("FROM characters" in query or "public.characters" in query) and name == "jake":
             return (CHAR_ID, CHAR_ENTITY_ID)
-        if "FROM objects" in query and name == "knife":
+        if ("FROM objects" in query or "public.objects" in query) and name == "knife":
             return (OBJ_ID, str(uuid.uuid4()))
         return None
 
@@ -41,7 +41,7 @@ RAW = {
 
 def test_build_draft_chapter_resolves_names_read_only():
     draft = build_draft_chapter(
-        ClaimsFakeDB(), novel_id="n1", chapter_number=5, text="prose",
+        ClaimsFakeDB(), novel_id="00000000-0000-0000-0000-000000000001", chapter_number=5, text="prose",
         raw_claims=RAW,
     )
     assert draft.mentions == [

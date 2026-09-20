@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipeline.db.client import DBClient
+from pipeline.db.history import metadata_table
 from pipeline.entity_tables import table_for
 
 logger = logging.getLogger(__name__)
@@ -416,7 +417,7 @@ class EntityResolver:
 
 
 def lookup_typed(
-    db: Any, novel_id: str, entity_type: str, name: str
+    db: Any, novel_id: str, entity_type: str, name: str, *, cutoff: int | None = None
 ) -> tuple[str, str] | None:
     """Find an existing row in the typed table by exact name or alias, name
     matches taking priority, in a single query.
@@ -425,10 +426,11 @@ def lookup_typed(
     for read-only callers like the draft-claims critic bridge.
     """
     table = table_for(entity_type)
+    relation = table if cutoff is None else metadata_table(table, novel_id, cutoff)
     row = db.fetchone(
         f"""
         SELECT id, entity_id
-        FROM {table}
+        FROM {relation} AS typed
         WHERE novel_id = %s
           AND (
               lower(name) = lower(%s)

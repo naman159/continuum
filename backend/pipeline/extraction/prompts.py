@@ -69,12 +69,11 @@ PASS_SCHEMAS = {
     "state_deltas": {
         "state_deltas": [
             {
-                "kind": "possession|location|knowledge|status",
+                "kind": "possession|location|status",
                 "character_name": "string  # the character affected (or the entity moving, for location)",
                 "object_name": "string|null  # possession only: the object gained/lost",
                 "location_name": "string|null  # location only: where the character now is",
                 "change": "gain|loss|null  # possession only",
-                "fact": "string|null  # knowledge only: what the character now knows",
                 "attribute": "emotional_state|goals|physical_state|appearance|notes|null  # status only",
                 "value": "string|null  # status only: the new value of that attribute",
                 "quote": "string  # short verbatim evidence from the chapter text",
@@ -248,8 +247,6 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
         - location: a character (or significant object) arrives at / is
           established to be at a location. Set character_name (the mover)
           and location_name. Emit one delta per arrival, not per mention.
-        - knowledge: a character learns something new. Set character_name
-          and fact (one sentence). Only knowledge acquired IN THIS CHUNK.
         - status: a lasting change to a character's condition. Set
           character_name, attribute (one of emotional_state|goals|
           physical_state|appearance|notes) and value. Emit only when the

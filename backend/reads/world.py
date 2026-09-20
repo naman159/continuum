@@ -16,12 +16,14 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from pipeline.db.history import metadata_table
+
 from reads.common import resolve_cutoff
 from reads.relationship_types import resolve_symmetric
 
 
 def _typed_name_maps(
-    db: Any, novel_id: UUID | str
+    db: Any, novel_id: UUID | str, cutoff: int
 ) -> tuple[dict[Any, str], dict[Any, str], dict[Any, str], dict[Any, str]]:
     """Typed-id -> name maps for the four typed entity tables.
 
@@ -31,16 +33,16 @@ def _typed_name_maps(
     resolution for event rows must go through these maps.
     """
     char_rows = db.fetchall(
-        "SELECT id, name FROM characters WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     loc_rows = db.fetchall(
-        "SELECT id, name FROM locations WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('locations', novel_id, cutoff)} locations WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     obj_rows = db.fetchall(
-        "SELECT id, name FROM objects WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('objects', novel_id, cutoff)} objects WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     faction_rows = db.fetchall(
-        "SELECT id, name FROM factions WHERE novel_id = %s", (novel_id,), dict_rows=True
+        f"SELECT id, name FROM {metadata_table('factions', novel_id, cutoff)} factions WHERE novel_id = %s", (novel_id,), dict_rows=True
     )
     return (
         {r["id"]: r["name"] for r in char_rows},
@@ -78,9 +80,9 @@ def _event_row(
 def list_locations(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
-        """
+        f"""
         SELECT id, name, aliases, description, first_appearance_chapter
-        FROM locations
+        FROM {metadata_table('locations', novel_id, cutoff)} locations
         WHERE novel_id = %s
           AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)
         ORDER BY name
@@ -106,9 +108,9 @@ def get_location_detail(
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     row = db.fetchone(
-        """
+        f"""
         SELECT id, name, aliases, description, first_appearance_chapter
-        FROM locations WHERE novel_id = %s AND id = %s
+        FROM {metadata_table('locations', novel_id, cutoff)} locations WHERE novel_id = %s AND id = %s
         """,
         (novel_id, location_id),
         dict_rows=True,
@@ -116,7 +118,7 @@ def get_location_detail(
     if row is None or (row.get("first_appearance_chapter") or 0) > cutoff:
         return None
 
-    char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id)
+    char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id, cutoff)
 
     event_rows = db.fetchall(
         """
@@ -135,10 +137,10 @@ def get_location_detail(
     events = [_event_row(r, char_name, loc_name, obj_name, faction_name) for r in event_rows]
 
     char_rows = db.fetchall(
-        """
+        f"""
         SELECT DISTINCT c.name
         FROM character_states cs
-        JOIN characters c ON c.id = cs.character_id
+        JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = cs.character_id
         JOIN chapters ch ON ch.id = cs.chapter_id
         WHERE c.novel_id = %s AND cs.location_id = %s AND ch.number <= %s
         ORDER BY c.name
@@ -169,9 +171,9 @@ def get_location_detail(
 def list_objects(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
-        """
+        f"""
         SELECT id, name, aliases, description, significance, first_appearance_chapter
-        FROM objects
+        FROM {metadata_table('objects', novel_id, cutoff)} objects
         WHERE novel_id = %s
           AND (first_appearance_chapter IS NULL OR first_appearance_chapter <= %s)
         ORDER BY name
@@ -198,10 +200,10 @@ def get_object_detail(
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     row = db.fetchone(
-        """
+        f"""
         SELECT id, name, aliases, description, significance,
                first_appearance_chapter, entity_id
-        FROM objects WHERE novel_id = %s AND id = %s
+        FROM {metadata_table('objects', novel_id, cutoff)} objects WHERE novel_id = %s AND id = %s
         """,
         (novel_id, object_id),
         dict_rows=True,
@@ -209,7 +211,7 @@ def get_object_detail(
     if row is None or (row.get("first_appearance_chapter") or 0) > cutoff:
         return None
 
-    char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id)
+    char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id, cutoff)
 
     event_rows = db.fetchall(
         """
@@ -236,11 +238,11 @@ def get_object_detail(
     # pipeline writes ResolvedEntity.universal_id there), so this join goes
     # through objects.entity_id rather than the typed objects.id used above.
     rel_rows = db.fetchall(
-        """
+        f"""
         SELECT c.name AS character_name, r.rel_type, r.from_chapter, r.to_chapter, r.notes
         FROM relationships r
-        JOIN objects ob ON ob.id = %s AND ob.novel_id = %s
-        JOIN characters c
+        JOIN {metadata_table('objects', novel_id, cutoff)} ob ON ob.id = %s AND ob.novel_id = %s
+        JOIN {metadata_table('characters', novel_id, cutoff)} c
           ON c.novel_id = %s
          AND c.entity_id = CASE
                WHEN r.entity_a_id = ob.entity_id THEN r.entity_b_id
@@ -293,9 +295,9 @@ def list_factions(db: Any, novel_id: UUID | str, up_to_chapter: int | None) -> l
     mentioned in any event has no derivable anchor and stays visible."""
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
-        """
+        f"""
         SELECT f.id, f.name, f.aliases, f.description
-        FROM factions f
+        FROM {metadata_table('factions', novel_id, cutoff)} f
         WHERE f.novel_id = %(novel_id)s
           AND COALESCE(
                 (SELECT MIN(ch.number)
@@ -326,9 +328,9 @@ def get_faction_detail(
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     row = db.fetchone(
-        """
+        f"""
         SELECT id, name, aliases, description
-        FROM factions WHERE novel_id = %s AND id = %s
+        FROM {metadata_table('factions', novel_id, cutoff)} factions WHERE novel_id = %s AND id = %s
         """,
         (novel_id, faction_id),
         dict_rows=True,
@@ -336,7 +338,7 @@ def get_faction_detail(
     if row is None:
         return None
 
-    char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id)
+    char_name, loc_name, obj_name, faction_name = _typed_name_maps(db, novel_id, cutoff)
 
     # events.involved_factions stores factions.id (the typed-table id the
     # resolver returns), not entities.id — query with the faction id itself.
@@ -394,9 +396,9 @@ def list_custom_entities(
     has no derivable anchor and stays visible."""
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     rows = db.fetchall(
-        """
+        f"""
         SELECT e.id, e.name, e.entity_type, NULL AS description
-        FROM entities e
+        FROM {metadata_table('entities', novel_id, cutoff)} e
         WHERE e.novel_id = %(novel_id)s AND e.entity_type = %(entity_type)s
           AND COALESCE(
                 (SELECT MIN(GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)))
@@ -421,7 +423,7 @@ def get_custom_entity_detail(
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
 
     row = db.fetchone(
-        "SELECT id, name, entity_type FROM entities WHERE id = %s AND novel_id = %s",
+        f"SELECT id, name, entity_type FROM {metadata_table('entities', novel_id, cutoff)} entities WHERE id = %s AND novel_id = %s",
         (entity_id, novel_id),
         dict_rows=True,
     )
@@ -433,13 +435,13 @@ def get_custom_entity_detail(
     # side-table), so this filters directly on entity_id with no join needed.
     # from_chapter is this sub-list's chapter anchor, so the cutoff applies.
     rels_rows = db.fetchall(
-        """
+        f"""
         SELECT r.entity_a_id, r.entity_b_id, r.rel_type, r.symmetric, r.from_chapter, r.to_chapter, r.notes,
                ea.name AS name_a, ea.entity_type AS type_a,
                eb.name AS name_b, eb.entity_type AS type_b
         FROM relationships r
-        JOIN entities ea ON ea.id = r.entity_a_id
-        JOIN entities eb ON eb.id = r.entity_b_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} ea ON ea.id = r.entity_a_id
+        JOIN {metadata_table('entities', novel_id, cutoff)} eb ON eb.id = r.entity_b_id
         LEFT JOIN chapters rch ON rch.id = r.chapter_id
         WHERE (r.entity_a_id = %s OR r.entity_b_id = %s)
           AND GREATEST(COALESCE(r.from_chapter, 0), COALESCE(rch.number, 0)) <= %s

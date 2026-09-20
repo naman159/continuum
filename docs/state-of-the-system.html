@@ -244,11 +244,12 @@
   <!-- ════════════════ TL;DR ════════════════ -->
   <section id="tldr">
   <h2>TL;DR</h2>
-  <p><strong>Architecture conformance, 2026-09-19:</strong> the shared write coordinator,
-  read layer, and three state projections match the intended module boundaries. Open gaps
-  include two independent knowledge sources, alias writes before the chapter transaction,
-  unenforced per-novel sequencing, and logged-only enrichment failures. These were identified,
-  not fixed, in the <a href="architecture-conformance.md">conformance review</a>.</p>
+  <p><strong>Architecture corrections, 2026-09-19:</strong> knowledge has one assertion
+  source, alias writes share the chapter transaction, metadata is versioned, replacements
+  rebuild their dependent chapters atomically, and per-novel admission/order are enforced.
+  Persistence failures roll back; enrichment warnings appear in caller results.
+  Older imports have a documented history baseline. See the
+  <a href="architecture-conformance.md">conformance fixes</a> for the current contract.</p>
   <p><strong>Public-readiness audit, updated 2026-09-18:</strong> 506 backend tests pass with three
   synthetic provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
   A separate live Gemini run processed four actual chapters from Pride and Prejudice
@@ -353,7 +354,7 @@ flowchart TB
       ING --> EXT["EXTRACT<br/>13 LLM passes per chunk incl. typed state_deltas"]
       EXT --> DED["IntraDeduplicator +<br/>EntityCanonicalizer"]
       DED --> PER["PERSIST (one transaction)<br/>entities · events · scenes · knows_edges<br/>commitments · canon_facts · state_deltas · relationships"]
-      PER --> MAT["MATERIALIZE<br/>StateMaterializer replays state_deltas →<br/>character_states + bitemporal edges"]
+      PER --> MAT["MATERIALIZE<br/>StateMaterializer replays state_deltas + knows_edges →<br/>character_states + bitemporal edges"]
       MAT --> CRIT["CRITIQUE<br/>ContinuityCritic, 5 checks →<br/>critique_reports/critique_findings (non-blocking)"]
     end
 
@@ -443,7 +444,7 @@ flowchart TB
       <tr>
         <td><strong>State Materializer</strong></td>
         <td><span class="badge green">Wired</span></td>
-        <td>Replays typed <code>state_deltas</code> → <code>character_states</code> + bitemporal edges; <code>analyze_chapter</code> runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
+        <td>Replays typed <code>state_deltas</code> and <code>knows_edges</code> → <code>character_states</code> + bitemporal edges; <code>analyze_chapter</code> runs it after every chapter, replaying through the novel's latest chapter (CLI remains for manual backfill)</td>
         <td>Sole writer of <code>character_states</code> — see <a href="#dual-truth">Dual Source of Truth</a> (resolved)</td>
       </tr>
       <tr>
@@ -907,31 +908,23 @@ multi_granularity_summaries · knowledge_state_deltas · commitments · canon_fa
     ignores it — commit/rollback ownership belongs entirely to the enclosing session, which commits once
     on clean exit and rolls back the phase on an escaping exception (see
     <a href="reference.html#db-client">Reference: DBClient / DBSession</a>). A failure inside that block
-    rolls back the chapter if it escapes the session. Caught enrichment failures may still
-    commit a chapter with missing rows, and earlier canonicalizer alias writes are outside
-    this transaction; the conformance review identifies both limits.
+    rolls back the chapter. Alias changes and metadata versions share that transaction.
+    Database errors propagate; unresolved references appear as enrichment warnings.
   </p>
   <p>
-    <strong>Amended 2026-08-16.</strong> The single-transaction claim above was correct, but until
-    this date the best-effort <code>try/except</code> blocks inside <code>persist_extras.py</code>
-    undermined it from the other direction. Catching a statement error and continuing on the same
-    connection does not recover anything — PostgreSQL has already aborted the transaction, so every
-    later statement fails with <code>InFailedSqlTransaction</code>, and a <code>COMMIT</code> issued
-    against an aborted transaction is silently downgraded to <code>ROLLBACK</code> rather than
-    raising. One bad scene row therefore cost the whole chapter, either loudly with a misleading
-    "current transaction is aborted" error, or — when no later statement happened to run —
-    <em>silently</em>, with <code>analyze_chapter</code> returning a success payload whose
-    <code>chapter_id</code> pointed at nothing. Each block now runs inside a <code>SAVEPOINT</code>
-    via <code>DBSession.savepoint()</code>, so a failed row rolls back alone and the chapter survives,
-    which is what the "log and continue" comments always intended.
+    <strong>Amended 2026-09-19.</strong> Earlier versions isolated enrichment errors
+    with savepoints and continued. Required scene, knowledge, and commitment writes
+    now fail the chapter transaction. The obsolete row-savepoint wrapper was removed.
+    Nested sessions remain for the chapter transactions inside an atomic replacement.
   </p>
   <p>
-    The two phases that run <em>after</em> that commit — MATERIALIZE and CRITIQUE — are deliberately
+    For an append, the two phases that run <em>after</em> that commit — MATERIALIZE and CRITIQUE — are deliberately
     <strong>not</strong> inside the same transaction: they're derived, idempotent, and re-runnable, so a
     failure there is caught, logged, and reported via <code>materialized: False</code> /
     <code>critique.persisted: False</code> in the result rather than rolling back an already-saved
     chapter. A skipped critique has <code>critique: None</code>. That's
-    a design choice, not the atomicity gap this section used to describe.
+    the append recovery contract. During replacement these phases join the enclosing
+    transaction and a write failure rolls back the entire rebuilt suffix.
   </p>
 
   <div class="nn">

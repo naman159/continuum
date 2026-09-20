@@ -132,8 +132,7 @@ def seeded(db: DBClient):
         add_delta(2, "possession", aelric_eid, object_eid=dagger_eid, change="loss")
         add_delta(2, "status", aelric_eid, change="update",
                   attribute="emotional_state", detail="wary")
-        add_delta(2, "knowledge", aelric_eid, change="learn",
-                  detail="the harbor is watched")
+        cur.execute("INSERT INTO knows_edges (character_id, learned_chapter, fact_description) VALUES (%s, 3, %s)", (aelric_id, "the harbor is watched"))
 
     yield {
         "novel_id": novel_id,
@@ -379,11 +378,11 @@ def carry_forward_seeded(db: DBClient):
         add_delta(0, "status", aelric_eid, attribute="physical_state", detail="unharmed")
         add_delta(0, "status", aelric_eid, attribute="appearance", detail="travel-worn cloak")
         # ch2: knowledge-only chapter (no status delta at all).
-        add_delta(1, "knowledge", aelric_eid, detail="the keep has a hidden passage")
+        cur.execute("INSERT INTO knows_edges (character_id, learned_chapter, fact_description) VALUES (%s, 2, %s)", (aelric_id, "the keep has a hidden passage"))
         # ch3: emotional_state set via status delta.
         add_delta(2, "status", aelric_eid, attribute="emotional_state", detail="wary")
         # ch4: knowledge-only chapter, after the emotional_state delta.
-        add_delta(3, "knowledge", aelric_eid, detail="the harbor is watched")
+        cur.execute("INSERT INTO knows_edges (character_id, learned_chapter, fact_description) VALUES (%s, 4, %s)", (aelric_id, "the harbor is watched"))
 
     yield {
         "novel_id": novel_id,
@@ -569,38 +568,10 @@ def test_historical_locations_and_loss_chapter_are_consistent(db, seeded):
     assert not any(e["edge_kind"] == "possession" for e in entity_graph(db, nid, 3)["edges"])
 
 
-def test_current_materialization_resolves_horizon_after_waiting_for_lock(db, seeded):
-    from concurrent.futures import ThreadPoolExecutor
-    from threading import Event
-    from contextlib import contextmanager
-
+def test_materialization_rejects_concurrent_writer_then_reads_current_horizon(db, seeded):
     nid = seeded["novel_id"]
-    waiting = Event()
-    real_transaction = db.transaction
-
-    class ObservedCursor:
-        def __init__(self, cur):
-            self.cur = cur
-
-        def execute(self, query, params=None):
-            if "pg_advisory_xact_lock" in query:
-                waiting.set()
-            return self.cur.execute(query, params)
-
-        def __getattr__(self, name):
-            return getattr(self.cur, name)
-
-    class ObservedDB:
-        @contextmanager
-        def transaction(self):
-            with real_transaction() as cur:
-                yield ObservedCursor(cur)
-
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        with db.transaction() as blocker:
-            blocker.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (nid,))
-            future = executor.submit(StateMaterializer(ObservedDB()).materialize, nid)
-            assert waiting.wait(timeout=5)
-            # A chapter commits while the other materializer waits on its lock.
-            db.execute("INSERT INTO chapters (novel_id, number, raw_text) VALUES (%s, 4, 'next chapter')", (nid,))
-        assert future.result(timeout=10).through_chapter == 4
+    with db.novel_lock(nid):
+        with pytest.raises(ValueError, match="already being processed"):
+            StateMaterializer(db).materialize(nid)
+        db.execute("INSERT INTO chapters (novel_id, number, raw_text) VALUES (%s, 4, 'next chapter')", (nid,))
+    assert StateMaterializer(db).materialize(nid).through_chapter == 4

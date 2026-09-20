@@ -102,6 +102,7 @@ def test_save_chapter_success_and_flags(monkeypatch):
         "chapter_id": "abc-123",
         "materialized": True,
         "critique": {"passed": True},
+        "enrichment": None,
     }
     assert seen["source"] == "agent"
     assert seen["replace"] is False

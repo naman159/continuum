@@ -12,13 +12,37 @@ The repository's visibility was not changed.
 
 ## Architecture conformance follow-up (2026-09-19)
 
-The [conformance audit](architecture-conformance.md) confirmed the shared module
-boundaries but found additional open consistency gaps. Real-Gemini stored results
-show knowledge edges and snapshot knowledge diverging. Alias writes precede the
-chapter transaction; sequential chapter processing is not enforced; some enrichment
-failures are only logged. These findings were documented, not fixed in this review.
-Prior passing tests demonstrate the tested workflows, not universal consistency.
-The recommendation remains limited to an explicitly experimental local project.
+The [conformance fixes](architecture-conformance.md) consolidate knowledge ownership,
+commit alias changes transactionally, version chapter metadata, rebuild replacement
+suffixes atomically, enforce per-novel admission/order, and expose enrichment skips.
+Schema version 4 preserves legacy knowledge and establishes a metadata baseline;
+old historical metadata requires re-import because previous versions were never stored.
+
+## Verification of the consistency fixes
+
+- 517 backend tests pass; three paid synthetic evaluations are skipped.
+- Frontend lint, TypeScript checking, and production build pass.
+- Fresh real-Gemini extraction, critique, embeddings, and retrieval passed on the
+  first two chapters of both Pride and Prejudice and Primal Hunter (37,153 source
+  characters). A further real-Gemini replacement of P&P chapter 1 rebuilt both
+  chapters in one transaction and preserved their original text.
+- Upgrading a clone of the previous real-Gemini database preserved all 46
+  distinct character/fact pairs; all 19 character snapshots matched afterward.
+  The source audit database and original library were left unchanged.
+- 35 comparisons across every character and both chapter cutoffs found identical
+  knowledge in character snapshots and the knowledge assertions.
+- 38 Chrome checks passed against those actual outputs: wiki routes, graphs,
+  character details, chapter caps, and live hybrid search; no browser errors or
+  failed responses.
+- Real provider rate limits recovered through the retry path. The replacement
+  reported three unresolved commitment references (Jane, Lizzy, Lydia), which
+  require review. Initial runs also reported five unmatched payoff candidates and
+  six invalid/unresolved possession deltas (skills/classes and a combined equipment
+  list). These are surfaced model-output limitations, not database write failures;
+  passing execution is not a claim of perfect extraction or entity linking.
+- Gitleaks found no secrets in the publishable working tree or all 332 existing
+  commits. Ignored local environment files remain outside the published tree.
+
 
 ## Follow-up: remove unused paths (2026-09-18)
 
@@ -61,7 +85,7 @@ new possession findings use `possession`.
 | Historical responses exposed future thread closures and commitment payoffs in secondary fields. | The shared read layer masks those fields for both HTTP and MCP consumers. Regression checks verify the complete returned row, not only the displayed status. |
 | Direct object/location links exposed identities before their first appearance; backdated relationships could appear before their asserting chapter. | Detail reads apply appearance cutoffs; relationship reads require both effective start and source chapter to be visible. |
 | Reversing a directional relationship was mistaken for a duplicate. | Reversed pairs are deduplicated only when both assertions are explicitly mutual. Database tests preserve both directions otherwise. |
-| A queued state rebuild could use a chapter horizon read before waiting for its lock. | The default horizon is read after acquiring the per-novel materialization lock. A two-connection regression commits a chapter while the rebuild waits. |
+| A queued state rebuild could use a chapter horizon read before waiting for its lock. | The default horizon is read after acquiring the per-novel materialization lock. A two-connection regression verifies rejection while a writer holds admission, then checks the current horizon on retry. |
 | Parseable but malformed critic JSON could become an empty, passing critique. | Every required claim list must be present and contain objects. One fresh Gemini call on the saved Primal Hunter chapter 2 passed this validation. |
 | The UI reported success without showing failed state rebuilding or failed critique-report persistence. | The result records report persistence, and the Process page shows recovery messages. Browser fault injection verifies both messages without ingesting another chapter. |
 | A manual canon fact could reference an entity from another novel. | The insert now requires the subject to belong to the selected novel; the API returns 404 otherwise. |
@@ -120,17 +144,12 @@ are substantial, but they are documentation rather than runtime dependencies.
 
 ## Remaining limits and next priorities
 
-1. **Historical data is not fully versioned.** Entity aliases and descriptions,
-   canon facts, and plot-thread metadata are global records. Faction/custom-entity
-   appearance can only be inferred from references. Chapter-anchored events,
-   state, and retrieval are capped, but this is not a guarantee that every metadata
-   field is free of later information. Full versioned provenance is the next
-   substantive architecture improvement.
-2. **Replacing a chapter is not a complete retcon.** Derived chapter rows and state
-   projections are rebuilt, but entity creation/aliases, canon-fact updates, and
-   thread metadata can survive from the old interpretation. Replacing earlier
-   chapters does not re-extract later ones. For a major rewrite, process the
-   revised manuscript sequentially into a fresh novel.
+1. **Legacy history needs re-import.** New processing records metadata versions.
+   An upgraded database only knows metadata at its upgrade horizon; it refuses
+   older historical metadata queries rather than return future descriptions.
+2. **Retcons cost fresh extraction.** Replacement rebuilds the entire affected
+   suffix atomically. Long replacements hold a transaction during model calls,
+   and model inference can differ between runs.
 3. **Relationship vocabulary remains free-form.** Explicit endings are preserved,
    but different labels can describe one relationship. The system does not infer
    that “father” and “parent_of” are equivalent, or that a new relationship label
@@ -140,11 +159,11 @@ are substantial, but they are documentation rather than runtime dependencies.
    its supported scope. Unknown/unresolved entities drop out of some checks.
    Four successful chapters
    and zero findings do not establish detection recall or extraction completeness.
-5. **Operate locally and process chapters sequentially per novel.** There is no
+5. **Operate locally.** Per-novel locking and chapter order are enforced. There is no
    authentication. Jobs are in memory and need one server process; restarts lose
    their status. Chapter processing makes many sequential model calls and holds a
-   persistence transaction during embedding calls. Durable jobs, admission limits,
-   batched embeddings, and stronger serialization are future service work.
+   persistence transaction during embedding calls. Durable jobs and
+   batched embeddings remain future service work.
 6. **Entity resolution remains probabilistic.** Cross-type duplicates can be
    repaired but are not prevented at ingest. Model choices and API quotas affect
    accuracy, latency, and cost; per-chapter cost reporting is not implemented.

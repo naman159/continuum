@@ -48,4 +48,4 @@ def test_mock_extraction_emits_state_deltas():
     assert isinstance(out.get("state_deltas"), list)
     assert out["state_deltas"], "mock must emit at least one delta"
     for delta in out["state_deltas"]:
-        assert delta["kind"] in {"possession", "location", "knowledge", "status"}
+        assert delta["kind"] in {"possession", "location", "status"}

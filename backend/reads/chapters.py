@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+from pipeline.db.history import metadata_table
+
 from reads.common import resolve_cutoff
 
 
@@ -75,8 +77,8 @@ def list_scenes(
                s.present_characters
           FROM scenes s
           JOIN chapters ch ON ch.id = s.chapter_id
-          LEFT JOIN characters pov ON pov.id = s.pov_character_id
-          LEFT JOIN locations loc ON loc.id = s.location_id
+          LEFT JOIN {metadata_table('characters', novel_id, cutoff)} pov ON pov.id = s.pov_character_id
+          LEFT JOIN {metadata_table('locations', novel_id, cutoff)} loc ON loc.id = s.location_id
          WHERE {' AND '.join(where)}
          ORDER BY ch.number, s.scene_index
         """,
@@ -90,7 +92,7 @@ def list_scenes(
     name_by_id: dict[str, str] = {}
     if all_char_ids:
         chars = db.fetchall(
-            "SELECT id, name FROM characters WHERE id = ANY(%s::uuid[])",
+            f"SELECT id, name FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE id = ANY(%s::uuid[])",
             (all_char_ids,),
             dict_rows=True,
         )

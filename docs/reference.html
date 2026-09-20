@@ -584,7 +584,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td>chunk_overlap</td><td>int</td><td>Token overlap between adjacent chunks</td></tr>
         <tr><td>progress</td><td>Any | None</td><td>Optional progress callback object with <code>on_pass_start</code>/<code>on_pass_done</code> methods</td></tr>
         <tr><td>db</td><td>DBClient | None</td><td>Injectable DB client. If None, a new <code>DBClient</code> is created and closed on exit.</td></tr>
-        <tr><td>replace</td><td>bool</td><td>If True, delete all previously extracted data for this chapter before re-processing. Default False.</td></tr>
+        <tr><td>replace</td><td>bool</td><td>If True, restore the preceding metadata and re-extract this chapter and every later chapter atomically. Default False.</td></tr>
         <tr><td>source</td><td>str</td><td>Provenance tag stored on the chapter row (e.g. <code>"human"</code>, <code>"agent"</code>). Default <code>"human"</code>.</td></tr>
       </tbody>
     </table>
@@ -599,7 +599,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <strong>Transactional persistence.</strong> All DB writes (ingest, entities, events,
       relationships, summaries, scenes, knows-edges, commitments) run inside a single
       <code>client.session()</code> transaction. The LLM extraction and canonicalization phases run
-      outside the transaction; only persistence is atomic.
+      outside the transaction for appends. Replacements include the entire dependent suffix in one transaction. Alias writes always join persistence.
     </div>
 
     <h3>Return value</h3>
@@ -608,7 +608,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>summary_preview</code>, <code>new_characters</code>, <code>new_locations</code>,
       <code>events</code>, <code>state_deltas</code>, <code>thread_updates</code>,
       <code>continuity_flags</code>), the result dict carries two keys for the phases that run
-      after persistence commits:
+      after persistence commits, plus <code>enrichment</code> counts/warnings and replacement <code>rebuilt_chapters</code>/<code>rebuild_results</code>:
     </p>
     <table class="param-table">
       <tbody>
@@ -618,7 +618,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </table>
 
     <div class="callout warn">
-      <strong>Phases 4/5 run outside the persistence transaction.</strong> Materialization
+      <strong>For appends, phases 4/5 run after persistence commits. For replacements they join the enclosing transaction.</strong> Materialization
       (phase 4, <code>StateMaterializer</code>) and the continuity critique (phase 5,
       <code>ContinuityCritic</code> + <code>persist_critique</code>) execute after the
       <code>client.session()</code> block has already committed the chapter. Each is wrapped in
@@ -697,7 +697,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <span class="str">"objects"</span>: [{ <span class="str">"name"</span>: ..., <span class="str">"description"</span>: ..., <span class="str">"owner_name"</span>: ..., <span class="str">"distinguishing_properties"</span>: ... }]
   },
   <span class="str">"state_deltas"</span>: [{
-    <span class="str">"kind"</span>: <span class="str">"possession"</span>|<span class="str">"location"</span>|<span class="str">"knowledge"</span>|<span class="str">"status"</span>,
+    <span class="str">"kind"</span>: <span class="str">"possession"</span>|<span class="str">"location"</span>|<span class="str">"status"</span>,
     <span class="str">"character_name"</span>: ..., <span class="str">"object_name"</span>: ..., <span class="str">"location_name"</span>: ...,
     <span class="str">"change"</span>: <span class="str">"gain"</span>|<span class="str">"loss"</span>, <span class="str">"fact"</span>: ...,
     <span class="str">"attribute"</span>: ..., <span class="str">"value"</span>: ..., <span class="str">"quote"</span>: <span class="str">"..."</span>
@@ -986,15 +986,14 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </div>
     <p>
       Yields a <code>DBSession</code> bound to one pooled connection. All statements issued through the
-      session run on that single connection and therefore inside one implicit transaction.
+      session run on that single connection inside a repeatable-read transaction.
       On a clean exit the connection is <strong>committed</strong>; on any exception it is
       <strong>rolled back</strong> and the exception is re-raised.
     </p>
     <p>
       <code>analyze_chapter()</code> uses <code>session()</code> for its entire persistence phase — every
       write (ingest, entities, events, relationships, summaries, scenes, knows-edges, commitments) is
-      atomic. The LLM extraction and canonicalization phases run <em>outside</em> the transaction, and
-      the phase-4 materialize / phase-5 critique steps run <em>after</em> it commits.
+      atomic. For appends extraction precedes the transaction, and materialization/reporting follow it. For replacements, the whole dependent suffix shares an enclosing transaction, including model calls. A per-novel advisory lock covers both workflows.
     </p>
 
     <h3>DBSession</h3>
@@ -1492,7 +1491,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
   chapter_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> chapters <span class="sql-constraint">ON DELETE CASCADE</span>,
   event_id     <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> events <span class="sql-constraint">ON DELETE SET NULL</span>,
   ordinal      <span class="sql-type">INT</span>    <span class="sql-constraint">NOT NULL DEFAULT</span> <span class="sql-val">0</span>,  <span class="sql-comment">-- narrative order within the chapter</span>
-  kind         <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>, <span class="sql-comment">-- CHECK IN (possession, location, knowledge, status)</span>
+  kind         <span class="sql-type">TEXT</span>   <span class="sql-constraint">NOT NULL</span>, <span class="sql-comment">-- CHECK IN (possession, location, status)</span>
   subject_id   <span class="sql-type">UUID</span>   <span class="sql-constraint">NOT NULL REFERENCES</span> entities <span class="sql-constraint">ON DELETE CASCADE</span>,
   object_id    <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> entities <span class="sql-constraint">ON DELETE CASCADE</span>,
   location_id  <span class="sql-type">UUID</span>   <span class="sql-constraint">REFERENCES</span> locations <span class="sql-constraint">ON DELETE CASCADE</span>,
@@ -1537,12 +1536,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <code>critique_reports</code> / <code>critique_findings</code> persist one continuity-critique
       result per chapter instead of discarding it after the request. <code>schema_version</code> holds
       a single row, rewritten on every <code>init-db</code> run, so client code can check what schema
-      it's talking to. <strong>It's currently 2</strong>, bumped from 1 by <code>draft_submissions</code>
-      below (added 2026-08-24 with the write-refusal path). There is no migration tool: <code>schema.sql</code>
-      is idempotent (<code>CREATE TABLE IF NOT EXISTS</code> / <code>ADD COLUMN IF NOT EXISTS</code>
-      throughout), so an existing database upgrades by re-running
-      <code>uv run novel-pipeline init-db</code> — it picks up the new table and re-stamps
-      <code>schema_version</code> without touching data in any other table.
+      it's talking to. <strong>It is currently 4.</strong> Re-running
+      <code>uv run novel-pipeline init-db</code> migrates legacy knowledge deltas into
+      <code>knows_edges</code>, rebuilds state projections, and records the current
+      metadata baseline. The new <code>metadata_history</code> and
+      <code>metadata_versions</code> tables store changed records and tombstones for
+      cutoff-aware reads and transactional rewinds. Earlier metadata cannot be
+      reconstructed for an old import; see <a href="architecture-conformance.md">upgrade limits</a>.
     </p>
     <p>
       <strong>The catch, and it has bitten more than once:</strong> that idempotence covers tables and

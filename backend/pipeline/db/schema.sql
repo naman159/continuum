@@ -405,7 +405,7 @@ CREATE TABLE IF NOT EXISTS state_deltas (
     -- narrative order within the chapter; created_at can't order rows written
     -- in one transaction (now() is transaction-stable) and UUIDs are random.
     ordinal INTEGER NOT NULL DEFAULT 0,
-    kind TEXT NOT NULL CHECK (kind IN ('possession','location','knowledge','status')),
+    kind TEXT NOT NULL CHECK (kind IN ('possession','location','status')),
     subject_id UUID NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
     object_id UUID REFERENCES entities(id) ON DELETE CASCADE,
     location_id UUID REFERENCES locations(id) ON DELETE CASCADE,
@@ -570,3 +570,59 @@ CREATE INDEX IF NOT EXISTS idx_commitments_embedding_hnsw
     ON commitments USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS idx_characters_embedding_hnsw
     ON characters USING hnsw (embedding vector_cosine_ops);
+
+-- Consolidate the former duplicate knowledge log without losing existing facts.
+INSERT INTO knows_edges (character_id, fact_description, learned_chapter, certainty)
+SELECT DISTINCT c.id, d.detail, ch.number, d.certainty
+  FROM state_deltas d
+  JOIN chapters ch ON ch.id = d.chapter_id
+  JOIN characters c ON c.entity_id = d.subject_id AND c.novel_id = ch.novel_id
+ WHERE d.kind = 'knowledge' AND NULLIF(trim(d.detail), '') IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM knows_edges k WHERE k.character_id = c.id
+        AND k.learned_chapter = ch.number AND lower(trim(k.fact_description)) = lower(trim(d.detail))
+   );
+DELETE FROM state_deltas d WHERE d.kind = 'knowledge'
+ AND NULLIF(trim(d.detail), '') IS NOT NULL
+ AND EXISTS (SELECT 1 FROM characters c JOIN chapters ch ON ch.novel_id = c.novel_id
+              WHERE c.entity_id = d.subject_id AND ch.id = d.chapter_id);
+ALTER TABLE state_deltas DROP CONSTRAINT IF EXISTS state_deltas_kind_check;
+ALTER TABLE state_deltas ADD CONSTRAINT state_deltas_kind_check CHECK (kind IN ('possession','location','status'));
+
+-- Changed metadata rows, including deletion tombstones, as known per chapter.
+CREATE TABLE IF NOT EXISTS metadata_history (
+    novel_id UUID PRIMARY KEY REFERENCES novels(id) ON DELETE CASCADE,
+    baseline_chapter INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS metadata_versions (
+    novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
+    table_name TEXT NOT NULL CHECK (table_name IN ('entities','characters','locations','objects','factions','plot_threads','canon_facts')),
+    row_id UUID NOT NULL,
+    chapter_number INTEGER NOT NULL,
+    payload JSONB,
+    PRIMARY KEY (novel_id, table_name, row_id, chapter_number)
+);
+
+CREATE OR REPLACE FUNCTION metadata_at(wanted_table TEXT, wanted_novel UUID, cutoff INTEGER)
+RETURNS TABLE(payload JSONB) LANGUAGE plpgsql STABLE AS $$
+DECLARE baseline INTEGER;
+BEGIN
+    IF wanted_table NOT IN ('entities','characters','locations','objects','factions','plot_threads','canon_facts') THEN
+        RAISE EXCEPTION 'Unknown metadata table';
+    END IF;
+    SELECT baseline_chapter INTO baseline FROM metadata_history WHERE novel_id = wanted_novel;
+    IF baseline IS NULL THEN
+        -- A newly created/unprocessed novel may have manually registered metadata.
+        RETURN QUERY EXECUTE format('SELECT to_jsonb(t) FROM %I t WHERE novel_id = $1', wanted_table) USING wanted_novel;
+    ELSIF cutoff < baseline THEN
+        RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE =
+            'Historical metadata is unavailable before this database was upgraded. Re-import the original chapters into a new novel to rebuild history.';
+    ELSE
+        RETURN QUERY SELECT latest.payload FROM (
+            SELECT DISTINCT ON (v.row_id) v.payload FROM metadata_versions v
+            WHERE v.novel_id = wanted_novel AND v.table_name = wanted_table AND v.chapter_number <= cutoff
+            ORDER BY v.row_id, v.chapter_number DESC
+        ) latest WHERE latest.payload IS NOT NULL;
+    END IF;
+END;
+$$;

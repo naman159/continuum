@@ -174,3 +174,19 @@ def test_same_type_merge_still_works(db, novel):
     involved = db.fetchval("SELECT involved_characters FROM events WHERE id = %s", (event_id,))
     assert [str(x) for x in (involved or [])] == [tgt_t]
     assert "Jane" in list(db.fetchval("SELECT aliases FROM characters WHERE id = %s", (tgt_t,)) or [])
+
+
+def test_custom_to_typed_repair_preserves_earlier_metadata(db, novel):
+    from pipeline.db.history import capture_metadata, metadata_table
+
+    capture_metadata(db, novel, 0)
+    _chapter(db, novel, 1)
+    src = _entity(db, novel, 'Skill', 'Flash step')
+    capture_metadata(db, novel, 1)
+    _chapter(db, novel, 2)
+    tgt = _entity(db, novel, 'object', 'Flash Step')
+    typed = _typed(db, 'objects', novel, tgt, 'Flash Step')
+    capture_metadata(db, novel, 2)
+    merge_entities(db, novel_id=novel, source_entity_id=src, target_entity_id=tgt)
+    historical = db.fetchall(f'SELECT id,entity_id FROM {metadata_table("objects", novel, 1)} objects')
+    assert [(str(r[0]), str(r[1])) for r in historical] == [(typed, tgt)]

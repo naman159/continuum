@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from contextlib import nullcontext
 from typing import Any
 
 from pipeline.db.client import DBClient
@@ -27,25 +28,14 @@ class StateMaterializer:
         self.db = db
         self.replay = StateReplay(db)
 
-    def materialize(self, novel_id: str, through_chapter: int | None = None) -> MaterializeResult:
+    def materialize(self, novel_id: str, through_chapter: int | None = None, *, already_locked: bool = False) -> MaterializeResult:
         snapshots_written = 0
         location_edges_written = 0
         possession_edges_written = 0
 
-        with self.db.transaction() as cur:
-            # Serialize per novel. materialize is a full novel-wide
-            # DELETE-then-rebuild, so two concurrent runs (jobs.py allows two
-            # chapters of one novel in flight) let the slower one overwrite the
-            # faster one's projections with a stale snapshot — and nothing
-            # re-derives them, because analyze_chapter already reported
-            # materialized=True. The lock is transaction-scoped and released on
-            # commit or rollback.
-            cur.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(novel_id),)
-            )
-            # Resolve the current horizon after acquiring the lock. A caller
-            # reading MAX(number) before waiting could otherwise overwrite a
-            # newer rebuild with an older chapter range.
+        with (nullcontext() if already_locked else self.db.novel_lock(novel_id)), self.db.transaction() as cur:
+            # The caller holds the novel admission lock before this transaction
+            # starts. All replay reads therefore share one stable database view.
             if through_chapter is None:
                 cur.execute(
                     "SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s",
@@ -66,8 +56,8 @@ class StateMaterializer:
             )
             cur.execute(
                 """
-                INSERT INTO materialized_state_runs (novel_id, through_chapter, notes)
-                VALUES (%s, %s, %s)
+                INSERT INTO materialized_state_runs (novel_id, through_chapter, notes, materialized_at)
+                VALUES (%s, %s, %s, clock_timestamp())
                 """,
                 (
                     novel_id,

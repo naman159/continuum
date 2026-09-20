@@ -6,10 +6,9 @@ putting ON DELETE CASCADE on a foreign key -- changes what a *new* database
 gets and nothing at all about an existing one. Columns are the exception,
 because the file backfills those with explicit ADD COLUMN IF NOT EXISTS.
 
-This project's answer to schema change is to drop and re-init rather than
-migrate (see backend/README.md), which works only if you can tell that a
-database needs it. That is what this module is for: apply schema.sql into a
-throwaway schema, snapshot both catalogs, and diff.
+The consolidated schema includes explicit migrations for existing tables.
+Verify their result by applying schema.sql into a throwaway schema, snapshotting
+both catalogs, and comparing their shape.
 """
 
 from __future__ import annotations

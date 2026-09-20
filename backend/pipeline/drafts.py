@@ -132,6 +132,9 @@ def accept_submission(
         "accepted": True,
         "chapter_id": chapter_id,
         "flags_written": flags_written,
+        "materialized": outcome.get("materialized"),
+        "critique": outcome.get("critique"),
+        "enrichment": outcome.get("enrichment"),
     }
 
 

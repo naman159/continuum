@@ -2,13 +2,15 @@
 
 `list_threads` serves both the wiki and MCP. Status and closure fields are
 masked at the cutoff, and per-thread event lists use the same chapter bound.
-Global thread descriptions are not versioned.
+Thread descriptions and status come from the metadata version at that cutoff.
 """
 
 from __future__ import annotations
 
 from typing import Any
 from uuid import UUID
+
+from pipeline.db.history import metadata_table
 
 from reads.common import resolve_cutoff_and_uncapped
 
@@ -18,7 +20,7 @@ def list_threads(
 ) -> list[dict[str, Any]]:
     cutoff, uncapped = resolve_cutoff_and_uncapped(db, novel_id, up_to_chapter)
     rows = db.fetchall(
-        """
+        f"""
         SELECT pt.id, pt.title, pt.description, pt.status, pt.thread_type,
                pt.opened_chapter, pt.closed_chapter,
                CASE
@@ -31,7 +33,7 @@ def list_threads(
                  WHEN pt.status = 'closed' THEN 'progressing'
                  ELSE pt.status
                END AS status_at_cutoff
-          FROM plot_threads pt
+          FROM {metadata_table('plot_threads', novel_id, cutoff)} pt
          WHERE pt.novel_id = %(novel_id)s
            AND (pt.opened_chapter IS NULL OR pt.opened_chapter <= %(cutoff)s)
          ORDER BY pt.opened_chapter NULLS LAST, pt.title

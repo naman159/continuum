@@ -82,6 +82,7 @@ def _persist(db, novel_id, chapter_id, rel_overrides=None, *, number=2):
 @pytest.mark.parametrize("symmetric", [True, False, None])
 def test_relationship_insert_round_trips_symmetric(db, novel, symmetric):
     """`symmetric` is reserved, so an unquoted column list fails to parse."""
+
     a_id = _character(db, novel, "Alice")
     b_id = _character(db, novel, "Bob")
     chapter_id = _chapter(db, novel)
@@ -144,6 +145,7 @@ def test_relationship_ending_preserves_history_and_replacement(db, novel, other_
     from reads.characters import get_character_detail
     from reads.graphs import entity_graph, relationship_graph
     from reads.world import get_custom_entity_detail, get_object_detail
+
 
     a_id = _character(db, novel, "Alice")
     if other_type == "character":
@@ -213,9 +215,12 @@ def test_entity_merge_keeps_relationship_history_and_direction(db, novel):
     from pipeline.db.entity_merge import merge_entities
     from reads.graphs import relationship_graph
 
+    from pipeline.db.history import capture_metadata
+
     a_id = _character(db, novel, "Alice")
     alias_id = _character(db, novel, "Alias")
     _character(db, novel, "Bob")
+    capture_metadata(db, novel, 0)
     ch2, ch3, ch4 = (_chapter(db, novel, n) for n in (2, 3, 4))
     _persist(db, novel, ch2)
     _persist(db, novel, ch3, {"to_chapter": 3}, number=3)

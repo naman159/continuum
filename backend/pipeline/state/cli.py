@@ -33,13 +33,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     with DBClient() as db:
-        through_chapter = args.through_chapter
-        if through_chapter is None:
-            row = db.fetchone(
-                "SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s",
-                (args.novel_id,),
-            )
-            through_chapter = int(row[0]) if row and row[0] is not None else 0
+        result = StateMaterializer(db).materialize(args.novel_id, args.through_chapter)
+        through_chapter = result.through_chapter
 
         if through_chapter <= 0:
             print(
@@ -53,7 +48,6 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 1
 
-        result = StateMaterializer(db).materialize(args.novel_id, through_chapter)
         print(json.dumps(asdict(result)))
         return 0
 

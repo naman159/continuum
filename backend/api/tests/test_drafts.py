@@ -7,7 +7,7 @@ import json
 from testing.drafts import _force_mock_llm  # noqa: F401  (autouse fixture)
 
 
-def _park(db, novel_id: str, number: int = 90) -> str:
+def _park(db, novel_id: str, number: int = 4) -> str:
     findings = {"fails": [{"check": "knowledge_state", "severity": "FAIL",
                            "message": "nope", "quote": "q",
                            "suggested_fix": None, "context": {}}], "warns": []}
@@ -16,7 +16,7 @@ def _park(db, novel_id: str, number: int = 90) -> str:
             """
             INSERT INTO draft_submissions
                 (novel_id, chapter_number, title, raw_text, status, findings)
-            VALUES (%s, %s, 'Ch 90', 'Elara walked in.', 'pending', %s::jsonb)
+            VALUES (%s, %s, 'Ch 4', 'Elara walked in.', 'pending', %s::jsonb)
             RETURNING id
             """,
             (novel_id, number, json.dumps(findings)),

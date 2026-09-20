@@ -50,15 +50,14 @@ def test_persists_each_kind_and_drops_unknown_names(db: DBClient, seeded):
     written = persist_state_deltas(
         db, chapter_id=seeded["chapter_id"], deltas=deltas, resolver=seeded["resolver"]
     )
-    assert written == 4
+    assert written == 3
     rows = db.fetchall(
         "SELECT kind, change, attribute, detail, ordinal FROM state_deltas WHERE chapter_id = %s ORDER BY ordinal",
         (seeded["chapter_id"],), dict_rows=True,
     )
-    assert [r["kind"] for r in rows] == ["possession", "location", "knowledge", "status"]
-    assert [r["ordinal"] for r in rows] == [0, 1, 2, 3]
-    assert rows[2]["detail"] == "the harbor is watched"
-    assert rows[3]["attribute"] == "emotional_state" and rows[3]["detail"] == "wary"
+    assert [r["kind"] for r in rows] == ["possession", "location", "status"]
+    assert [r["ordinal"] for r in rows] == [0, 1, 2]
+    assert rows[2]["attribute"] == "emotional_state" and rows[2]["detail"] == "wary"
     # No phantom character was created for the game-system name.
     assert db.fetchval(
         "SELECT count(*) FROM characters WHERE novel_id = %s", (seeded["novel_id"],)

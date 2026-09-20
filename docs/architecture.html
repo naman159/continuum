@@ -438,14 +438,14 @@
         <h4>The Pipeline (Write Path)</h4>
         <p>
           Chapter text → LLM extracts facts → deduplication → entity resolution → PostgreSQL.
-          Everything flows in one direction. Nothing is updated retroactively.
+          Everything flows in one direction. Replacement restores the earlier metadata and rebuilds the affected chapters; explicit identity repairs are retroactive.
         </p>
       </div>
       <div class="card">
         <h4>The API (Read Path)</h4>
         <p>
           React frontend asks FastAPI for wiki views. All queries are "as-of chapter N" (the chapter cap),
-          so you can time-travel without storing snapshots.
+          using chapter state projections and changed metadata versions. Older imports have an explicit history baseline.
         </p>
       </div>
     </div>
@@ -558,7 +558,7 @@ graph LR
 │   │   │   ├── runner.py         <span class="cmt"># Orchestrates all checks → CritiqueReport</span>
 │   │   │   ├── adapter.py        <span class="cmt"># Draft/extraction → critic bridge (extract_draft_claims, build_draft_chapter, build_draft_from_extraction)</span>
 │   │   │   ├── types.py          <span class="cmt"># DraftChapter, CritiqueReport, Finding</span>
-│   │   │   └── checks/           <span class="cmt"># commitment, entity, knowledge, location, thread</span>
+│   │   │   └── checks/           <span class="cmt"># entity, knowledge, possession, commitments</span>
 │   │   ├── <span class="dir">retrieval/</span>        <span class="cmt"># HybridRetriever: BM25 + dense + RRF + MMR</span>
 │   │   │   ├── hybrid.py         <span class="cmt"># Orchestrator: BM25 → dense → RRF → MMR</span>
 │   │   │   ├── bm25.py           <span class="cmt"># Full-text search (tsvector)</span>
@@ -568,7 +568,7 @@ graph LR
 │   │   │   └── types.py          <span class="cmt"># RetrievalQuery, RetrievalResult</span>
 │   │   ├── <span class="dir">state/</span>            <span class="cmt"># StateMaterializer: derives projections from state_deltas</span>
 │   │   │   ├── materializer.py   <span class="cmt"># Sole writer of character_states; also writes located_in_edges, possesses_edges</span>
-│   │   │   ├── replay.py         <span class="cmt"># Folds typed state_deltas into state snapshots</span>
+│   │   │   ├── replay.py         <span class="cmt"># Folds state_deltas and knows_edges into snapshots</span>
 │   │   │   └── types.py          <span class="cmt"># StateSnapshot, LocationFact, PossessionFact</span>
 │   │   ├── embeddings.py         <span class="cmt"># LiteLLM embedding; explicit mock hash vectors</span>
 │   │   ├── llm.py                <span class="cmt"># Shared litellm loader + lenient JSON parser</span>
@@ -645,10 +645,10 @@ graph LR
         <strong>Embed</strong> — <code>embed_chapter_and_events()</code> generates vector embeddings for each event description, plus the chapter summary only when no medium summary exists (otherwise <code>persist_multi_summaries()</code> embeds the chapter from <code>summary_medium</code>, so the extra call is skipped).
       </li>
       <li>
-        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_canon_facts()</code> fill the newer tables added in the SOTA branch. Canon facts upsert unless locked — a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) rather than an overwrite. The per-row "log and continue" blocks in <code>persist_extras.py</code> each run inside a <code>SAVEPOINT</code> (<code>_row_savepoint()</code>) — see the callout below for why that is load-bearing.
+        <strong>Persist SOTA extras</strong> — <code>persist_multi_summaries()</code>, <code>persist_scenes()</code>, <code>persist_knows_edges()</code>, <code>persist_commitments()</code>, <code>persist_canon_facts()</code> fill the newer tables added in the SOTA branch. Canon facts upsert unless locked — a locked fact contradicted by extraction becomes a <code>continuity_flag</code> (<code>flag_type='canon_contradiction'</code>) rather than an overwrite. Database and embedding failures abort the chapter transaction. Unresolved references and unmatched payoffs produce enrichment warnings returned to the caller.
       </li>
       <li>
-        <strong>4 · MATERIALIZE</strong> — runs outside the persistence transaction, after it commits: <code>StateMaterializer</code> replays <code>state_deltas</code> through the novel's latest chapter. A failure here is caught and logged, not raised — the already-committed chapter stays saved, and the result dict's <code>"materialized"</code> flag tells the caller a manual re-run (<code>python -m pipeline.state.cli</code>) is needed.
+        <strong>4 · MATERIALIZE</strong> — for an append, runs after persistence commits; during replacement it joins the enclosing transaction: <code>StateMaterializer</code> replays <code>state_deltas</code> and <code>knows_edges</code> through the novel's latest chapter. A failure here is caught and logged, not raised — the already-committed chapter stays saved, and the result dict's <code>"materialized"</code> flag tells the caller a manual re-run (<code>python -m pipeline.state.cli</code>) is needed.
       </li>
       <li>
         <strong>5 · RECORD — persist the phase-0 verdict</strong> — no second judgement. <code>persist_critique()</code> (<code>pipeline/critic/persist.py</code>) writes the report phase 0 already produced to <code>critique_reports</code>/<code>critique_findings</code>, replacing any prior report for the chapter. The only reason this is a separate phase is that <code>critique_reports.chapter_id</code> is a foreign key: the chapter has to exist before its verdict can be filed against it. Skipped when phase 0 was skipped (<code>CRITIC_ENABLED=false</code> or <code>run_critic: false</code>) or produced no report (an outage) — a missing verdict must not overwrite an existing one with an empty one. Like phase 4 this is derived and idempotent: a failure is caught and logged rather than raised, and <code>python -m pipeline.critic.cli --novel-id &lt;uuid&gt; [--chapter N]</code> re-judges one chapter or a whole back catalogue from stored text without re-extracting — the recovery path after a transient failure or a change to a check. Because the checks compare this chapter's claims against the world state <em>entering</em> it, judging pre-ingest is not just cheaper but semantically cleaner: the chapter's own canon facts are not yet committed, so a mention cannot be compared against the row it just produced. (The entity-mention check still bounds itself to <code>source_chapter &lt; chapter_number</code>, which is what makes a standalone re-run correct too.)
@@ -780,25 +780,14 @@ graph LR
       chapter was discarded and its next bare use minted a duplicate character.
     </div>
 
-    <div class="callout warn">
-      <strong>Best-effort persistence requires savepoints (fixed 2026-08-16).</strong>
-      <code>persist_scenes()</code>, <code>persist_knows_edges()</code> and
-      <code>persist_commitments()</code> catch per-row failures so one bad scene doesn't cost the
-      chapter. That intent was inverted in practice: PostgreSQL aborts the whole transaction on
-      any statement error, and <code>DBSession</code> issued no savepoints, so after the first
-      failure every later statement raised <code>InFailedSqlTransaction</code> — swallowed in turn
-      by the next handler. Two outcomes followed, both losing the entire chapter. If a later
-      unguarded step (<code>persist_canon_facts()</code> or <code>persist_state_deltas()</code>,
-      neither of which catches) issued a statement, it raised and rolled back, reporting
-      "current transaction is aborted" while the real cause appeared only as a lone
-      <code>WARNING scene insert failed</code>. If neither had rows to write, nothing raised at all:
-      <code>COMMIT</code> on an aborted transaction is silently converted to <code>ROLLBACK</code>
-      by PostgreSQL, so <code>analyze_chapter</code> returned a success payload carrying a
-      <code>chapter_id</code> for a row that no longer existed. Every one of those handlers was
-      marked <code>#&nbsp;pragma:&nbsp;no&nbsp;cover</code>, which is why a green suite never caught it.
-      <code>DBSession.savepoint()</code> now wraps each block, and
-      <code>pipeline/db/tests/test_session_savepoint_integration.py</code> pins both the fix and a
-      characterization of the old silent-discard behaviour.
+    <div class="callout info">
+      <strong>Consistency boundaries (2026-09-19).</strong> A per-novel database lock
+      covers the entire workflow. Aliases and changed metadata versions share the
+      persistence transaction. <code>knows_edges</code> is the sole knowledge source.
+      A replacement restores the preceding metadata and rebuilds all later chapters
+      in one transaction, rolling back completely on failure. Unresolved enrichment
+      references are reported; database errors are never swallowed. See the
+      <a href="architecture-conformance.md">conformance report</a> for upgrade limits.
     </div>
 
     <div class="callout warn">
@@ -1267,7 +1256,7 @@ flowchart TD
         <tr>
           <td><code>state_deltas</code></td>
           <td>Extraction-time typed state-change log — the tier-2 rows the state materializer replays into <code>character_states</code> and the bitemporal edges. Immutable, cascade-deleted with their chapter.</td>
-          <td><code>chapter_id, event_id, ordinal, kind ('possession'|'location'|'knowledge'|'status'), subject_id, object_id, location_id, change ('gain'|'loss'|'move'|'learn'|'update'), attribute, detail, certainty</code></td>
+          <td><code>chapter_id, event_id, ordinal, kind ('possession'|'location'|'status'), subject_id, object_id, location_id, change ('gain'|'loss'|'move'|'learn'|'update'), attribute, detail, certainty</code></td>
         </tr>
         <tr>
           <td><code>critique_reports</code></td>
@@ -1587,7 +1576,7 @@ flowchart TD
 character_id    → Asha's UUID
 fact_description → "The king is not her biological father"
 learned_chapter → 7
-source_type     → "overheard"   <span class="comment">-- or: told, witnessed, deduced, dialogue, assumed, inference</span>
+source_type     → "observation"   <span class="comment">-- or: told, witnessed, dialogue, assumed, inference</span>
 certainty       → 0.9
 shared_with     → [Kira's UUID]  <span class="comment">-- characters Asha told</span></code></pre>
 
@@ -1994,7 +1983,7 @@ flowchart LR
         <tr>
           <td><code>backend/pipeline/pipeline.py</code></td>
           <td>817</td>
-          <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · CRITIQUE runs before everything else for every caller, resolvers run before persistence, extras run after core persist, materialize (phase 4) and recording the critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 2) also lives here.</td>
+          <td><strong>Pipeline orchestration.</strong> Process order matters — phase 0 · CRITIQUE runs before everything else for every caller, resolvers run before persistence, extras run after core persist, materialize (phase 4) and recording the critique (phase 5) run after that, outside the persistence transaction. Watch for missing steps when adding new tables. <code>SCHEMA_VERSION</code> (currently 4) also lives here.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/cli.py</code></td>
@@ -2044,7 +2033,7 @@ flowchart LR
         <tr>
           <td><code>backend/pipeline/extraction/persist_deltas.py</code></td>
           <td>98</td>
-          <td><strong>Typed state_deltas persistence.</strong> Reference-only resolution per kind (possession/location/knowledge/status); a delta naming an unknown entity is dropped, never minted. <code>ordinal</code> preserves narrative order for the materializer replay.</td>
+          <td><strong>Typed state_deltas persistence.</strong> Reference-only resolution per kind (possession/location/status); a delta naming an unknown entity is dropped, never minted. <code>ordinal</code> preserves narrative order for the materializer replay.</td>
         </tr>
         <tr>
           <td><code>backend/pipeline/extraction/presets.py</code></td>

@@ -38,21 +38,11 @@ def ingest_chapter(
 
 
 def delete_chapter_data(db: DBClient, *, novel_id: str, chapter_number: int) -> None:
-    """Delete one chapter and every derived row, enabling re-processing.
+    """Delete chapter-owned rows during the coordinator's transactional rewind.
 
-    The chapters FK cascades cover events (and thread_events), scenes,
-    character_states, continuity_flags, shared_dynamics, and relationships
-    rows with a non-NULL chapter_id. Tables keyed by chapter *number* instead
-    of a FK need explicit handling. Known non-undoable residue: plot_threads
-    upserts and entity rows created by this chapter remain — re-processing
-    resolves back onto them. canon_facts updates from the prior run also persist
-    (keyed by source_chapter int, no FK).
-
-    located_in_edges/possesses_edges evidence pointers into this chapter are
-    NULLed (their rows are projections; materialize_state rebuilds them).
-    knows_edges.source_event_id and commitments.foreshadow/payoff_event_id also
-    reference events with NO ACTION but are never populated by the pipeline
-    today — revisit here if that changes.
+    FK cascades cover events, scenes, states, flags, dynamics and relationships.
+    Number-keyed assertions need explicit deletion. The coordinator then restores
+    versioned entity/canon/thread metadata and rebuilds all dependent chapters.
     """
     # knows_edges has no chapter FK — keyed by learned_chapter int.
     db.execute(

@@ -31,7 +31,7 @@ backend/
 │   ├── state/      #   StateMaterializer — sole writer of character_states + edges
 │   ├── critic/     #   5 deterministic continuity checks
 │   ├── retrieval/  #   BM25 + dense + RRF + MMR
-│   ├── db/         #   schema.sql, client.py, entity_merge.py, duplicates.py
+│   ├── db/         #   schema, sessions, metadata history, entity repair, duplicates
 │   └── ingestion/  #   raw chapter INSERT
 ├── mcp_server/     # MCP tool definitions; read tools call reads/ directly
 ├── evals/          # Golden fixture novel + answer key + scoring + 4 evals
@@ -58,16 +58,12 @@ uv run novel-pipeline init-db
 `init-db` reads `pipeline/db/schema.sql`, substitutes `__EMBEDDING_DIM__`
 from `EMBEDDING_DIMENSIONS`, and applies it in one transaction.
 
-> **No migration system.** Schema changes mean drop, re-`init-db`, and
-> re-process chapters. That is affordable on purpose: `chapters.raw_text` is
-> ground truth and every projection is rebuildable from it.
-
-That policy needs a way to tell when a database is due for it, because
-`init-db` reports success either way: `CREATE TABLE IF NOT EXISTS` skips a
-table that already exists, so a constraint, a `NOT NULL`, or an
-`ON DELETE CASCADE` added to a table body never reaches a database created
-before it. Columns are the exception — the file backfills those with explicit
-`ADD COLUMN IF NOT EXISTS`.
+The consolidated schema includes explicit migrations for existing databases.
+Run `init-db` with processing stopped; it preserves chapter text, migrates legacy
+knowledge, records the available metadata baseline, and rebuilds projections.
+It then verifies the resulting database shape. A `CREATE TABLE IF NOT EXISTS`
+statement alone cannot update an existing constraint; those changes need explicit
+migration SQL and the drift check below.
 
 ```bash
 uv run novel-pipeline check-schema
@@ -158,7 +154,7 @@ uv run novel-pipeline process-chapter --novel-id <uuid> --number 1 \
 
 `process-chapter` also takes `--mock-llm`, `--chunk-size`, `--chunk-overlap`,
 and `--replace` (required to re-process a chapter number that already exists —
-it deletes that chapter's derived rows first).
+it rebuilds that chapter and all later chapters atomically).
 It runs the full write spine: CRITIQUE → EXTRACT (13 passes per chunk, then
 intra-extraction dedup and cross-chapter canonicalization) → INGEST + PERSIST
 (one transaction) → MATERIALIZE → RECORD the original critique. The CLI
@@ -176,7 +172,7 @@ uv run python -m pipeline.state.cli --novel-id <uuid>
 ```bash
 .venv/bin/python -m pytest              # full suite — needs Postgres
 .venv/bin/python -m pytest evals/ -s    # eval harness, offline (mock LLM + real Postgres)
-RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/   # + the two real-LLM evals (spends credits)
+RUN_LLM_EVALS=1 .venv/bin/python -m pytest evals/   # + paid synthetic provider evals (spends credits)
 ```
 
 Run pytest from this directory with **this** `.venv`. The suite mixes
@@ -193,8 +189,18 @@ pipeline coordinates them. Human draft acceptance commits its review status and
 original findings with the chapter. The unused style-fingerprint writer is retired.
 
 Run `uv run ruff check .` alongside pytest. Ingest chapters sequentially per novel;
-major manuscript retcons should be processed into a fresh novel because global
-entity, canon, and thread metadata is not fully versioned.
+replacing a chapter restores the preceding metadata and re-extracts every later
+chapter atomically. A failed replacement preserves the original chapters. Model
+calls for the rebuilt suffix incur their normal cost. Per-novel locks reject
+concurrent processing; chapters append in order, starting at 1.
+
+Schema version 4 establishes a metadata baseline for an existing database at its
+latest chapter. Earlier metadata was never recorded: re-import the original
+chapters into a fresh novel for historical metadata before that baseline.
+Knowledge deltas are migrated into `knows_edges` and projections rebuilt, preserving
+recorded facts. `knows_edges` now feeds character snapshots, the knowledge page, and
+the critic. Alias writes share the chapter transaction; enrichment failures abort
+persistence, while unresolved references return visible warnings.
 
 ### 2026-09-18 cleanup
 
@@ -202,5 +208,5 @@ The critic has four active checks: canon assertions, knowledge, possession, and
 possible commitment payoffs. Unused planner and location-claim paths were removed.
 Relationship endings now preserve earlier assertions and chapter-cutoff reads.
 Run `uv run novel-pipeline init-db` after updating an existing installation to
-apply schema version 3's foreign-key update. See the
+apply schema version 4's knowledge migration and metadata history. See the
 [public-readiness audit](../docs/public-readiness.md) for verification and limits.

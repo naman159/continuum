@@ -28,6 +28,8 @@ import logging
 from typing import Any
 
 from pipeline.entity_tables import TYPED_TABLES
+from pipeline.db.history import capture_metadata, repair_identity_history
+from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
 
@@ -152,13 +154,16 @@ def merge_entities(
     if str(source_entity_id) == str(target_entity_id):
         raise EntityMergeError("source and target are the same entity")
 
-    with db.transaction() as cur:
+    with db.novel_lock(novel_id), db.session() as session, session.transaction() as cur:
         source = _fetch_entity(cur, str(source_entity_id), str(novel_id))
         target = _fetch_entity(cur, str(target_entity_id), str(novel_id))
         source_type = str(source["entity_type"])
         entity_type = str(target["entity_type"])
         cross_type = source_type != entity_type
         src, tgt = str(source["id"]), str(target["id"])
+        horizon = int(session.fetchval("SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s", (novel_id,)) or 0)
+        capture_metadata(session, novel_id, horizon)
+        src_typed = tgt_typed = None
 
         # ---- entity-level references (apply to every type) ----
         # A pre-existing src<->tgt relationship would become a self-pair during
@@ -367,6 +372,9 @@ def merge_entities(
             )
 
         cur.execute("DELETE FROM entities WHERE id = %s", (src,))
+        repair_identity_history(session, novel_id, source, target, src_typed, tgt_typed)
+        StateMaterializer(session).materialize(novel_id, horizon, already_locked=True)
+        capture_metadata(session, novel_id, horizon)
 
     if cross_type:
         logger.info(

@@ -5,6 +5,11 @@ about the work that doesn't appear in any diagram: making it not fall over. It c
 the worst bug in the project's history, and the story of deleting six weeks of working
 code on purpose.*
 
+> Update, September 2026: the savepoint implementation below describes an earlier
+> design. Enrichment database failures now abort the chapter; unresolved references
+> are returned as warnings. The row-savepoint helper and its fallback were removed.
+> See [the current consistency contract](../architecture-conformance.md).
+
 ---
 
 ## A bug that reported success

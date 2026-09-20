@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID, uuid4
 
 from pipeline.db.client import DBClient
+from pipeline.db.history import capture_metadata
 
 from reads.db import get_db
+
+
+@contextmanager
+def _novel_write(novel_id: UUID):
+    client = get_db()
+    with client.novel_lock(str(novel_id)), client.session() as session:
+        horizon = session.fetchval("SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s", (novel_id,))
+        if session.fetchval("SELECT id FROM novels WHERE id = %s", (novel_id,)) is not None:
+            capture_metadata(session, str(novel_id), int(horizon))
+        yield session
+        if session.fetchval("SELECT id FROM novels WHERE id = %s", (novel_id,)) is not None:
+            capture_metadata(session, str(novel_id), int(horizon))
 
 
 def create_novel(
@@ -51,8 +65,8 @@ def _create_novel_real(
 
 
 def delete_novel(novel_id: UUID) -> bool:
-    db = get_db()
-    return _delete_novel_real(db, novel_id)
+    with _novel_write(novel_id) as db:
+        return _delete_novel_real(db, novel_id)
 
 
 def _delete_novel_real(db: DBClient, novel_id: UUID) -> bool:
@@ -78,25 +92,25 @@ def update_canon_fact(
     value edits reset confidence to 1.0 (manual entry is authoritative).
     Returns False when the fact doesn't exist in this novel.
     """
-    db = get_db()
-    existing = db.fetchone(
-        "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
-        (str(fact_id), str(novel_id)),
-        dict_rows=True,
-    )
-    if existing is None:
-        return False
-    db.execute(
-        """
-        UPDATE canon_facts
-           SET locked = COALESCE(%s, locked),
-               value = COALESCE(%s, value),
-               confidence = CASE WHEN %s::text IS NULL THEN confidence ELSE 1.0 END
-         WHERE id = %s AND novel_id = %s
-        """,
-        (locked, value, value, str(fact_id), str(novel_id)),
-    )
-    return True
+    with _novel_write(novel_id) as db:
+        existing = db.fetchone(
+            "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+            (str(fact_id), str(novel_id)),
+            dict_rows=True,
+        )
+        if existing is None:
+            return False
+        db.execute(
+            """
+            UPDATE canon_facts
+               SET locked = COALESCE(%s, locked),
+                   value = COALESCE(%s, value),
+                   confidence = CASE WHEN %s::text IS NULL THEN confidence ELSE 1.0 END
+             WHERE id = %s AND novel_id = %s
+            """,
+            (locked, value, value, str(fact_id), str(novel_id)),
+        )
+        return True
 
 
 def create_canon_fact(
@@ -113,34 +127,34 @@ def create_canon_fact(
     Manual entry is authoritative — unlike the pipeline's ON CONFLICT DO
     NOTHING, an admin create deliberately replaces what extraction stored.
     """
-    db = get_db()
-    row = db.fetchone(
-        """
-        INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked)
-        SELECT e.novel_id, %s, e.id, %s, %s, 1.0, %s
-          FROM entities e WHERE e.id = %s AND e.novel_id = %s
-        ON CONFLICT (novel_id, subject_entity_id, predicate)
-        DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0
-        RETURNING id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked
-        """,
-        (kind, predicate.strip().lower(), value, locked, str(subject_entity_id), str(novel_id)),
-        dict_rows=True,
-        commit=True,
-    )
-    return dict(row) if row else None
+    with _novel_write(novel_id) as db:
+        row = db.fetchone(
+            """
+            INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked)
+            SELECT e.novel_id, %s, e.id, %s, %s, 1.0, %s
+              FROM entities e WHERE e.id = %s AND e.novel_id = %s
+            ON CONFLICT (novel_id, subject_entity_id, predicate)
+            DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0
+            RETURNING id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked
+            """,
+            (kind, predicate.strip().lower(), value, locked, str(subject_entity_id), str(novel_id)),
+            dict_rows=True,
+            commit=True,
+        )
+        return dict(row) if row else None
 
 
 def delete_canon_fact(novel_id: UUID, fact_id: UUID) -> bool:
-    db = get_db()
-    existing = db.fetchone(
-        "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
-        (str(fact_id), str(novel_id)),
-        dict_rows=True,
-    )
-    if existing is None:
-        return False
-    db.execute(
-        "DELETE FROM canon_facts WHERE id = %s AND novel_id = %s",
-        (str(fact_id), str(novel_id)),
-    )
-    return True
+    with _novel_write(novel_id) as db:
+        existing = db.fetchone(
+            "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+            (str(fact_id), str(novel_id)),
+            dict_rows=True,
+        )
+        if existing is None:
+            return False
+        db.execute(
+            "DELETE FROM canon_facts WHERE id = %s AND novel_id = %s",
+            (str(fact_id), str(novel_id)),
+        )
+        return True

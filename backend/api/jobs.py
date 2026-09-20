@@ -102,7 +102,9 @@ def submit_job(
     chunks = sliding_window_chunks(
         text, chunk_size=settings.chunk_size, overlap=settings.chunk_overlap
     )
-    total_passes = len(chunks) * len(PASS_ORDER) + 2  # PASS_ORDER passes per chunk + intra_dedup + canonicalization
+    # Replacement processes a suffix whose size is determined under the novel
+    # lock. Use indeterminate progress rather than showing a one-chapter total.
+    total_passes = 0 if replace else len(chunks) * len(PASS_ORDER) + 2
 
     job_id = _job_store.create(total_passes=total_passes)
     tracker = ProgressTracker(job_id=job_id, store=_job_store)

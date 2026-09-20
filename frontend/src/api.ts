@@ -524,7 +524,7 @@ export const api = {
   draft: (submissionId: string) =>
     fetchJson<DraftDetail>(`/api/drafts/${submissionId}`),
   acceptDraft: (submissionId: string, note: string, editedText?: string) =>
-    postJson<{ accepted: boolean; chapter_id: string; flags_written: number }>(
+    postJson<{ accepted: boolean; chapter_id: string; flags_written: number; materialized: boolean; critique: { status?: string; persisted?: boolean } | null; enrichment: { warnings: string[] } }>(
       `/api/drafts/${submissionId}/accept`,
       { note, edited_text: editedText ?? null }
     ),

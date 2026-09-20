@@ -103,7 +103,7 @@ def build_draft_chapter(
             return None
         key = (entity_type, name.lower())
         if key not in cache:
-            cache[key] = lookup_typed(db, novel_id, entity_type, name)
+            cache[key] = lookup_typed(db, novel_id, entity_type, name, cutoff=chapter_number - 1)
         return cache[key]
 
     mentions: list[dict] = []

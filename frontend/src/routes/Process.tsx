@@ -77,6 +77,14 @@ export default function Process() {
   const isRunning = Boolean(jobId) && !jobQuery.isError && job?.status !== "done" && job?.status !== "error";
 
   const result = job?.result as Record<string, unknown> | null | undefined;
+  const rebuildResults = result?.rebuild_results as Record<string, unknown>[] | undefined;
+  const enrichmentWarnings = (rebuildResults ?? (result ? [result] : [])).flatMap((item, index) => {
+    const enrichment = item.enrichment as { warnings?: string[] } | undefined;
+    return (enrichment?.warnings ?? []).map((warning) =>
+      rebuildResults ? `Chapter ${chapterNumber + index}: ${warning}` : warning,
+    );
+  });
+  const rebuiltChapters = result?.rebuilt_chapters as number[] | undefined;
   const critique = result?.critique as {
     status?: string; error?: string; persisted?: boolean;
   } | null | undefined;
@@ -129,7 +137,7 @@ export default function Process() {
                 style={{ width: "auto" }}
               />
               Replace existing chapter (deletes the chapter&apos;s previous extraction and
-              re-processes from this text)
+              rebuilds this chapter and all later chapters; additional model calls apply)
             </label>
           </div>
 
@@ -202,6 +210,15 @@ export default function Process() {
                 </span>
               </div>
 
+              {rebuiltChapters && rebuiltChapters.length > 1 && (
+                <p>Rebuilt chapters {rebuiltChapters.join(", ")} from the updated story context.</p>
+              )}
+              {enrichmentWarnings.length > 0 && (
+                <div role="alert" className="status-error">
+                  <p>The chapter was saved with items that need review:</p>
+                  <ul>{enrichmentWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+                </div>
+              )}
               {result?.materialized === false && (
                 <p role="alert" className="status-error">
                   The chapter was saved, but rebuilding character state failed.

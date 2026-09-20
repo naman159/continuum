@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from contextlib import contextmanager
 
 import pytest
 
@@ -10,6 +11,7 @@ from pipeline.db.entity_merge import EntityMergeError, merge_entities
 class TxCursor:
     def __init__(self, db):
         self.db = db
+        self.description = []
 
     def execute(self, query, params=None):
         self.db.statements.append((query, tuple(params or ())))
@@ -30,6 +32,23 @@ class MergeFakeDB:
         self.responses = responses
         self.statements: list[tuple[str, tuple]] = []
         self._last: list = []
+
+    @contextmanager
+    def novel_lock(self, novel_id):
+        yield
+
+    @contextmanager
+    def session(self):
+        yield self
+
+    def fetchval(self, query, params=None):
+        return None
+
+    def fetchall(self, query, params=None, **kwargs):
+        return []
+
+    def execute(self, query, params=None):
+        self.statements.append((query, tuple(params or ())))
 
     def script_response(self, query, params):
         for needle, rows in self.responses.items():

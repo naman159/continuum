@@ -107,6 +107,7 @@ class IntraExtractionDeduplicator:
         use_mock: bool | None = None,
         completion_fn=None,
     ) -> None:
+        self.warnings: list[str] = []
         self._completion = completion_fn if completion_fn is not None else _load_completion()
         if use_mock is None:
             self.use_mock = settings.use_mock_llm or self._completion is None
@@ -114,6 +115,7 @@ class IntraExtractionDeduplicator:
             self.use_mock = use_mock
 
     def deduplicate(self, extracted: dict[str, Any], chapter_text: str) -> dict[str, Any]:
+        self.warnings.clear()
         result = copy.deepcopy(extracted)
         if self.use_mock:
             return result
@@ -180,10 +182,12 @@ class IntraExtractionDeduplicator:
                 content = "".join(str(p) for p in content)
             payload = _safe_json_loads(str(content))
         except Exception as exc:
+            self.warnings.append(f"Deduplication unavailable for {entity_type}; extracted names retained for review.")
             logger.warning("intra_dedup: LLM call failed: %s", exc)
             return []
         groups_raw = payload.get("groups")
         if not isinstance(groups_raw, list):
+            self.warnings.append(f"Deduplication returned an invalid response for {entity_type}; review extracted names.")
             return []
         return [g.get("names", []) for g in groups_raw if isinstance(g, dict)]
 
@@ -348,6 +352,8 @@ class EntityCanonicalizer:
     ) -> None:
         self.db = db
         self.novel_id = novel_id
+        self.alias_updates: dict[tuple[str, str], list[str]] = {}
+        self.warnings: list[str] = []
         self._completion = completion_fn if completion_fn is not None else _load_completion()
         if use_mock is None:
             self.use_mock = settings.use_mock_llm or self._completion is None
@@ -362,13 +368,15 @@ class EntityCanonicalizer:
     ) -> dict[str, dict[str, str]]:
         """
         For each entity type, resolves unrecognised candidate names against the
-        DB roster and appends matched forms as aliases.
+        DB roster and plans aliases without writing to the database.
 
         Built-in types use their dedicated tables; any other key is treated as a
         custom entity type backed by the ``entities`` table.
 
         Returns {entity_type: {candidate_name: entity_id}} for all merges performed.
         """
+        self.alias_updates.clear()
+        self.warnings.clear()
         if self.use_mock:
             return {}
 
@@ -526,10 +534,12 @@ class EntityCanonicalizer:
                 content = "".join(str(p) for p in content)
             payload = _safe_json_loads(str(content))
         except Exception as exc:
+            self.warnings.append(f"Canonicalization unavailable for {entity_type}; review unresolved names.")
             logger.warning("entity_canonicalizer: LLM call failed for %s: %s", entity_type, exc)
             return []
         resolutions = payload.get("resolutions")
         if not isinstance(resolutions, list):
+            self.warnings.append(f"Canonicalization returned an invalid response for {entity_type}; review unresolved names.")
             return []
         return [r for r in resolutions if isinstance(r, dict)]
 
@@ -570,18 +580,23 @@ class EntityCanonicalizer:
         return still_unresolved
 
     def _append_alias(self, entity_type: str, target: dict[str, Any], candidate: str) -> None:
-        """Record candidate as an alias of target in the DB and in-memory roster."""
+        """Plan an alias and update the local roster; persistence belongs to the caller."""
         existing_aliases = [str(a) for a in (target.get("aliases") or [])]
         existing_lower = {a.lower() for a in existing_aliases}
         if candidate.lower() in existing_lower or candidate.lower() == str(target.get("name", "")).lower():
             return
         new_aliases = [*existing_aliases, candidate]
-        table = TYPED_TABLES.get(entity_type, "entities")
-        self.db.execute(
-            f"UPDATE {table} SET aliases = %s WHERE id = %s AND novel_id = %s",
-            (new_aliases, target["id"], self.novel_id),
-        )
+        self.alias_updates[(entity_type, str(target["id"]))] = new_aliases
         target["aliases"] = new_aliases
+
+    def persist_aliases(self, session: Any) -> None:
+        """Apply planned aliases inside the chapter transaction."""
+        for (entity_type, entity_id), aliases in self.alias_updates.items():
+            table = TYPED_TABLES.get(entity_type, "entities")
+            session.execute(
+                f"UPDATE {table} SET aliases = %s WHERE id = %s AND novel_id = %s",
+                (aliases, entity_id, self.novel_id),
+            )
 
     def _apply_resolutions(
         self,

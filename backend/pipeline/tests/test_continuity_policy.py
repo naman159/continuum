@@ -78,7 +78,7 @@ def _chapter_count(db, novel_id: str, number: int) -> int:
 
 def _analyze(db, novel_id, **kw):
     return pipeline_mod.analyze_chapter(
-        novel_id=novel_id, chapter_number=90, raw_text=TEXT, chapter_title="Ch 90",
+        novel_id=novel_id, chapter_number=4, raw_text=TEXT, chapter_title="Ch 4",
         use_mock_llm=True, chunk_size=1000, chunk_overlap=100, db=db, **kw,
     )
 
@@ -96,7 +96,7 @@ def test_block_writes_no_chapter_and_never_extracts(db, seed_novel, critique):
     assert result["ingested"] is False
     assert result["status"] == "pending_review"
     assert result["reason"] == "fail"
-    assert _chapter_count(db, novel_id, 90) == 0
+    assert _chapter_count(db, novel_id, 4) == 0
     assert critique.calls["extract"] == 0
 
 
@@ -109,7 +109,7 @@ def test_block_parks_the_draft_with_its_findings(db, seed_novel, critique):
 
     assert parked["status"] == "pending"
     assert parked["raw_text"] == TEXT
-    assert parked["chapter_number"] == 90
+    assert parked["chapter_number"] == 4
     assert parked["findings"]["fails"][0]["quote"] == "She already knew."
 
 
@@ -121,7 +121,7 @@ def test_run_critic_false_cannot_disable_a_blocking_check(db, seed_novel, critiq
     result = _analyze(db, novel_id, on_continuity_fail="block", run_critic=False)
 
     assert result["ingested"] is False
-    assert _chapter_count(db, novel_id, 90) == 0
+    assert _chapter_count(db, novel_id, 4) == 0
     assert critique.calls["critique"] == 1
 
 
@@ -132,7 +132,7 @@ def test_replace_true_does_not_relax_the_policy(db, seed_novel, critique):
     result = _analyze(db, novel_id, on_continuity_fail="block", replace=True)
 
     assert result["ingested"] is False
-    assert _chapter_count(db, novel_id, 90) == 0
+    assert _chapter_count(db, novel_id, 4) == 0
 
 
 def test_an_outage_refuses_without_parking(db, seed_novel, critique):
@@ -176,7 +176,7 @@ def test_a_passing_resubmission_clears_the_stale_pending_row(db, seed_novel, cri
     second = _analyze(db, novel_id, on_continuity_fail="block")
 
     assert "ingested" not in second
-    assert _chapter_count(db, novel_id, 90) == 1
+    assert _chapter_count(db, novel_id, 4) == 1
     superseded = drafts_reads.get_submission(db, first["submission_id"])
     assert superseded["status"] == "rejected"
     assert superseded["resolution_note"] == "superseded by a passing resubmission"
@@ -211,7 +211,7 @@ def test_failed_resubmission_keeps_the_pending_draft(
     with pytest.raises(RuntimeError, match="replacement failed"):
         _analyze(db, novel_id, on_continuity_fail="block")
 
-    assert _chapter_count(db, novel_id, 90) == 0
+    assert _chapter_count(db, novel_id, 4) == 0
     parked = drafts_reads.get_submission(db, first["submission_id"])
     assert parked["status"] == "pending"
     assert parked["raw_text"] == TEXT
@@ -245,7 +245,7 @@ def test_warn_is_the_default(db, seed_novel, critique):
     result = _analyze(db, novel_id)
 
     assert "ingested" not in result
-    assert _chapter_count(db, novel_id, 90) == 1
+    assert _chapter_count(db, novel_id, 4) == 1
     assert critique.calls["extract"] >= 1
 
 
@@ -298,7 +298,7 @@ def test_warn_with_run_critic_false_skips_the_critique_entirely(db, seed_novel, 
 
     assert result["critique"] is None
     assert critique.calls["critique"] == 0
-    assert _chapter_count(db, novel_id, 90) == 1
+    assert _chapter_count(db, novel_id, 4) == 1
 
 
 def test_an_outage_under_warn_ingests_and_records_nothing(db, seed_novel, critique):
@@ -309,7 +309,7 @@ def test_an_outage_under_warn_ingests_and_records_nothing(db, seed_novel, critiq
 
     assert result["critique"]["status"] == "unavailable"
     assert result["critique"]["passed"] is None
-    assert _chapter_count(db, novel_id, 90) == 1
+    assert _chapter_count(db, novel_id, 4) == 1
     assert db.fetchval(
         "SELECT count(*) FROM critique_reports WHERE chapter_id = %s",
         (result["chapter_id"],),
@@ -326,5 +326,5 @@ def test_failed_report_persistence_is_visible_to_the_caller(db, seed_novel, crit
 
     monkeypatch.setattr(pipeline_mod, "persist_critique", fail)
     result = _analyze(db, novel_id, on_continuity_fail="warn")
-    assert _chapter_count(db, novel_id, 90) == 1
+    assert _chapter_count(db, novel_id, 4) == 1
     assert result["critique"]["persisted"] is False

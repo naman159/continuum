@@ -29,7 +29,7 @@ from reads import drafts as drafts_reads
 
 
 def _failing_report() -> CritiqueReport:
-    report = CritiqueReport(novel_id="n", chapter_number=90)
+    report = CritiqueReport(novel_id="n", chapter_number=4)
     report.findings.append(
         Finding(
             check="knowledge_state",
@@ -71,7 +71,7 @@ def test_save_chapter_refuses_through_the_real_stack(db, seed_novel, stub_critic
     -> critique_draft wiring, not a monkeypatched analyze_chapter."""
     novel_id = seed_novel(db)["novel_id"]
 
-    result = queries_mod.save_chapter(novel_id, 90, "a bad draft", db=db)
+    result = queries_mod.save_chapter(novel_id, 4, "a bad draft", db=db)
 
     assert result["ingested"] is False
     assert result["status"] == "pending_review"
@@ -81,7 +81,7 @@ def test_save_chapter_refuses_through_the_real_stack(db, seed_novel, stub_critic
 
     chapter_count = db.fetchval(
         "SELECT COUNT(*) FROM chapters WHERE novel_id = %s AND number = %s",
-        (novel_id, 90),
+        (novel_id, 4),
     )
     assert int(chapter_count) == 0
 
@@ -89,4 +89,4 @@ def test_save_chapter_refuses_through_the_real_stack(db, seed_novel, stub_critic
     assert parked is not None
     assert parked["status"] == "pending"
     assert parked["novel_id"] == novel_id
-    assert parked["chapter_number"] == 90
+    assert parked["chapter_number"] == 4

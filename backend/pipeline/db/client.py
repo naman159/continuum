@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from typing import Any, Sequence
+from uuid import UUID
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -13,8 +15,9 @@ class DBClient:
     def __init__(
         self, dsn: str | None = None, minconn: int = 1, maxconn: int | None = None
     ) -> None:
+        self._dsn = dsn or settings.database_url
         self._pool = ConnectionPool(
-            conninfo=dsn or settings.database_url,
+            conninfo=self._dsn,
             min_size=minconn,
             max_size=maxconn if maxconn is not None else settings.db_max_connections,
             open=True,
@@ -25,6 +28,27 @@ class DBClient:
 
     def __exit__(self, *exc: object) -> None:
         self.close()
+
+    @contextmanager
+    def novel_lock(self, novel_id: str):
+        """Admit one writer per novel across API, CLI, MCP, and processes.
+
+        A dedicated autocommit connection holds no open transaction while models
+        run and does not consume a slot in the query pool. Contention is explicit:
+        callers retry after the current write, instead of extracting stale context.
+        PostgreSQL releases the session lock even if the process disconnects.
+        """
+        lock_key = str(UUID(str(novel_id)))
+        with psycopg.connect(self._dsn, autocommit=True) as conn:
+            acquired = conn.execute(
+                "SELECT pg_try_advisory_lock(hashtextextended(%s, 1))", (lock_key,)
+            ).fetchone()[0]
+            if not acquired:
+                raise ValueError("This novel is already being processed. Retry after its current operation finishes.")
+            try:
+                yield
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(hashtextextended(%s, 1))", (lock_key,))
 
     @contextmanager
     def connection(self):
@@ -51,6 +75,7 @@ class DBClient:
     def transaction(self):
         with self.connection() as conn:
             cur = conn.cursor()
+            cur.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
             try:
                 yield cur
                 conn.commit()
@@ -66,6 +91,7 @@ class DBClient:
         roll back on exception."""
         with self._pool.connection() as conn:
             try:
+                conn.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                 yield DBSession(conn)
                 conn.commit()
             except Exception:
@@ -127,18 +153,15 @@ class DBSession:
         self._conn = conn
 
     @contextmanager
-    def savepoint(self):
-        """Isolate a block of statements behind a SAVEPOINT.
-
-        Postgres aborts the whole transaction on any statement error, so a
-        caller that catches an exception and keeps issuing statements on the
-        same connection gets ``InFailedSqlTransaction`` for everything that
-        follows — and the eventual COMMIT is silently converted to ROLLBACK.
-        Wrapping a best-effort block here rolls back just that block, leaving
-        the surrounding chapter transaction usable.
-        """
+    def session(self):
+        """Join a chapter to an enclosing retcon, with rollback on failure."""
         with self._conn.transaction():
-            yield
+            yield self
+
+    @contextmanager
+    def transaction(self):
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            yield cur
 
     def execute(self, query: str, params: Sequence[Any] | None = None) -> None:
         with self._conn.cursor() as cur:
