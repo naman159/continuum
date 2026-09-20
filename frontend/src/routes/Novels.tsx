@@ -147,7 +147,10 @@ export default function Novels() {
 
           {genres && genres.length > 0 && (
             <div style={{ marginBottom: 16 }}>
-              <label className="form-label">Genre presets</label>
+              <label className="form-label">Genre presets (Experimental)</label>
+              <p style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 8, lineHeight: 1.6 }}>
+                These presets are experimental. Review the suggested types before creating your novel; extraction results may vary.
+              </p>
               <div className="preset-pills">
                 {genres.map((g) => (
                   <button key={g.id} type="button" className="preset-pill" onClick={() => applyPreset(g)}>
