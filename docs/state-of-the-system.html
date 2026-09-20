@@ -250,20 +250,6 @@
   Persistence failures roll back; enrichment warnings appear in caller results.
   Older imports have a documented history baseline. See the
   <a href="architecture-conformance.md">conformance fixes</a> for the current contract.</p>
-  <p><strong>Public-readiness audit, updated 2026-09-18:</strong> 506 backend tests pass with three
-  synthetic provider-backed evaluations skipped; frontend lint, typecheck, and build pass.
-  A separate live Gemini run processed four actual chapters from Pride and Prejudice
-  and Primal Hunter, including semantic retrieval and chapter-cutoff checks. It
-  exposed quota failures being swallowed during extraction; bounded retries and
-  fail-fast handling now recover transient errors and reject incomplete extraction.
-  Both dependency audits are clean, and no credentials were found in the scanned
-  Git history. The follow-up also fixes review acceptance atomicity, historical reads,
-  directional relationship deduplication, and partial-completion reporting. CI now
-  includes Python lint and uses the published <code>setup-uv@v10.1.0</code> release.
-  The follow-up removes unused critic paths and preserves explicit relationship endings
-  across chapter cutoffs and entity merges. See the
-  <a href="public-readiness.md">current audit and remaining limits</a> and the
-  <a href="release-check.md">real-Gemini release check</a>.</p>
 
   <div class="callout info">
     <strong>The one-sentence version:</strong> the analyzer-vs-generator ambiguity this page used to

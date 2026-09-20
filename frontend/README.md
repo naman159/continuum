@@ -37,8 +37,7 @@ Story read endpoints take an optional chapter cutoff, and the UI keeps that
 cutoff in the URL (`?cap=N`) via `useChapterCap`. It filters chapter assertions
 and versioned metadata to the end of chapter N, using the same mechanism as
 the MCP story lookups. Older imports have a metadata baseline at their latest
-chapter when upgraded; earlier metadata requires re-import. See the
-[public-readiness audit](../docs/public-readiness.md) for that migration boundary.
+chapter when upgraded; earlier metadata requires re-import.
 The cutoff stays in the query string, so a capped view is shareable and survives
 a reload.
 

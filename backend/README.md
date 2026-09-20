@@ -180,10 +180,8 @@ Run pytest from this directory with **this** `.venv`. The suite mixes
 integration ones resolve `DATABASE_URL` from `backend/.env` — a repo-root
 venv will collect them against an uninitialized database and fail.
 
-## Public-readiness audit
+## Persistence and migrations
 
-The [2026-09-17 audit](../docs/public-readiness.md) records the real-provider,
-database, browser, and installation checks and the remaining design limits.
 Core extraction writes now live in `pipeline/extraction/persist.py`; the main
 pipeline coordinates them. Human draft acceptance commits its review status and
 original findings with the chapter. The unused style-fingerprint writer is retired.
@@ -208,5 +206,4 @@ The critic has four active checks: canon assertions, knowledge, possession, and
 possible commitment payoffs. Unused planner and location-claim paths were removed.
 Relationship endings now preserve earlier assertions and chapter-cutoff reads.
 Run `uv run novel-pipeline init-db` after updating an existing installation to
-apply schema version 4's knowledge migration and metadata history. See the
-[public-readiness audit](../docs/public-readiness.md) for verification and limits.
+apply schema version 4's knowledge migration and metadata history.

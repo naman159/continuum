@@ -37,8 +37,7 @@ you and your tools.
 
 Continuum is an **experimental project for local, trusted use**. Core workflows
 have been checked with real Gemini calls on novel chapters, PostgreSQL
-regression tests, and browser checks. The [public-readiness audit](docs/public-readiness.md)
-records what was tested and the remaining limitations.
+regression tests, and browser checks.
 
 Extraction can miss or misclassify facts, and continuity findings need human
 judgment. The app has no authentication; a public deployment needs access
@@ -234,7 +233,6 @@ root and open [127.0.0.1:9000](http://127.0.0.1:9000).
 - [Reference](docs/reference.html): API endpoints, CLI, MCP tools, and configuration.
 - [Backend guide](backend/README.md) and [frontend guide](frontend/README.md): development details.
 - [Building Continuum](docs/blog/README.md): the reasoning behind the design.
-- [Public-readiness audit](docs/public-readiness.md): verification evidence and open issues.
 
 ## Contributing
 

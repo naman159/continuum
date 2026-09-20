@@ -50,7 +50,7 @@ metadata cutoffs, suffix re-extraction, whole-suffix rollback, concurrent admiss
 ordering, and visible enrichment skips. The full existing suite remains part of
 CI. Provider checks use actual Pride and Prejudice and Primal Hunter chapters with
 Gemini extraction, critique, embeddings, and retrieval; synthetic paid evaluations
-remain disabled. Final results are recorded in [public readiness](public-readiness.md).
+remain disabled.
 
 ## Remaining scope limits
 
