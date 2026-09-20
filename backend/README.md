@@ -29,7 +29,7 @@ backend/
 ├── pipeline/       # The write spine: analyze_chapter() in pipeline.py
 │   ├── extraction/ #   13 LLM passes, intra-chunk dedup, canonicalizer, resolver
 │   ├── state/      #   StateMaterializer — sole writer of character_states + edges
-│   ├── critic/     #   5 deterministic continuity checks
+│   ├── critic/     #   4 continuity checks over model-extracted claims
 │   ├── retrieval/  #   BM25 + dense + RRF + MMR
 │   ├── db/         #   schema, sessions, metadata history, entity repair, duplicates
 │   └── ingestion/  #   raw chapter INSERT

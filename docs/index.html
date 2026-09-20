@@ -243,6 +243,7 @@
   <a href="#gotchas">Local Gotchas</a>
 
   <div class="sidebar-section">Next</div>
+  <a href="#contributing">Contributing &amp; License</a>
   <a href="#where-next">Where to Go Next</a>
 
   <div class="sidebar-doc-link">
@@ -260,13 +261,14 @@
 <main>
 
 <h1>Continuum — Start Here</h1>
-<p class="subtitle">The onboarding path, in order. Budget about 40 minutes to go from
-cold to productive.</p>
+<p class="subtitle">Set up Continuum, process your first chapter, and explore how the
+story wiki and continuity checks work.</p>
 
 <div class="callout tip">
-  <strong>The fastest orientation is the test suite.</strong> It runs offline on a mock
-  LLM in under 20 seconds with no API key. Run it first — before reading anything —
-  so you know the system works and you have a feedback loop for everything after.
+  <strong>New to the project?</strong> Start with the
+  <a href="https://github.com/naman159/continuum#readme">README</a> for requirements,
+  setup, and your first real chapter. This site explains the implementation and
+  its limits. Continuum is experimental and intended for local, trusted use.
 </div>
 
 <!-- ─────────────────────────────────────── -->
@@ -287,36 +289,42 @@ while drafting, then saves finished chapters back.</p>
 <div class="mermaid">
 flowchart LR
   TXT["Chapter prose"] --> W["<b>Write spine</b><br/>analyze_chapter"]
-  W --> DB[("Postgres<br/>27 tables")]
-  DB --> R["<b>Read layer</b><br/>backend/reads/<br/>every fn is cutoff-aware"]
+  W --> DB[("Postgres + pgvector")]
+  DB --> R["<b>Read layer</b><br/>backend/reads/<br/>chapter-aware story queries"]
   R --> WIKI["React wiki"]
   R --> MCP["MCP server<br/>13 tools"]
   classDef live fill:#13351f,stroke:#3fb950,color:#e6edf3;
   class TXT,W,DB,R,WIKI,MCP live;
 </div>
 
-<p>If you remember one invariant, make it this one: <strong>chapter <code>raw_text</code>
-is ground truth.</strong> Every projection can be deleted and rebuilt from it, which is
-why schema changes are survivable.</p>
+<p><strong>Chapter <code>raw_text</code> is the original source.</strong> State projections
+replay stored state changes and knowledge assertions deterministically. Re-extracting
+the prose invokes the model again and may produce different facts; it is a separate
+operation from replay.</p>
 
 <!-- ─────────────────────────────────────── -->
 <h2 id="run-it">1. Run It</h2>
 
-<p>Assuming the repo is already set up on this machine (if not, jump to
-<a href="#setup">Full Setup</a> and come back):</p>
+<p>Follow <a href="#setup">Full Setup</a> to start the app, create a novel, and
+process chapter 1. Genre presets configure extra entity types such as skills,
+deities, or technologies; you can edit their descriptions before creating the novel.
+These types guide extraction and appear in the wiki. They do not introduce
+genre-specific continuity rules.</p>
 
-<pre><code>cd backend &amp;&amp; .venv/bin/python -m pytest -q</code></pre>
+<p>For development, follow the README's
+<a href="https://github.com/naman159/continuum#run-the-checks">test database setup</a>.
+It uses a separate PostgreSQL database and disables local environment-file overrides
+and paid evaluations. Then run the backend checks from that configured shell:</p>
 
-<p>Expected, and verified on <code>main</code> as of 2026-08-26:</p>
+<pre><code>uv run ruff check .
+uv run pytest -q</code></pre>
 
-<pre><code><span class="ok">457 passed, 3 skipped in 18.18s</span></code></pre>
+<p>The suite covers ingestion, historical reads, the critic, the write gate, and
+evaluation plumbing using deterministic model responses and real PostgreSQL. No
+provider credentials are needed. See the <a href="public-readiness.md">audit</a>
+for dated test results and separate real-provider verification.</p>
 
-<p>That is <strong>78 test files</strong> covering the whole write spine, read layer,
-critic, gate, and evals — all on a deterministic mock LLM with hash embeddings and a
-real Postgres. No network, no API key, no cost. Change anything in the codebase and you
-get a verdict in under 20 seconds.</p>
-
-<p>The same two commands run in CI on every push and pull request
+<p>CI runs on pushes to <code>main</code> and pull requests
 (<code>.github/workflows/ci.yml</code>): the backend job spins up a
 <code>pgvector/pgvector:pg16</code> service, applies the schema, and runs pytest;
 the frontend job runs <code>lint</code>, <code>typecheck</code>, and <code>build</code>.
@@ -332,7 +340,7 @@ No provider credentials are involved — the suite is mock-LLM end to end.</p>
 <!-- ─────────────────────────────────────── -->
 <h2 id="read-order">2. Read the Docs</h2>
 
-<p>Three pages, in this order. They are generated HTML — open them in a browser.</p>
+<p>Three pages, in this order. They are HTML documents — open them in a browser.</p>
 
 <div class="grid-3">
   <a class="card doc-card" href="architecture.html">
@@ -374,7 +382,7 @@ repo is a consumer of these.</p>
     <tr>
       <td class="step-n">1</td>
       <td><code>backend/pipeline/db/schema.sql</code></td>
-      <td>552 lines, 27 tables. The data model <em>is</em> the product — read this before any code.</td>
+      <td>Entity definitions, chapter assertions, metadata history, and state projections.</td>
     </tr>
     <tr>
       <td class="step-n">2</td>
@@ -394,12 +402,12 @@ repo is a consumer of these.</p>
     <tr>
       <td class="step-n">5</td>
       <td><code>backend/reads/</code></td>
-      <td>Every public function takes <code>up_to_chapter</code>. A contract test enforces it structurally, which is what makes spoiler-safety a property rather than a convention.</td>
+      <td>Shared story queries take <code>up_to_chapter</code>; registry and review-queue helpers are exempt. Contract tests enforce the query boundary.</td>
     </tr>
     <tr>
       <td class="step-n">6</td>
       <td><code>backend/mcp_server/server.py</code></td>
-      <td>13 tools, all thin wrappers over #5. Shows you the read layer's whole surface in one screen.</td>
+      <td>Story lookups use #5; continuity checks and chapter submissions call the shared critic and write pipeline.</td>
     </tr>
   </tbody>
 </table>
@@ -434,8 +442,8 @@ when you have a reason:</p>
   </div>
   <div class="card">
     <h4>backend/pipeline/critic/</h4>
-    <p>5 deterministic continuity checks plus a runner. One critique per chapter,
-    run for every caller; whether a FAIL blocks is the caller's policy.</p>
+    <p>Four continuity checks over model-extracted claims. When enabled, critique
+    runs before ingestion; whether a FAIL blocks is the caller's policy.</p>
   </div>
   <div class="card">
     <h4>backend/evals/</h4>
@@ -447,9 +455,10 @@ when you have a reason:</p>
 <!-- ─────────────────────────────────────── -->
 <h2 id="scope-map">Scope Map</h2>
 
-<p>Where the code actually lives, so you can calibrate how much of the repo is load-bearing.
-Measured with <code>wc -l</code> over <code>.py</code>, <code>.ts</code>, <code>.tsx</code>,
-and <code>.html</code>.</p>
+<p>This historical size snapshot shows the main areas of the repository. Counts
+predate the September consistency fixes and are not current totals. They were
+measured with <code>wc -l</code> over <code>.py</code>, <code>.ts</code>,
+<code>.tsx</code>, and <code>.html</code>.</p>
 
 <table>
   <thead>
@@ -480,10 +489,10 @@ and <code>.html</code>.</p>
   </tbody>
 </table>
 
-<p>The read of that table: <strong>the data layer is ~18.5k lines and it is finished.</strong>
-The surfaces exist because a data layer nobody can query isn't one. What grew fastest
-relative to its weight is the documentation and narrative layer — useful, but don't
-mistake its size for system complexity.</p>
+<p>The pipeline owns writes and state rebuilding; the shared read layer serves the
+wiki and agents. Code size does not establish completeness. See the
+<a href="architecture-conformance.md">architecture conformance review</a> for
+enforced boundaries and remaining limits.</p>
 
 <!-- ─────────────────────────────────────── -->
 <h2 id="decisions">Decisions to Know</h2>
@@ -550,7 +559,7 @@ uv sync --frozen
 createdb novel_wiki
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-cp .env.example .env   <span class="c"># set DATABASE_URL, DEFAULT_MODEL, EMBEDDING_MODEL</span>
+cp .env.example .env   <span class="c"># edit DATABASE_URL and GEMINI_API_KEY; review the model settings</span>
 uv run novel-pipeline init-db</code></pre>
 
 <h3>Frontend</h3>
@@ -574,8 +583,11 @@ npm run dev</code></pre>
 <pre><code>uv run novel-pipeline create-novel --title "My Novel"
 uv run novel-pipeline process-chapter --novel-id &lt;id&gt; --number 1 --file ch1.txt</code></pre>
 
-<p>Or paste chapter text into the wiki's Process page. In Claude Code, the MCP server is
-picked up automatically via <code>.mcp.json</code> at the repo root.</p>
+<p>Run the CLI commands from <code>backend/</code>, or paste your chapter text into
+the wiki's Process page at <code>http://localhost:5173</code>. Chapters append in
+order, starting at 1. Model and embedding calls send text to your configured
+providers and may incur costs. In Claude Code, the repository's
+<code>.mcp.json</code> supplies the MCP server configuration.</p>
 
 <p><strong>No-key demo:</strong> set <code>USE_MOCK_LLM=true</code> in
 <code>backend/.env</code>, start the API and frontend, and visit
@@ -618,7 +630,7 @@ backend/scripts/branch_db.sh clear   <span class="c"># drop back to plain .env</
 
 <h3>Use the right virtualenv</h3>
 
-<p><code>backend/.venv</code> (Python 3.11) is the project environment — that's what
+<p><code>backend/.venv</code> is the project environment — that's what
 <code>uv sync</code> manages and what the test command above uses. The repo-root
 <code>.venv</code> is not it.</p>
 
@@ -634,6 +646,22 @@ number must never be quoted as hybrid.</p>
   regressions in the plumbing. See <a href="state-of-the-system.html">State of the
   System → Eval Metrics</a> for what each number does and does not mean.
 </div>
+
+<!-- ─────────────────────────────────────── -->
+<h2 id="contributing">Contributing &amp; License</h2>
+
+<p>Bug reports, documentation fixes, tests, and focused pull requests are welcome.
+Read the <a href="https://github.com/naman159/continuum#contributing">contribution
+instructions</a> for test setup and what to include in a report. Discuss larger
+changes in <a href="https://github.com/naman159/continuum/issues">GitHub Issues</a>
+first, and keep credentials and private manuscripts out of public reports.</p>
+
+<p>Copyright 2026 Naman Ranawat. Continuum uses the
+<a href="https://github.com/naman159/continuum/blob/main/LICENSE">Apache License,
+Version 2.0</a>. See <a href="https://github.com/naman159/continuum/blob/main/NOTICE">NOTICE</a>
+for project attribution. Commercial use and modification are permitted subject
+to the license terms, including applicable redistribution and notice requirements.
+The software is provided without warranty.</p>
 
 <!-- ─────────────────────────────────────── -->
 <h2 id="where-next">Where to Go Next</h2>
@@ -659,8 +687,8 @@ number must never be quoted as hybrid.</p>
   <div class="card">
     <h4>I'm changing the pipeline</h4>
     <p>Start from <a href="architecture.html#pipeline-overview">Architecture → Pipeline
-    Overview</a>, then run <code>pytest -q</code> from <code>backend/</code> after every
-    edit. 18 seconds is short enough to run constantly.</p>
+    Overview</a>. Add regression coverage for behavior changes and run the relevant
+    checks against your test database before submitting a pull request.</p>
   </div>
 </div>
 

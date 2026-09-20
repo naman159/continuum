@@ -33,12 +33,14 @@ src/
 
 ## The chapter cap
 
-The single idea worth knowing before reading the code. Every read endpoint
-takes an optional chapter cutoff, and the UI keeps that cutoff in the URL
-(`?cap=N`) via `useChapterCap`. It filters chapter-anchored data to the end of chapter N, using the same
-mechanism as the MCP read tools. Global identity metadata is not fully
-versioned; see the public-readiness audit for the limits of this cutoff. Because it lives in the query string, a capped view is shareable and
-survives a reload.
+Story read endpoints take an optional chapter cutoff, and the UI keeps that
+cutoff in the URL (`?cap=N`) via `useChapterCap`. It filters chapter assertions
+and versioned metadata to the end of chapter N, using the same mechanism as
+the MCP story lookups. Older imports have a metadata baseline at their latest
+chapter when upgraded; earlier metadata requires re-import. See the
+[public-readiness audit](../docs/public-readiness.md) for that migration boundary.
+The cutoff stays in the query string, so a capped view is shareable and survives
+a reload.
 
 Data fetching is TanStack Query throughout; the cap is part of each query
 key, so changing it refetches rather than filtering client-side.

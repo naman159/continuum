@@ -1,109 +1,101 @@
 # Continuum
 
-Continuity tracking and agent memory for novels. Chapters go in; a
-queryable, chapter-capped knowledge base comes out: characters, locations,
-objects, factions, relationships, plot threads, commitments, who-knows-what,
-and per-chapter continuity critiques — browsable in a React wiki and
-exposed to writing agents over MCP.
+**A story wiki and continuity checker that grows with your novel.**
 
-Continuum **analyzes** prose; it does not write it. The intended writer is
-an agent (e.g. Claude via the MCP server) that queries Continuum for
-ground truth while drafting and saves finished chapters back.
+Continuum turns chapters into a searchable record of characters, places,
+relationships, possessions, plot threads, and who knows what. Browse that record
+in a web app, or connect a writing agent through the Model Context Protocol (MCP)
+so it can consult earlier chapters while drafting.
+
+For example, when working on chapter 12, you can look up what a character knew
+at the end of chapter 11, find an unresolved promise, or check a draft against
+established facts. Continuum analyzes the prose you provide; writing stays with
+you and your tools.
+
+[Getting started](#getting-started) · [Architecture](#how-it-works) ·
+[Documentation](#documentation) · [Contributing](#contributing) · [Apache-2.0 license](LICENSE)
+
+## What you can do
+
+- **Build a story wiki:** extract characters, locations, objects, factions,
+  events, relationships, scenes, and plot threads from chapter text.
+- **Look back without spoilers:** set a chapter cutoff to browse the story as
+  it was known then, including character state and versioned metadata.
+- **Find relevant passages:** search chapter text, summaries, and events using
+  keyword and embedding search together.
+- **Review continuity:** inspect findings about established facts, character
+  knowledge, possessions, and possible commitment payoffs.
+- **Adapt extraction to your setting:** choose LitRPG, High Fantasy, Xianxia,
+  Sci-Fi, or Contemporary presets when creating a novel, or define your own
+  entity types. These configure categories such as skills, deities, or
+  technologies and their extraction descriptions; they do not add separate
+  genre-specific continuity rules.
+- **Give a writing agent memory:** MCP tools expose story lookups, continuity
+  checks, and chapter submission with a human review queue for failing drafts.
 
 ## Project status
 
-Experimental and intended for local, trusted use. The core workflows have been
-checked with real Gemini calls on four saved novel chapters, database regression
-tests, and browser checks. See the [public-readiness audit](docs/public-readiness.md)
-for the evidence, fixes, and remaining limitations.
+Continuum is an **experimental project for local, trusted use**. Core workflows
+have been checked with real Gemini calls on novel chapters, PostgreSQL
+regression tests, and browser checks. The [public-readiness audit](docs/public-readiness.md)
+records what was tested and the remaining limitations.
 
-After updating an existing installation, run `uv run novel-pipeline init-db`
-from `backend/` to apply the current schema without deleting stored chapters.
+Extraction can miss or misclassify facts, and continuity findings need human
+judgment. The app has no authentication; a public deployment needs access
+controls.
 
-Chapter state, events, search, and metadata honor the selected cutoff. A per-novel
-lock enforces sequential chapter processing across CLI, API, and MCP. Replacing a
-chapter rebuilds it and all later chapters atomically, including fresh model calls.
-The critic provides heuristic findings, not a guarantee of continuity.
+## Getting started
 
-Existing databases acquire a metadata baseline at their latest chapter during
-upgrade. Earlier aliases/descriptions cannot be reconstructed from the old mutable
-records: older historical metadata reads and replacements are explicitly refused.
-Re-import the original chapters into a new novel to establish complete history.
+### Requirements
 
-## Architecture (two spines, one database)
+- Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+- Node.js 22.13+ on the 22.x line, or 24+, with npm.
+- A running PostgreSQL installation with [pgvector](https://github.com/pgvector/pgvector),
+  plus the `createdb` and `psql` command-line tools. CI uses PostgreSQL 16.
+- A Gemini API key for the default configuration. Other providers can be
+  configured through LiteLLM; see the [backend configuration guide](backend/README.md#environment).
 
-- **Write spine** — `analyze_chapter` (`backend/pipeline/pipeline.py`):
-  CRITIQUE (4 deterministic continuity checks) → EXTRACT (13 LLM passes,
-  including typed `state_deltas`) → DEDUPLICATE/CANONICALIZE → PERSIST
-  (insert/replace the chapter and its assertions in one transaction) →
-  MATERIALIZE (`StateReplay` derives `character_states`, `located_in_edges`,
-  and `possesses_edges`) → RECORD the critique against the committed chapter.
-  When enabled, the critique runs **first and once**: before
-  extraction, so a refusal costs one claims-extraction call instead of 13
-  passes per chunk and refused text never mints entities. The later phase
-  only persists the report the first one produced. What a FAIL *costs* is the
-  caller's `on_continuity_fail` policy: `"warn"` (the default, used by the
-  CLI and the Process page, where a human is already the review step)
-  records the findings and ingests anyway; `"block"` (asked for only by the
-  MCP `save_chapter` tool, because an agent writes unattended) refuses the
-  write and parks the draft in `draft_submissions` for human review. An
-  outage — critique disabled, or no real model — refuses a blocking caller
-  outright with nothing parked, since there is no verdict to record. So a
-  row in `chapters` written through `save_chapter` either passed continuity
-  or was human-overridden through the Review queue with the blocking
-  findings recorded on it; rows from the un-blocking callers carry their
-  findings without that guarantee.
-- **Read layer** — `backend/reads/`: shared story queries take `up_to_chapter`
-  (None = whole novel); registry and review-queue helpers are exempt.
-  Both the wiki and MCP use those queries. Cutoffs cover chapter-anchored data;
-  versioned metadata uses the same cutoff. API routes and MCP tool handlers
-  contain no SQL — enforced by contract tests.
+The commands below assume your local PostgreSQL role can create databases and
+enable extensions. Set `DATABASE_URL` to match your own PostgreSQL setup.
 
-Stored `state_deltas` and the single knowledge source, `knows_edges`, deterministically
-rebuild the state projections. Alias changes and metadata versions commit with the
-chapter. Database or embedding failures abort persistence; unresolved references
-and optional deduplication outages are returned as enrichment warnings in the UI
-and MCP results. Reprocessing raw text invokes extraction again and may produce
-different facts. See the [architecture conformance audit](docs/architecture-conformance.md)
-for the enforced boundaries, regression checks, and remaining limits.
-
-## Docs (start here)
-
-Open `docs/index.html` in a browser. It is the landing page and the onboarding
-path — run the tests, read the docs in order, read the six files that are the
-actual system — and it links out to everything below.
-
-The reference docs, in the order that page walks you through them:
-
-1. `docs/architecture.html` — what the system is, the mental model, the
-   pipeline phase by phase, the DB design, and a directory map.
-2. `docs/reference.html` — schema, API endpoints, CLI, MCP tools, env vars,
-   eval harness.
-3. `docs/state-of-the-system.html` — how it got here, what is wired, and the
-   honest list of what's still open (currently: cross-type duplicate
-   prevention, per-chapter cost accounting, embedding-dimension migration,
-   in-memory job state, the write gate's word-overlap knowledge check, and
-   `save_chapter`'s hardcoded `use_mock_llm=None`).
-
-`docs/blog/` is an eleven-part narrative walkthrough of the whole system, written
-from first principles — start at `docs/blog/README.md` if you want the reasoning
-rather than the reference. `docs/research/` holds background research.
-
-## Setup
-
-Backend (Python 3.11+, [uv](https://docs.astral.sh/uv/), Postgres with pgvector):
+### 1. Install the backend and prepare the database
 
 ```bash
-cd backend
+git clone https://github.com/naman159/continuum.git
+cd continuum/backend
 uv sync --frozen
+cp .env.example .env
+
 createdb novel_wiki
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
 psql -d novel_wiki -c 'CREATE EXTENSION IF NOT EXISTS vector;'
-cp .env.example .env   # set DATABASE_URL, DEFAULT_MODEL, EMBEDDING_MODEL
-uv run novel-pipeline init-db
 ```
 
-Frontend (Node.js 22.13+ on the 22 LTS line, or 24+):
+Edit `backend/.env` before continuing. The supplied configuration uses:
+
+```dotenv
+DATABASE_URL=postgresql://localhost/novel_wiki
+GEMINI_API_KEY=your-gemini-api-key
+DEFAULT_MODEL=gemini/gemini-3.1-flash-lite
+EMBEDDING_MODEL=gemini/gemini-embedding-2
+EMBEDDING_DIMENSIONS=768
+USE_MOCK_LLM=false
+```
+
+Chapter text and story context are sent to your configured model and embedding
+providers. Processing makes multiple API calls per chapter and may incur costs;
+long chapters and provider rate limits can make it take several minutes.
+
+From `backend/`, initialize the schema and start the API:
+
+```bash
+uv run novel-pipeline init-db
+uv run novel-webapp
+```
+
+### 2. Start the web app
+
+In a second terminal, from the repository root:
 
 ```bash
 cd frontend
@@ -111,113 +103,198 @@ npm ci
 npm run dev
 ```
 
-API server: `cd backend && uv run novel-webapp`.
-MCP server (for writing agents): `cd backend && uv run novel-mcp`.
+Open [localhost:5173](http://localhost:5173). The frontend connects to the API
+on port 8000. Interactive API documentation is available at
+[127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
 
-For a demo without provider credentials, set `USE_MOCK_LLM=true` in
-`backend/.env`, start both servers, and open <http://localhost:5173>.
-Create a novel and paste `backend/evals/golden/ch01.txt` into its Process page;
-then browse Characters, Chapters, Timeline, and Search. Mock extraction is
-deterministic scaffolding, not a measure of model quality. The agent's
-`save_chapter` deliberately refuses writes in mock mode because there is no
-real continuity verdict.
+### 3. Process your first chapter
 
-For a single-server demo, run `npm run build` in `frontend`, then
-`uv run novel-webapp` in `backend` and open <http://127.0.0.1:8000>.
-The app is intended for local, trusted use: it has no authentication, and
-the API can modify and delete novels. Add authentication before exposing a
-hosted instance to other people.
+1. Select **New Novel**, enter its details, and choose any extra entity types.
+2. On the **Process** page, paste your first chapter and submit it as chapter 1.
+3. Browse the extracted characters, timeline, relationships, and search results.
+   Review continuity findings and any extraction warnings.
+4. Add chapter 2, then use the chapter cutoff to compare the story at each point.
 
-## Usage
+Chapters must be processed in order, starting at 1. Replacing an earlier chapter
+reprocesses it and every later chapter, including fresh model calls. The database
+update is atomic: a failed replacement preserves the previous saved version.
+
+Prefer the command line? From `backend/`:
 
 ```bash
-cd backend
-# create a novel and process a chapter
 uv run novel-pipeline create-novel --title "My Novel"
-uv run novel-pipeline process-chapter --novel-id <id> --number 1 --file ch1.txt
+# Replace NOVEL_ID with the ID returned above, and use your chapter's file path.
+uv run novel-pipeline process-chapter --novel-id NOVEL_ID --number 1 --file chapter1.txt
 ```
 
-Or paste chapter text into the wiki's Process page. Writing agents use the
-MCP tools (`save_chapter`, `check_continuity`, `search_story`, and the
-cutoff-aware read tools that take `writing_chapter`).
+### Optional: run without an API key
 
-## Writing agents (MCP)
+Set `USE_MOCK_LLM=true` in `backend/.env` and restart the API. You can use
+[`backend/evals/golden/ch01.txt`](backend/evals/golden/ch01.txt) to explore the
+interface. This mode uses deterministic mock extraction and hash embeddings; it does
+not evaluate your prose or demonstrate model quality. MCP `save_chapter` refuses
+writes in this mode because no real continuity verdict is available. Use a
+separate database for this demo and for real-provider work.
 
-The data layer is exposed to writing agents as an MCP server (`novel-mcp`,
-stdio). Every lookup takes a `writing_chapter` and returns only facts from
-earlier chapters, so an agent drafting chapter N sees the world as of N−1.
+### Optional: serve the built app from one process
 
-- **Claude Code (this repo):** picked up automatically via `.mcp.json`.
-- **Claude Code (anywhere):**
-  `claude mcp add continuum -- uv run --directory /path/to/continuum/backend novel-mcp`
-- **Claude Desktop:** add to `claude_desktop_config.json`:
+Run `npm run build` in `frontend/`, then start `uv run novel-webapp` from
+`backend/`. Open [127.0.0.1:8000](http://127.0.0.1:8000); the separate Vite
+development server is no longer needed.
 
-  ```json
-  {
-    "mcpServers": {
-      "continuum": {
-        "command": "uv",
-        "args": ["run", "--directory", "/path/to/continuum/backend", "novel-mcp"]
-      }
+## Connect a writing agent
+
+The MCP server runs over stdio. With the backend configured, add it to an
+MCP-compatible client using an absolute path to your checkout:
+
+```json
+{
+  "mcpServers": {
+    "continuum": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/continuum/backend", "novel-mcp"]
     }
   }
-  ```
-
-Suggested agent workflow: `open_threads` + `unresolved_commitments` +
-`get_character` → draft → `check_continuity` → revise → `save_chapter`.
-The full tool table is in `docs/reference.html`.
-
-`save_chapter` is gated: it refuses a draft that fails the continuity
-critic and routes it to `draft_submissions` for human review instead of
-ingesting it (`check_continuity` is a self-check an agent can run first,
-but it isn't the enforcement point — `save_chapter` runs the same checks
-itself). A refusal returns `{ingested: false, status: "pending_review",
-submission_id, reason, fails, warns}`; revise against `fails` and
-resubmit — a resubmission supersedes the earlier parked draft. Only a
-human, via the wiki's Review page, can accept a failing draft anyway.
-
-## Tests and evals
-
-```bash
-(cd backend && uv run pytest -q)                 # needs Postgres
-(cd backend && uv run pytest evals/)             # offline provider fixtures
-(cd backend && RUN_LLM_EVALS=1 uv run pytest evals/) # spends API credits
-(cd frontend && npm run build)
+}
 ```
 
-Use `backend/.venv` (not a repo-root venv) — the DB-integration tests
-resolve their connection from `backend/.env`. Note that `backend/.env.branch`,
-if present, overrides `DATABASE_URL` from `.env`; `backend/scripts/branch_db.sh
-show` tells you which database you are actually on.
+For Claude Code, the repository includes [`.mcp.json`](.mcp.json). To register
+the server from another directory:
 
-The eval harness (`backend/evals/`) grades the system against a
-hand-written golden novel: extraction fidelity, retrieval recall@k, critic
-precision/recall, and entity resolution. `RUN_LLM_EVALS=1` additionally
-runs the two real-LLM evals (extraction fidelity, entity resolution) —
-those spend API credits.
+```bash
+claude mcp add continuum -- uv run --directory /path/to/continuum/backend novel-mcp
+```
 
-Entity resolution is the weakest link and is documented as such: the
-canonicalizer compares candidates within one `entity_type` at a time, so
-cross-type duplicates (the same thing filed as a character in one chapter
-and an object in the next) are not caught at ingest. They can be found
-(`GET /api/novels/{id}/entities/duplicates`) and repaired
-(`POST .../entities/merge`, which reclassifies across types), but not yet
-prevented — see `docs/state-of-the-system.html#entity-resolution`.
+Story lookups accept `writing_chapter`: an agent drafting chapter N sees facts
+only through chapter N−1. A typical workflow is to look up characters, open
+threads, and unresolved commitments, draft a chapter, call `check_continuity`,
+revise, and call `save_chapter`.
+
+`save_chapter` runs its own continuity check. Failing drafts go to the wiki's
+**Review** page for a human decision; a missing or unavailable critic refuses
+the write. The CLI and Process page save chapters with findings for the user
+to review. See the [MCP reference](docs/reference.html#mcp-server) for tool details.
+
+## How it works
+
+```mermaid
+flowchart LR
+    Chapter[Chapter text] --> Pipeline[Critique and extraction]
+    Pipeline --> Store[(PostgreSQL + pgvector)]
+    Store --> Reads[Shared chapter-aware queries]
+    Reads --> Wiki[React wiki]
+    Reads --> MCP[MCP story lookups]
+```
+
+One Python pipeline coordinates critique, 13 extraction passes per text chunk,
+entity resolution, transactional persistence, and state rebuilding. The API,
+CLI, and MCP chapter writers use that same pipeline. A per-novel lock prevents
+overlapping writes.
+
+Recorded state changes and knowledge assertions rebuild character state;
+metadata history supports reads at earlier chapters. Both the wiki and MCP use
+the shared query layer in `backend/reads/`. Replaying stored assertions is
+deterministic; extracting again from prose can produce different results.
+
+| Directory | Purpose |
+| --- | --- |
+| [`backend/pipeline/`](backend/pipeline/) | Extraction, continuity checks, retrieval, state replay, and database schema |
+| [`backend/reads/`](backend/reads/) | Shared queries with chapter cutoffs |
+| [`backend/api/`](backend/api/) | FastAPI endpoints and processing jobs |
+| [`backend/mcp_server/`](backend/mcp_server/) | Tools for writing agents |
+| [`frontend/src/`](frontend/src/) | React and TypeScript wiki |
+| [`backend/evals/`](backend/evals/) | Evaluation fixtures and scoring |
+| [`docs/`](docs/) | Architecture, reference, audits, and development notes |
+
+## Limitations and upgrades
+
+- Entity resolution can create duplicates across different entity types. The
+  wiki supports inspecting and merging them, but ingestion does not prevent all
+  such duplicates.
+- Processing-job status is held in memory and does not survive a server restart.
+- Changing embedding dimensions requires a fresh database and re-embedding;
+  `init-db` rejects incompatible existing vector columns.
+- After upgrading, stop chapter processing and run `uv run novel-pipeline init-db`
+  from `backend/`. Existing chapters are retained. Older databases receive a
+  metadata baseline at their latest chapter; metadata from before that baseline
+  cannot be reconstructed. Re-import the original chapters into a new novel if
+  you need that earlier history.
+
+See the [architecture conformance review](docs/architecture-conformance.md) and
+[known gaps](docs/state-of-the-system.html) for the detailed boundaries.
+
+## Documentation
+
+Open [`docs/index.html`](docs/index.html) locally in a browser for the documentation
+site. GitHub displays the HTML source. To serve it locally, run
+`python -m http.server 9000 --bind 127.0.0.1 --directory docs` from the repository
+root and open [127.0.0.1:9000](http://127.0.0.1:9000).
+
+- [Architecture](docs/architecture.html): data flow, schema design, and implementation.
+- [Reference](docs/reference.html): API endpoints, CLI, MCP tools, and configuration.
+- [Backend guide](backend/README.md) and [frontend guide](frontend/README.md): development details.
+- [Building Continuum](docs/blog/README.md): the reasoning behind the design.
+- [Public-readiness audit](docs/public-readiness.md): verification evidence and open issues.
 
 ## Contributing
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request: the
-backend job stands up a `pgvector/pgvector:pg16` service, applies the schema,
-and runs Python lint and pytest; the frontend job runs lint, typecheck, and build. The suite
-is mock-LLM end to end, so it needs no provider credentials.
+Bug reports, documentation fixes, tests, and focused code contributions are
+welcome. Use [GitHub Issues](https://github.com/naman159/continuum/issues) to
+report a problem or discuss a larger change before implementing it.
 
-Before opening a PR, run what CI runs:
+For a bug report, include the steps to reproduce, expected and actual behavior,
+your OS and relevant dependency versions, and redacted error output. For an
+extraction issue, include the provider/model and a short passage you can share.
+Keep API keys, database credentials, and private manuscripts out of issues and PRs.
+
+Fork the repository, make your change on a branch, and open a pull request with
+the problem, the change, and how you verified it. Keep changes focused, add
+regression coverage for behavior fixes, and update the docs when behavior changes.
+
+### Run the checks
+
+Backend checks need a real PostgreSQL database with pgvector. Use a separate test
+database. From `backend/`, these commands disable local `.env` overrides and
+paid provider evaluations for this shell session:
 
 ```bash
-(cd backend && uv run ruff check . && uv run pytest -q)
-(cd frontend && npm run lint && npm run typecheck && npm run build)
+createdb novel_wiki_test
+psql -d novel_wiki_test -c 'CREATE EXTENSION IF NOT EXISTS pgcrypto;'
+psql -d novel_wiki_test -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+export PYTHON_DOTENV_DISABLED=1
+export DATABASE_URL=postgresql://localhost/novel_wiki_test
+export USE_MOCK_LLM=true
+unset RUN_LLM_EVALS
+
+uv sync --frozen --dev
+uv run novel-pipeline init-db
+uv run ruff check .
+uv run pytest -q
 ```
+
+Run frontend checks from `frontend/`:
+
+```bash
+npm ci
+npm run lint
+npm run typecheck
+npm run build
+```
+
+[CI](.github/workflows/ci.yml) runs these lint, test, typecheck, and build checks
+on pushes to `main` and pull requests. Routine tests use deterministic model
+responses and need no provider credentials. They check software behavior;
+model quality needs separate evaluation with real prose and real providers.
+
+If your database seems unexpected during normal development, check for
+`backend/.env.branch`: it overrides `.env`. Run `backend/scripts/branch_db.sh show`
+from the repository root to inspect the active configuration.
 
 ## License
 
-Apache-2.0 — see [LICENSE](LICENSE).
+Copyright 2026 Naman Ranawat.
+
+Continuum is licensed under the [Apache License, Version 2.0](LICENSE).
+See [NOTICE](NOTICE) for project attribution. Commercial use and modification
+are permitted subject to the license terms, including applicable redistribution
+and notice requirements. The software is provided without warranty.
