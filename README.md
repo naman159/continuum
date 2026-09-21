@@ -45,6 +45,78 @@ controls.
 
 ## Getting started
 
+### Run with Docker (recommended for a quick start)
+
+Install Docker with Docker Compose v2, then run from the repository root:
+
+```bash
+# Skip this copy if you already have backend/.env.
+cp backend/.env.example backend/.env
+```
+
+Edit `backend/.env` and set `GEMINI_API_KEY`, or set `USE_MOCK_LLM=true`
+for a demo without an API key. Mock mode uses deterministic extraction and hash
+embeddings; it does not analyze your prose. Real-provider processing sends chapter
+text and story context to the configured providers and may incur costs. Use
+separate databases for mock and real-provider work.
+
+```bash
+docker compose up --build -d
+docker compose logs -f backend frontend
+```
+
+Open [localhost:8000](http://localhost:8000) once the app has started. One Compose
+file starts three services:
+
+- `frontend`: built from `frontend/Dockerfile`; nginx serves the built UI and
+  proxies API requests to the backend. Browser routes support direct navigation
+  and refresh. API docs are available at [localhost:8000/docs](http://localhost:8000/docs).
+- `backend`: built from `backend/Dockerfile`; runs the Python API, CLI, and MCP
+  server. It waits for PostgreSQL and initializes or upgrades the schema before
+  starting the API. The frontend waits for the API to become healthy.
+- `db`: PostgreSQL 16 with pgvector, using its published image.
+
+Both Dockerfiles use the repository root as their build context; Compose handles
+this automatically. No local Python, Node.js, or PostgreSQL installation is needed.
+
+The frontend is bound to localhost because the app has no authentication. The API
+and PostgreSQL are only exposed inside the Compose network. Compose supplies its own `DATABASE_URL`;
+your local database and `backend/.env.branch` are not used. Provider keys and
+other settings come from `backend/.env` at runtime and are excluded from the image.
+To use a different web port, run `CONTINUUM_PORT=8080 docker compose up -d`.
+
+```bash
+docker compose down                     # Stop; saved novels remain in the volume.
+docker compose up -d                     # Start again.
+docker compose exec backend novel-pipeline list-novels
+```
+
+After changing `backend/.env`, run `docker compose up -d` to recreate the backend
+with the new settings. After pulling code updates, finish any chapter processing,
+then run `docker compose down` followed by `docker compose up --build -d`.
+Startup reapplies the schema while the API is stopped and preserves existing
+chapters. Changing embedding dimensions still requires a fresh database.
+
+Story data lives in the `postgres_data` named volume. **`docker compose down -v`
+deletes that volume and all saved novels.**
+
+For a writing agent, the running container also exposes the stdio MCP server:
+
+```json
+{
+  "mcpServers": {
+    "continuum": {
+      "command": "docker",
+      "args": ["compose", "--project-directory", "/path/to/continuum", "exec", "-T", "backend", "novel-mcp"]
+    }
+  }
+}
+```
+
+Replace `/path/to/continuum` with your checkout's absolute path and keep the
+Compose app running. Continue with [Process your first chapter](#3-process-your-first-chapter),
+or follow the local development setup below.
+
 ### Requirements
 
 - Python 3.11+ and [uv](https://docs.astral.sh/uv/getting-started/installation/).

@@ -1,0 +1,24 @@
+# Only send application sources and build inputs to Docker.
+*
+!backend/
+!backend/**
+!frontend/
+!frontend/**
+!LICENSE
+!NOTICE
+
+# Never bake credentials or local development artifacts into an image.
+**/.env
+**/.env.*
+**/.venv
+**/venv
+**/node_modules
+**/dist
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+**/.pytest_cache
+**/.ruff_cache
+**/.git
+**/.DS_Store
+**/*.tsbuildinfo
