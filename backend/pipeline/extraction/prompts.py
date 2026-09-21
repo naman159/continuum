@@ -222,6 +222,7 @@ def build_system_prompt(pass_name: str, custom_entity_types: list[dict] | None =
         You are an extraction engine for a novel continuity pipeline.
         Return only strict JSON. No prose, no markdown.
         Keep facts grounded in provided text.
+        Include every required key. Use [] for lists with no findings.
 
         Extraction pass: {pass_name}
         Required output schema:
@@ -413,6 +414,7 @@ PASS_TASK_INSTRUCTIONS: dict[str, str] = {
             acquire this knowledge in the same beat
 
         Skip background recollections. Skip the omniscient narrator's knowledge.
+        If nobody learns anything new, return {"learnings": []}.
         Return JSON only.
         """
     ).strip(),

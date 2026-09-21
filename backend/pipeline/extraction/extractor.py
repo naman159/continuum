@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -7,6 +8,22 @@ from pipeline.config import LLM_CONFIG, settings
 from pipeline.extraction.prompts import PASS_ORDER, build_system_prompt, build_user_prompt
 from pipeline.llm import load_completion as _load_completion
 from pipeline.llm import safe_json_loads as _safe_json_loads
+
+logger = logging.getLogger(__name__)
+
+
+def _response_text(content: Any) -> str:
+    """Read text blocks without serializing their wrappers into the JSON."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for part in content:
+            text = part.get("text") if isinstance(part, dict) else getattr(part, "text", part)
+            if isinstance(text, str):
+                parts.append(text)
+        return "".join(parts)
+    return ""
 
 
 def empty_extraction() -> dict[str, Any]:
@@ -448,23 +465,52 @@ class ChapterExtractor:
         system_prompt = build_system_prompt(pass_name, custom_entity_types=custom_entity_types)
         user_prompt = build_user_prompt(pass_name, chunk, context, custom_entity_types=custom_entity_types)
 
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
         try:
-            response = completion(
-                model=LLM_CONFIG["model"],
-                temperature=LLM_CONFIG["temperature"],
-                response_format=LLM_CONFIG["response_format"],
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            content = response.choices[0].message.content
-            if isinstance(content, list):
-                content = "".join(str(part) for part in content)
-            payload = _safe_json_loads(str(content))
-            if not payload:
-                raise ValueError("model returned empty or invalid JSON")
-            return payload
+            # Transport errors have their own retry budget in pipeline.llm.
+            # Only retry unusable output here, and only for this pass.
+            for attempt in range(1, 4):
+                response = completion(
+                    model=LLM_CONFIG["model"],
+                    temperature=LLM_CONFIG["temperature"],
+                    response_format=LLM_CONFIG["response_format"],
+                    messages=messages,
+                )
+                choices = getattr(response, "choices", None) or []
+                choice = choices[0] if choices else None
+                message = getattr(choice, "message", None)
+                finish_reason = getattr(choice, "finish_reason", None)
+                content = _response_text(getattr(message, "content", None))
+                diagnostics = (
+                    f"model={LLM_CONFIG['model']}, finish_reason={finish_reason or 'unknown'}, "
+                    f"response_chars={len(content)}, attempt={attempt}/3"
+                )
+                if getattr(message, "refusal", None) or finish_reason == "content_filter":
+                    raise ValueError(f"model refused or filtered the extraction ({diagnostics})")
+                payload = _safe_json_loads(content)
+                if payload and finish_reason != "length":
+                    return payload
+                reason = (
+                    "model response was truncated"
+                    if finish_reason == "length"
+                    else "model returned empty or invalid JSON"
+                )
+                if attempt == 3:
+                    raise ValueError(f"{reason} ({diagnostics})")
+                logger.warning("Extraction pass %r: %s (%s); retrying", pass_name, reason, diagnostics)
+                # Do not feed malformed output back as story evidence.
+                messages = [
+                    messages[0],
+                    {"role": "user", "content": user_prompt + (
+                        "\n\nThe previous response was empty, malformed, or truncated. "
+                        "Return one complete, concise JSON object matching the required schema. "
+                        "Include every required key; use [] for lists with no findings. "
+                        "Do not return an empty object, prose, or markdown."
+                    )},
+                ]
         except Exception as exc:
             # Continuing would persist an incomplete chapter, or obscure the
             # provider failure behind an empty-summary embedding error.
