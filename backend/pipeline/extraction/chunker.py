@@ -50,7 +50,7 @@ def detokenize(tokens: Iterable[int], model: str | None = None) -> str:
 
 
 def sliding_window_chunks(
-    text: str, chunk_size: int = 2000, overlap: int = 200, model: str | None = None
+    text: str, chunk_size: int = 5000, overlap: int = 500, model: str | None = None
 ) -> list[str]:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be > 0")

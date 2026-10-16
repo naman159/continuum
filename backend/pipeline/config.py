@@ -55,8 +55,8 @@ class Settings:
     # refuses the write rather than treating a missing verdict as a pass.
     critic_enabled: bool = field(default_factory=lambda: _bool_env("CRITIC_ENABLED", True))
     llm_temperature: float = field(default_factory=lambda: float(os.getenv("LLM_TEMPERATURE", "0.1")))
-    chunk_size: int = field(default_factory=lambda: int(os.getenv("CHUNK_SIZE", "2000")))
-    chunk_overlap: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "200")))
+    chunk_size: int = field(default_factory=lambda: int(os.getenv("CHUNK_SIZE", "5000")))
+    chunk_overlap: int = field(default_factory=lambda: int(os.getenv("CHUNK_OVERLAP", "500")))
     use_mock_llm: bool = field(default_factory=lambda: _bool_env("USE_MOCK_LLM", False))
     # Max roster entries serialized into a single canonicalization LLM call.
     # Bounds prompt cost as the novel grows; <= 0 disables the cap.
