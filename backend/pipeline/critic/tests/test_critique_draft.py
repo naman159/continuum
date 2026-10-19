@@ -159,3 +159,21 @@ def test_summary_has_one_shape_for_every_outcome(stub_critic):
     stub_critic(raises=RuntimeError("boom"))
     bad = _critique().summary()
     assert bad["status"] == "error" and bad["passed"] is None and "boom" in bad["error"]
+
+
+def test_unresolved_claims_are_unreviewable_not_a_clean_verdict(monkeypatch):
+    from pipeline.critic.types import DraftChapter
+    from pipeline.critic.runner import ContinuityCritic
+    monkeypatch.setattr(service, 'settings', replace(service.settings, critic_enabled=True, use_mock_llm=False))
+    draft = DraftChapter(novel_id='n', chapter_number=1, text='New person.',
+                         unresolved_claims=[{'kind': 'mention', 'name': 'New person'}],
+                         claim_counts={'extracted': 1, 'unresolved': 1})
+    monkeypatch.setattr(service, 'extract_draft_claims', lambda *a, **kw: {})
+    monkeypatch.setattr(service, 'build_draft_chapter', lambda *a, **kw: draft)
+    monkeypatch.setattr(service, 'ContinuityCritic', ContinuityCritic)
+    critique = _critique()
+    assert critique.status == 'unreviewable'
+    assert not critique.passed
+    assert critique.report.passed is False
+    assert critique.summary()['passed'] is None
+    assert critique.summary()['coverage']['unresolved'] == 1

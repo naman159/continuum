@@ -133,3 +133,37 @@ def test_upgrade_preserves_legacy_knowledge_and_rebuilds_snapshots(db, seed_nove
         assert db.fetchval("SELECT count(*) FROM knows_edges WHERE character_id=%s AND fact_description='Preserve the old fact.'", (cid,)) == 1
     finally:
         init_db()
+
+
+def test_story_record_rename_preserves_versions_tombstones_and_baseline(db):
+    import json
+    import uuid
+    from pipeline.pipeline import _schema_sql
+    ns = 'history_upgrade_' + uuid.uuid4().hex[:10]
+    sql = _schema_sql()
+    with db.transaction() as cur:
+        cur.execute(f'CREATE SCHEMA {ns}')
+        cur.execute(f'SET LOCAL search_path = {ns}, public')
+        cur.execute(sql)
+        cur.execute("INSERT INTO novels(title) VALUES ('Legacy') RETURNING id")
+        nid = cur.fetchone()[0]
+        rid = uuid.uuid4()
+        cur.execute('INSERT INTO story_record_history VALUES (%s, 0)', (nid,))
+        cur.execute("INSERT INTO story_record_versions VALUES (%s,'characters',%s,1,%s::jsonb),(%s,'characters',%s,2,NULL)",
+                    (nid, rid, json.dumps({'id': str(rid), 'name': 'Preserved'}), nid, rid))
+        cur.execute('ALTER TABLE story_record_history RENAME TO metadata_history')
+        cur.execute('ALTER TABLE story_record_versions RENAME TO metadata_versions')
+        cur.execute('ALTER FUNCTION story_records_at(text, uuid, integer) RENAME TO metadata_at')
+        cur.execute(sql)
+        cur.execute(sql)  # startup upgrade is repeatable
+        cur.execute('SELECT baseline_chapter FROM story_record_history WHERE novel_id=%s', (nid,))
+        assert cur.fetchone()[0] == 0
+        cur.execute('SELECT chapter_number, payload FROM story_record_versions WHERE novel_id=%s ORDER BY chapter_number', (nid,))
+        assert cur.fetchall() == [(1, {'id': str(rid), 'name': 'Preserved'}), (2, None)]
+        cur.execute("SELECT payload FROM story_records_at('characters',%s,1)", (nid,))
+        assert cur.fetchone()[0]['name'] == 'Preserved'
+        cur.execute("SELECT count(*) FROM story_records_at('characters',%s,2)", (nid,))
+        assert cur.fetchone()[0] == 0
+        cur.execute("SELECT to_regclass(%s), to_regprocedure(%s)", (f'{ns}.metadata_versions', f'{ns}.metadata_at(text,uuid,integer)'))
+        assert cur.fetchone() == (None, None)
+        cur.execute(f'DROP SCHEMA {ns} CASCADE')

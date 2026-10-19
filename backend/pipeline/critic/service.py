@@ -38,7 +38,7 @@ from pipeline.db.client import DBClient
 
 logger = logging.getLogger(__name__)
 
-Status = Literal["ok", "unavailable", "error"]
+Status = Literal["ok", "unavailable", "error", "unreviewable"]
 
 
 def _finding_dict(finding: Any) -> dict[str, Any]:
@@ -59,8 +59,9 @@ class DraftCritique:
     `status` separates "the critic judged this" from "the critic never ran",
     which a bare pass/fail boolean cannot express. Only `ok` carries a
     judgement; `unavailable` (critic disabled, or mock mode) and `error` (the
-    critique itself blew up) are outages. A blocking caller must refuse on both
-    non-ok statuses, because an outage is not a clean bill of health.
+    critique itself blew up) are outages. `unreviewable` means unresolved
+    entity claims need human review. A blocking caller refuses all non-ok
+    statuses; unavailable skips queueing, while errors/unreviewable are parked.
 
     `fails`/`warns` are converted eagerly rather than in a property: converting
     a finding is itself something that can fail on a malformed report, and that
@@ -82,7 +83,9 @@ class DraftCritique:
         """One shape for every outcome, so callers never have to branch on
         status just to report what happened."""
         if self.report is not None:
-            return {**self.report.summary(), "status": self.status}
+            return {**self.report.summary(), "status": self.status,
+                    "passed": self.passed if self.status == 'ok' else None,
+                    **({'error': self.error} if self.error else {})}
         return {"passed": None, "status": self.status, "error": self.error}
 
 
@@ -139,7 +142,9 @@ def critique_draft(
         )
         return DraftCritique(status="error", error=f"{type(exc).__name__}: {exc}")
 
-    return DraftCritique(status="ok", report=report, fails=fails, warns=warns)
+    status = 'unreviewable' if getattr(draft, 'unresolved_claims', []) else 'ok'
+    return DraftCritique(status=status, report=report, fails=fails, warns=warns,
+                         error='Unresolved entity claims require human review' if status == 'unreviewable' else None)
 
 
 def critique_chapter(
@@ -184,7 +189,7 @@ def critique_chapter(
         text=raw_text,
         use_mock_llm=use_mock_llm,
     )
-    if critique.report is not None:
+    if critique.status == 'ok' and critique.report is not None:
         persist_critique(db, chapter_id=chapter_id, report=critique.report)
     return critique.summary()
 

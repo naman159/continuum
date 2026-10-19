@@ -182,6 +182,7 @@ def persist_knows_edges(
     learnings: list[dict[str, Any]],
     resolver: EntityResolver,
     warnings: list[str] | None = None,
+    embedder: EmbeddingService | None = None,
 ) -> list[str]:
     """Insert knows_edges rows for each character learning."""
     inserted: list[str] = []
@@ -224,13 +225,14 @@ def persist_knows_edges(
             elif warnings is not None:
                 warnings.append(f"Knowledge sharing: unknown character {cleaned!r}.")
 
+        embedding_vec = vector_literal(embedder.embed_text(fact)) if embedder else None
         edge_id = db.fetchval(
             """
             INSERT INTO knows_edges (
                 character_id, fact_description, learned_chapter,
-                source_type, certainty, shared_with
+                source_type, certainty, shared_with, embedding, embedding_model
             )
-            VALUES (%s, %s, %s, %s, %s, %s::uuid[])
+            VALUES (%s, %s, %s, %s, %s, %s::uuid[], %s::vector, %s)
             RETURNING id
             """,
             (
@@ -240,6 +242,8 @@ def persist_knows_edges(
                 source_type,
                 certainty,
                 shared_ids,
+                embedding_vec,
+                embedder.model_name if embedder else None,
             ),
             commit=True,
         )

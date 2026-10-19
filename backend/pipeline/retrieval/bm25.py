@@ -4,6 +4,7 @@ from typing import Any
 
 from pipeline.db.client import DBClient
 from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
+from pipeline.retrieval.facts import FACT_KINDS, fact_metadata, fact_source
 
 
 # websearch_to_tsquery sanitizes arbitrary user input, but it ANDs every term,
@@ -97,7 +98,7 @@ class BM25Search:
     def search(
         self, query: RetrievalQuery, kind: str, limit: int = 50
     ) -> list[RetrievalResult]:
-        if kind not in _KIND_SQL:
+        if kind not in _KIND_SQL and kind not in FACT_KINDS:
             raise ValueError(f"Unsupported kind for BM25 search: {kind}")
         if not query.text or not query.text.strip():
             return []
@@ -108,7 +109,15 @@ class BM25Search:
             "max_chapter": query.max_chapter,
             "limit": limit,
         }
-        rows = self.db.fetchall(_KIND_SQL[kind], params, dict_rows=True)
+        sql = _KIND_SQL.get(kind)
+        if kind in FACT_KINDS:
+            sql = _TSQUERY_CTE + f"""
+                SELECT f.*, ts_rank_cd(to_tsvector('english', f.snippet), tq.query) AS raw_score
+                FROM ({fact_source(query, kind)}) f, tq
+                WHERE to_tsvector('english', f.snippet) @@ tq.query
+                ORDER BY raw_score DESC, item_id LIMIT %(limit)s
+            """
+        rows = self.db.fetchall(sql, params, dict_rows=True)
         if not rows:
             return []
 
@@ -125,7 +134,8 @@ class BM25Search:
                     snippet=row["snippet"] or "",
                     chapter_id=row.get("chapter_id"),
                     chapter_number=row.get("chapter_number"),
-                    metadata={"raw_bm25": raw, "source": "bm25"},
+                    metadata={"raw_bm25": raw, "source": "bm25",
+                              **(fact_metadata(row) if kind in FACT_KINDS else {})},
                 )
             )
         return results

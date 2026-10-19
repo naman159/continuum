@@ -99,7 +99,8 @@ def _names_lexically_close(
 
 class IntraExtractionDeduplicator:
     """Rewrites variant entity names within a single extraction to their canonical
-    (longest) form before any DB writes, using one focused LLM call per entity type."""
+    form before writes: an unambiguous established identity wins, otherwise a
+    model-nominated input name. Naming does not itself authorize reusable aliases."""
 
     def __init__(
         self,
@@ -110,11 +111,16 @@ class IntraExtractionDeduplicator:
         self.warnings: list[str] = []
         self._completion = completion_fn if completion_fn is not None else _load_completion()
         if use_mock is None:
-            self.use_mock = settings.use_mock_llm or self._completion is None
+            self.use_mock = settings.use_mock_llm
         else:
             self.use_mock = use_mock
+        if not self.use_mock and self._completion is None:
+            raise RuntimeError("Identity resolution requires LiteLLM; install the dependency or explicitly enable mock mode")
 
-    def deduplicate(self, extracted: dict[str, Any], chapter_text: str) -> dict[str, Any]:
+    def deduplicate(
+        self, extracted: dict[str, Any], chapter_text: str, *,
+        established_rosters: dict[str, list[dict[str, Any]]] | None = None,
+    ) -> dict[str, Any]:
         self.warnings.clear()
         result = copy.deepcopy(extracted)
         if self.use_mock:
@@ -141,11 +147,24 @@ class IntraExtractionDeduplicator:
             # in this extraction may participate, and the canonical form must be a
             # real input name (otherwise variants get renamed to invented strings).
             originals = {n.lower(): n for n in names}
+            memberships: dict[str, int] = {}
+            for group in groups:
+                for name in {n.strip().lower() for n in group['names'] if isinstance(n, str)}:
+                    memberships[name] = memberships.get(name, 0) + 1
+            identities: dict[str, dict[str, dict]] = {}
+            for row in (established_rosters or {}).get(entity_type, []):
+                for name in [row['name'], *(row.get('aliases') or [])]:
+                    identities.setdefault(normalize_name(name), {})[str(row['id'])] = row
+            owners: dict[str, set[str]] = {}
+            if entity_type == 'object':
+                for obj in raw_entities_by_type.get('object', []):
+                    if obj.get('owner_name'):
+                        owners.setdefault(normalize_name(obj['name']), set()).add(normalize_name(obj['owner_name']))
             type_map: dict[str, str] = {}
             for group in groups:
                 valid: list[str] = []
                 seen_keys: set[str] = set()
-                for raw in group:
+                for raw in group['names']:
                     if not isinstance(raw, str):
                         continue
                     key = raw.strip().lower()
@@ -154,7 +173,24 @@ class IntraExtractionDeduplicator:
                         valid.append(originals[key])
                 if len(valid) < 2:
                     continue
-                canonical = max(valid, key=len)
+                if any(memberships[n.lower()] > 1 or len(owners.get(normalize_name(n), set())) > 1 for n in valid):
+                    self.warnings.append(f'Ambiguous overlapping/owned {entity_type} names retained separately.')
+                    continue
+                known: dict[str, dict] = {}
+                for name in valid:
+                    known.update(identities.get(normalize_name(name), {}))
+                if len(known) > 1:
+                    self.warnings.append(f'Deduplication would join distinct established {entity_type} identities; group skipped.')
+                    continue
+                if known:
+                    canonical = next(iter(known.values()))['name']
+                else:
+                    preferred = group.get('canonical_name', '')
+                    key = preferred.strip().lower() if isinstance(preferred, str) else ''
+                    if key not in {n.lower() for n in valid}:
+                        self.warnings.append(f'Deduplication lacked a valid preferred {entity_type} name; group skipped.')
+                        continue
+                    canonical = originals[key]
                 for variant in valid:
                     if variant.lower() != canonical.lower():
                         type_map[variant.lower()] = canonical
@@ -162,7 +198,7 @@ class IntraExtractionDeduplicator:
 
         return _apply_rename_map(result, rename_map)
 
-    def _call_llm(self, *, entity_type: str, entities: list, chapter_text: str) -> list[list[str]]:
+    def _call_llm(self, *, entity_type: str, entities: list, chapter_text: str) -> list[dict[str, Any]]:
         if self._completion is None:
             return []
         system_prompt = build_intra_dedup_system_prompt(entity_type)
@@ -189,7 +225,14 @@ class IntraExtractionDeduplicator:
         if not isinstance(groups_raw, list):
             self.warnings.append(f"Deduplication returned an invalid response for {entity_type}; review extracted names.")
             return []
-        return [g.get("names", []) for g in groups_raw if isinstance(g, dict)]
+        groups = []
+        for group in groups_raw:
+            if (not isinstance(group, dict) or not isinstance(group.get('names'), list)
+                    or not isinstance(group.get('reasoning'), str) or not group['reasoning'].strip()):
+                self.warnings.append(f'Malformed deduplication group for {entity_type}; extracted names retained.')
+                continue
+            groups.append(group)
+        return groups
 
 
 def _apply_rename_map(
@@ -353,12 +396,24 @@ class EntityCanonicalizer:
         self.db = db
         self.novel_id = novel_id
         self.alias_updates: dict[tuple[str, str], list[str]] = {}
+        self._rosters: dict[str, list[dict[str, Any]]] = {}
         self.warnings: list[str] = []
         self._completion = completion_fn if completion_fn is not None else _load_completion()
         if use_mock is None:
-            self.use_mock = settings.use_mock_llm or self._completion is None
+            self.use_mock = settings.use_mock_llm
         else:
             self.use_mock = use_mock
+        if not self.use_mock and self._completion is None:
+            raise RuntimeError("Identity resolution requires LiteLLM; install the dependency or explicitly enable mock mode")
+
+    def load_rosters(self, entity_types) -> dict[str, list[dict[str, Any]]]:
+        """One prefix view shared by intra-dedup and cross-chapter matching."""
+        if self.use_mock:
+            return {}
+        for entity_type in entity_types:
+            if entity_type not in self._rosters:
+                self._rosters[entity_type] = self._load_roster(entity_type)
+        return {t: self._rosters[t] for t in entity_types}
 
     def canonicalize(
         self,
@@ -384,7 +439,7 @@ class EntityCanonicalizer:
         for entity_type, candidates in candidate_names_by_type.items():
             if not candidates:
                 continue
-            roster = self._load_roster(entity_type)
+            roster = self.load_rosters([entity_type])[entity_type]
             if not roster:
                 continue
             unresolved = self._filter_already_known(candidates, roster)

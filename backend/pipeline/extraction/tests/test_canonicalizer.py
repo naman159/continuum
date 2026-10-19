@@ -345,7 +345,7 @@ def test_intra_dedup_renames_character_variant():
         "relationship_updates": [],
         "dynamics_updates": [],
     }
-    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same person"}]})
+    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "canonical_name": 'Jane Bennet', "reasoning": "same person"}]})
     result = dedup.deduplicate(extracted, "Jane walked in. Jane Bennet smiled.")
     chars = [c["name"] for c in result["new_entities"]["characters"]]
     assert "Jane" not in chars
@@ -378,14 +378,14 @@ def test_intra_dedup_renames_state_delta_name_fields():
     def completion(**kwargs):
         user = kwargs["messages"][1]["content"]
         if "CHARACTER" in user:
-            return _make_completion({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})()
+            return _make_completion({"groups": [{"names": ["Jane", "Jane Bennet"], "canonical_name": 'Jane Bennet', "reasoning": "same"}]})()
         if "LOCATION" in user:
             return _make_completion(
-                {"groups": [{"names": ["Netherfield", "Netherfield Park"], "reasoning": "shorthand"}]}
+                {"groups": [{"names": ["Netherfield", "Netherfield Park"], "canonical_name": 'Netherfield Park', "reasoning": "shorthand"}]}
             )()
         if "OBJECT" in user:
             return _make_completion(
-                {"groups": [{"names": ["the One Ring", "the Ring"], "reasoning": "same object"}]}
+                {"groups": [{"names": ["the One Ring", "the Ring"], "canonical_name": 'the One Ring', "reasoning": "same object"}]}
             )()
         return _make_completion({"groups": []})()
 
@@ -422,7 +422,7 @@ def test_intra_dedup_renames_state_delta_object_mover():
         user = kwargs["messages"][1]["content"]
         if "OBJECT" in user:
             return _make_completion(
-                {"groups": [{"names": ["the silver dagger", "silver dagger"], "reasoning": "same object"}]}
+                {"groups": [{"names": ["the silver dagger", "silver dagger"], "canonical_name": 'the silver dagger', "reasoning": "same object"}]}
             )()
         return _make_completion({"groups": []})()
 
@@ -440,7 +440,7 @@ def test_intra_dedup_renames_location_variant():
         "relationship_updates": [],
         "dynamics_updates": [],
     }
-    dedup = _make_deduplicator({"groups": [{"names": ["Netherfield", "Netherfield Park"], "reasoning": "shorthand"}]})
+    dedup = _make_deduplicator({"groups": [{"names": ["Netherfield", "Netherfield Park"], "canonical_name": 'Netherfield Park', "reasoning": "shorthand"}]})
     result = dedup.deduplicate(extracted, "They arrived at Netherfield, also called Netherfield Park.")
     locs = [l["name"] for l in result["new_entities"]["locations"]]
     assert "Netherfield" not in locs
@@ -482,7 +482,7 @@ def test_intra_dedup_does_not_mutate_original():
         "relationship_updates": [],
         "dynamics_updates": [],
     }
-    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})
+    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "canonical_name": 'Jane Bennet', "reasoning": "same"}]})
     dedup.deduplicate(extracted, "Jane walked. Jane Bennet smiled.")
     # Original must be unchanged
     assert extracted["state_deltas"][0]["character_name"] == "Jane"
@@ -497,7 +497,7 @@ def test_intra_dedup_renames_relationship_and_dynamics():
         "relationship_updates": [{"entity_a": "Jane", "entity_b": "Mr. Bingley"}],
         "dynamics_updates": [{"entity_a": "Mr. Bingley", "entity_b": "Jane"}],
     }
-    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})
+    dedup = _make_deduplicator({"groups": [{"names": ["Jane", "Jane Bennet"], "canonical_name": 'Jane Bennet', "reasoning": "same"}]})
     result = dedup.deduplicate(extracted, "Jane, i.e. Jane Bennet, met Mr. Bingley.")
     assert result["relationship_updates"][0]["entity_a"] == "Jane Bennet"
     assert result["dynamics_updates"][0]["entity_b"] == "Jane Bennet"
@@ -523,8 +523,8 @@ def test_intra_dedup_renames_object_and_faction_variants():
         use_mock=False,
         completion_fn=_make_completion({
             "groups": [
-                {"names": ["the One Ring", "the Ring"], "reasoning": "same object"},
-                {"names": ["The Fellowship of the Ring", "The Fellowship"], "reasoning": "shorthand"},
+                {"names": ["the One Ring", "the Ring"], "canonical_name": 'the One Ring', "reasoning": "same object"},
+                {"names": ["The Fellowship of the Ring", "The Fellowship"], "canonical_name": 'The Fellowship of the Ring', "reasoning": "shorthand"},
             ]
         }),
     )
@@ -981,8 +981,8 @@ def test_intra_dedup_renames_scenes_learnings_and_event_factions():
     def completion(**kwargs):
         user = kwargs["messages"][1]["content"]
         if "CHARACTER" in user:
-            return _make_completion({"groups": [{"names": ["Jane", "Jane Bennet"], "reasoning": "same"}]})()
-        return _make_completion({"groups": [{"names": ["the Empire", "The Galactic Empire"], "reasoning": "shorthand"}]})()
+            return _make_completion({"groups": [{"names": ["Jane", "Jane Bennet"], "canonical_name": 'Jane Bennet', "reasoning": "same"}]})()
+        return _make_completion({"groups": [{"names": ["the Empire", "The Galactic Empire"], "canonical_name": 'The Galactic Empire', "reasoning": "shorthand"}]})()
 
     dedup = IntraExtractionDeduplicator(use_mock=False, completion_fn=completion)
     result = dedup.deduplicate(extracted, "Jane Bennet faced The Galactic Empire. Jane and the Empire.")
@@ -1007,7 +1007,7 @@ def test_intra_dedup_custom_entities_renamed_and_deduped():
         "dynamics_updates": [],
     }
     dedup = _make_deduplicator(
-        {"groups": [{"names": ["93rd Universe", "The 93rd Universe"], "reasoning": "same realm"}]}
+        {"groups": [{"names": ["93rd Universe", "The 93rd Universe"], "canonical_name": 'The 93rd Universe', "reasoning": "same realm"}]}
     )
     result = dedup.deduplicate(extracted, "They entered the 93rd Universe.")
     assert len(result["custom_entities"]) == 1
@@ -1027,7 +1027,7 @@ def test_intra_dedup_ignores_hallucinated_group_members():
     }
     # "Jane Bennet of Longbourn Estate" is not an input name — hallucinated.
     dedup = _make_deduplicator(
-        {"groups": [{"names": ["Jane", "Jane Bennet of Longbourn Estate"], "reasoning": "same"}]}
+        {"groups": [{"names": ["Jane", "Jane Bennet of Longbourn Estate"], "canonical_name": 'Jane Bennet of Longbourn Estate', "reasoning": "same"}]}
     )
     result = dedup.deduplicate(extracted, "Jane met Mr. Bingley.")
     chars = [c["name"] for c in result["new_entities"]["characters"]]

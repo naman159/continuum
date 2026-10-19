@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 
-from api.jobs import get_job, submit_job
+from api.jobs import JobQueueFull, NovelJobBusy, get_job, submit_job
 from api.schemas import JobStatusResponse, ProcessRequest
 from reads import novels as novels_reads
 from reads.db import get_db
@@ -25,13 +25,18 @@ def process_chapter(novel_id: UUID, body: ProcessRequest) -> dict:
     if novel is None:
         raise HTTPException(status_code=404, detail="Novel not found")
 
-    job_id = submit_job(
-        novel_id=str(novel_id),
-        chapter_number=body.number,
-        text=body.text,
-        replace=body.replace,
-        run_critic=body.run_critic,
-    )
+    try:
+        job_id = submit_job(
+            novel_id=str(novel_id),
+            chapter_number=body.number,
+            text=body.text,
+            replace=body.replace,
+            run_critic=body.run_critic,
+        )
+    except JobQueueFull as exc:
+        raise HTTPException(status_code=503, detail=str(exc), headers={'Retry-After': '30'}) from exc
+    except NovelJobBusy as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return {"job_id": job_id}
 
 

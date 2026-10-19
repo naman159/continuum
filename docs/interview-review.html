@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Continuum: interview scrutiny review</title><style>*{box-sizing:border-box}body{margin:0;background:#0f1117;color:#e6edf3;font:16px/1.7 system-ui,sans-serif}main{max-width:1180px;margin:auto;padding:36px 24px 90px}nav{display:flex;flex-wrap:wrap;gap:22px;border-bottom:1px solid #30363d;padding-bottom:18px}a{color:#79bcff}h1,h2,h3{line-height:1.3;scroll-margin-top:20px}h1{font-size:2.2rem;margin-top:36px}h2{margin-top:48px;border-bottom:1px solid #30363d;padding-bottom:12px}h3{margin-top:34px;color:#c1d7fa}p,li{max-width:100ch}code{font:0.88em ui-monospace,monospace;background:#21262d;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{overflow:auto;background:#161b22;padding:18px}table{display:block;overflow-x:auto;border-collapse:collapse;width:100%;font-size:14px;margin:24px 0}th,td{border:1px solid #30363d;text-align:left;padding:12px;vertical-align:top;min-width:130px}th{background:#21262d}td:first-child{min-width:110px}tr:nth-child(even){background:#161b22}strong{color:#fff}@media(max-width:600px){main{padding:20px 14px}h1{font-size:1.8rem}table{font-size:13px}}@media print{body{background:white;color:#111}a,h3,strong{color:#111}main{max-width:none;padding:0}table{display:table;font-size:10px}th,td{min-width:0;border-color:#aaa}nav{display:none}code,th,tr:nth-child(even){background:#eee}}</style></head><body><main><nav aria-label="Documentation"><a href="index.html">Documentation home</a><a href="interview-review.html">Review findings</a><a href="interview-decisions.html">75 decisions and questions</a><a href="interview-review.md">Markdown source</a></nav><h1>Continuum: interview scrutiny review</h1>
+<p>Reviewed October 18, 2026 against commit <code>626b82a</code> <strong>plus the existing uncommitted working tree</strong>, including structured-fact retrieval changes. This is a code and offline-behavior review, not a certification of model quality or production readiness. The follow-up implements the eight fixes below and adds focused regressions. Existing working-tree edits were preserved. Original line numbers/probe observations refer to the pre-fix tree; current behavior is described under each resolution.</p>
+<p>Companion: <a href="interview-decisions.html">decisions and interview questions</a>. Browser version: <a href="interview-review.html">interview review</a>.</p>
+<h2>Assessment</h2>
+<p>Continuum is defensible as a local data application that combines probabilistic extraction with relational integrity, temporal reads, and deterministic state replay. Its strongest engineering story is managing the consequences of imperfect extraction: resolving identities, preserving chapter history, isolating writes, exposing reviewable findings, and serving the same read contracts to humans and agents.</p>
+<p>Do not present it as a production service, a fully bitemporal database, a proven improvement to novel quality, or a checker that guarantees continuity. The eight identified defects are fixed and covered by offline regressions. Model coverage, scale, provenance, and deployment limits still require the evidence listed below.</p>
+<p>For a data application and tooling interview, prioritize data lineage, read consistency, idempotency, backfills, evaluation validity, operational failure, and the boundary between a model suggestion and an authoritative record. These are role-relevant preparation topics, not claims about this employer's interview rubric.</p>
+<h2>Validation performed</h2>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Backend Ruff</td>
+<td>Passed</td>
+</tr>
+<tr>
+<td>Full backend pytest suite</td>
+<td><strong>608 passed, 3 skipped</strong>, 13.18 seconds after fixes (initial review: 555 passed, 3 skipped)</td>
+</tr>
+<tr>
+<td>Skipped evaluations</td>
+<td>Real-provider evaluations gated by <code>RUN_LLM_EVALS</code>; no paid model calls were made</td>
+</tr>
+<tr>
+<td>Frontend ESLint</td>
+<td>Passed</td>
+</tr>
+<tr>
+<td>TypeScript type checking</td>
+<td>Passed</td>
+</tr>
+<tr>
+<td>Frontend production build</td>
+<td>Passed; graph dependency chunk approximately 750 kB before gzip, with a size warning</td>
+</tr>
+<tr>
+<td>Provider-output regressions</td>
+<td>Wrong schemas, truncated/refused claims, missing flags, fabricated quotes, missing SDKs, and explicit mock mode covered</td>
+</tr>
+<tr>
+<td>Summary/scoring regressions</td>
+<td>All-chunk summaries survive storage and embedding; one-to-one entity scoring rejects ambiguous/collapsed identities</td>
+</tr>
+<tr>
+<td>PostgreSQL regressions</td>
+<td>Historical cutoffs, supersession chains, repeated replay, prefix rebuild, suffix rewind and rollback, and historical critic behavior covered</td>
+</tr>
+<tr>
+<td>Admission regressions</td>
+<td>Atomic concurrent job limits, duplicate novel admission, failure cleanup, HTTP 503/409, and oversize text rejection covered</td>
+</tr>
+<tr>
+<td>MCP admission regressions</td>
+<td>Malformed/unresolved model claims are parked through the real save → pipeline → critic stack</td>
+</tr>
+</tbody>
+</table>
+<p>Database checks used a new disposable PostgreSQL 17 cluster with pgvector, on port 55439, with dotenv disabled and a separate <code>continuum_review</code> database. CI targets PostgreSQL 16; this run does not independently confirm that exact version. No manuscript database was used. One dependency warning concerned Starlette's deprecated httpx TestClient integration.</p>
+<p>The reviewed scope includes ingestion, persistence, history, replay/materialization, identity resolution, retrieval, critic rules and adapters, evaluation scoring, API jobs/admin operations, MCP integration, frontend result handling, schema/indexes, Compose, CI, and documentation. The full suite exercised more routes than were manually inspected. This was not a browser usability audit, penetration test, load test, or live-provider quality evaluation.</p>
+<h2>Findings and resolutions</h2>
+<p>P1 identifies a core correctness/admission defect; P2 identifies a narrower correctness, measurement, or reliability defect. All eight resolutions below are implemented and offline-verified. This does not certify statistical model quality.</p>
+<h3>R1 — P1 — Fixed: preserve knowledge history through supersession</h3>
+<p><strong>Original failure:</strong> learning the cedar password in chapter 1 and replacing it with willow in chapter 3 removed cedar from chapter-1 snapshots during full replay. Replay filtered assertions by their current <code>superseded_by_id IS NULL</code> status.</p>
+<p><strong>Implemented:</strong> <code>state/replay.py</code> now replays acquisitions and explicit expiration events. A superseded assertion expires at the replacement assertion's <code>learned_chapter</code>; it remains visible before that chapter. Active knowledge is tracked by assertion ID, so expiring one row does not accidentally remove an independent assertion with identical text. Acquisitions precede expiration at the same chapter, supporting same-chapter replacement chains.</p>
+<p><strong>Chosen semantics:</strong> supersession replaces an active belief from the replacement's chapter onward. It does not retroactively erase a belief, and it does not represent undated forgetting or a transaction-time audit correction. Historical acquisition facts remain stored.</p>
+<p><strong>Related rewind repair:</strong> chapter deletion clears incoming supersession pointers before deleting replacement assertions, in the coordinator's transaction. Otherwise the self-reference FK prevents suffix rewind. Rolling back restores the links and chapters.</p>
+<p><strong>Evidence:</strong> <code>pipeline/state/tests/test_knowledge_history.py</code> compares snapshots with shared knowledge reads at cutoffs 1, 2, and 3; repeats replay; rebuilds a prefix; checks same-chapter chains and duplicate text; verifies suffix deletion and transactional rollback.</p>
+<h3>R2 — P2 — Fixed: critique knowledge at the checked chapter</h3>
+<p><strong>Original failure:</strong> after the chapter-3 replacement, re-critiquing chapter 2 falsely failed a valid cedar-password claim because the rule selected only assertions still active today.</p>
+<p><strong>Implemented:</strong> <code>critic/checks/knowledge_state_check.py</code> selects knowledge learned before the checked chapter and excludes it only if its replacement was also learned before that chapter. The boundary matches shared cutoff reads: the checked draft enters with chapter N−1 state.</p>
+<p><strong>Evidence:</strong> the historical-knowledge regression checks the chapter-2 verdict before and after chapter-3 supersession; it remains unchanged. Missing learning flags no longer receive an in-chapter-learning exemption in the low-level rule, and the provider adapter requires a real boolean.</p>
+<h3>R3 — P1 — Fixed: validate every extraction pass before normalization</h3>
+<p><strong>Original failure:</strong> any nonempty JSON object, including <code>{&quot;unexpected&quot;: true}</code>, counted as successful model output. Missing fields were normalized into empty findings.</p>
+<p><strong>Implemented:</strong> <code>extraction/validation.py</code> defines strict Pydantic contracts for all 13 passes, including nested records, required keys, enums, nullable values, numeric ranges, kind-dependent delta fields, and registered custom types. Unknown fields are rejected. Empty finding lists remain valid; required summaries and identity fields must be nonblank. The extractor validates before composition/normalization and retries only the unusable pass, at most three output attempts. Diagnostics report field paths/error types instead of raw input values.</p>
+<p><strong>Tradeoff:</strong> a model response that previously limped through normalization may now fail ingestion; that is intentional. Transport retries retain their separate bounded budget. Contracts follow the prompt schema and must be updated together when adding fields.</p>
+<p><strong>Evidence:</strong> <code>extraction/tests/test_output_contracts.py</code> checks all pass envelopes, nested malformed records, invalid enums/conditional fields, custom registration, bounded repair retries, and privacy of diagnostics. Its real-database scenario confirms an invalid required pass leaves the existing novel's chapters/entities unchanged.</p>
+<h3>R4 — P1 — Fixed: incomplete critic output cannot masquerade as a clean verdict</h3>
+<p><strong>Original failure:</strong> parseable truncated output and claim dictionaries missing all meaningful fields were accepted; unresolved references disappeared; an omitted learning boolean could bypass the knowledge rule.</p>
+<p><strong>Implemented:</strong> <code>critic/validation.py</code> validates every claim shape, requires the learning boolean, and verifies nonempty claim quotes are verbatim substrings of the draft. The adapter rejects truncated, filtered, and refused responses and correctly reads text-block responses. It reports unresolved references and extracted/resolved/unresolved/event counts.</p>
+<p><strong>Admission policy:</strong> unresolved entity references produce <code>status=&quot;unreviewable&quot;</code>, a resolution warning, and a report that cannot pass. MCP writes park these drafts for human review; human ingestion can still save with explicit findings. Legitimately new characters therefore may require human approval for agent submissions. Malformed output is an error and is also parked by the existing blocking policy. Valid all-empty claim lists remain supported and expose zero coverage; a zero-claim result is not proof that the model found every checkable assertion.</p>
+<p><strong>Visibility:</strong> coverage is returned by <code>check_continuity</code>, included in critique summaries, and saved with parked findings. Unreviewable historical re-critiques do not overwrite an existing completed report.</p>
+<p><strong>Evidence:</strong> critic contract tests cover malformed items, omitted flags, fabricated evidence, truncation/refusal, text blocks, zero claims, coverage, and unreviewable reports. <code>mcp_server/tests/test_save_chapter_e2e.py</code> sends fake provider output through the real MCP → pipeline → critic stack and confirms malformed/unresolved claims produce no canon chapter and preserve the text in the review queue.</p>
+<h3>R5 — P2 — Fixed: whole-chapter summaries retain every chunk</h3>
+<p><strong>Original failure:</strong> multi-summary merging chose the last chunk's nonempty value for each granularity. The ordinary merge-level summary combined chunks, but persistence later replaced the stored <code>chapters.summary</code> with the selected medium summary and embedded it; the earlier review understated this stored-summary impact.</p>
+<p><strong>Implemented:</strong> all three summary granularities concatenate distinct nonempty chunk summaries in narrative order. The stored medium summary and chapter vector therefore use the assembled representation. No extra synthesis model call is added.</p>
+<p><strong>Tradeoff:</strong> summary length grows with the number of chunks; “short/medium/long” describes per-chunk granularity, not a fixed whole-chapter token cap. Concatenation cannot recover content the model omitted within a chunk. Very long embedding inputs still need a measured budgeting strategy.</p>
+<p><strong>Evidence:</strong> summary regressions preserve beginning/middle/end content and verify the actual stored <code>chapters.summary</code> and embedding input retain early and late chunks. No real-vector relevance improvement is claimed.</p>
+<h3>R6 — P2 — Fixed: mock mode requires explicit selection</h3>
+<p><strong>Original failure:</strong> an unavailable provider loader implicitly enabled mock extraction/hash embeddings even when mock configuration was false.</p>
+<p><strong>Implemented:</strong> extractor, both identity-resolution stages, embedder, and critic claim adapter select mock behavior only from configuration or an explicit argument. Missing SDK callables with real mode selected raise actionable errors. Explicit mock mode remains deterministic/offline, and mock vectors retain <code>mock:hash</code> provenance.</p>
+<p><strong>Evidence:</strong> loader-failure tests with mock disabled assert errors across these paths; explicit mock extraction/embedding remains usable without provider callables. No runtime fallback to synthetic data is added.</p>
+<h3>R7 — P2 — Fixed: entity coverage uses one-to-one matching</h3>
+<p><strong>Original failure:</strong> one predicted “Aria” satisfied both “Aria North” and “Aria South,” yielding perfect precision/recall.</p>
+<p><strong>Implemented:</strong> <code>evals/scoring.py::score_entities</code> prioritizes exact names and optional curated aliases, allows partial names only at word boundaries when unambiguous, and assigns each prediction to at most one expected identity. Ambiguous predictions are reported and receive no credit; unmatched duplicates reduce precision.</p>
+<p><strong>Tradeoff:</strong> ambiguous shorthand is conservatively uncredited unless disambiguated by a curated alias. Possession/knowledge scoring still has separate matching heuristics; this fix concerns entity coverage.</p>
+<p><strong>Evidence:</strong> tests cover shared first names, duplicate predictions, an unrelated substring (“Ann”/“Joanne”), curated disambiguation, and the existing unambiguous partial-name case.</p>
+<h3>R8 — P2 — Fixed for local scope: bound processing admission</h3>
+<p><strong>Original failure:</strong> two worker threads limited execution but accepted an unlimited pending text backlog.</p>
+<p><strong>Implemented:</strong> <code>api/jobs.py</code> reserves jobs atomically before tokenization or executor submission. At most <strong>8 jobs are active per process</strong>, including two workers and queued work; only one job per novel can be queued/running in that process. Process submissions accept at most <strong>500,000 characters</strong>. Queue saturation returns <strong>503</strong> with <code>Retry-After: 30</code>; a duplicate novel job returns <strong>409</strong>; oversized API text returns <strong>422</strong>. Executor rejection discards the reservation, and processing success/error releases active capacity by completing the job record.</p>
+<p><strong>Evidence:</strong> concurrent admission tests prove the capacity bound, and tests cover duplicate novel admission, success/error capacity release, executor rejection, API error contracts, and oversized input before submission.</p>
+<p><strong>Remaining boundary:</strong> jobs are still in memory and process-local. Restart loses job status; multiple API workers do not share reservations or polling records. The database novel lock still protects write integrity across processes. Use one API process for this local app; a shared service needs durable job state and distributed admission. These pre-existing deployment limitations are not claimed fixed by a bounded local queue.</p>
+<h2>Applying the fixes to existing data</h2>
+<p>The code changes do not rewrite saved manuscripts or call paid providers automatically. Restart the API/MCP processes to load them.</p>
+<p>For a novel with superseded knowledge, rebuild its derived projections from recorded assertions (no LLM calls), from <code>backend/</code>:</p>
+<pre><code class="language-bash">uv run python -m pipeline.state.cli --novel-id NOVEL_ID
+</code></pre>
+<p>Do not pass an earlier <code>--through-chapter</code> when repairing the full novel: that option intentionally truncates later projections. Re-run historical critiques if previous false findings matter; critiques require real model calls. Existing incomplete extraction or last-chunk summaries require chapter reprocessing to repair, which reprocesses the suffix and incurs normal provider costs. Existing fidelity numbers should be re-measured with the stricter scorer. No user database was modified during this work.</p>
+<h2>Naman review items: also addressed</h2>
+<ul>
+<li><strong>Canonical naming:</strong> replaced the length heuristic with an established-identity-first, validated model-nomination policy. Conflicting established identities, generic overlap, and conflicting owners abstain. Structured-reference rewriting and all built-in entity types are tested. Contextual renaming still does not itself authorize persistent aliases.</li>
+<li><strong>History terminology:</strong> schema version 6 migrates the saved domain-record history in place to <code>story_record_versions</code> / <code>story_record_history</code>, with <code>story_records_at</code> and renamed Python helpers in <code>pipeline.db.story_records</code>. The migration preserves baselines, full row payloads, and deletion tombstones; idempotent upgrade and historical lookup are tested. Run <code>novel-pipeline init-db</code> before updated processes start; no manuscript database was migrated during this work.</li>
+<li><strong>Snapshot duplication:</strong> implemented a status-only benchmark prototype and checked every historical location/knowledge row in two synthetic cases. Row storage dropped roughly 87–89%; history reads were slower, and no rebuild advantage was demonstrated. Retain the current derived fields, with the experiment's scope and alternative query complexity documented. Failure injection now verifies all projection tables and checkpoint roll back together.</li>
+</ul>
+<p>See <a href="../naman-review.md">Naman review resolution</a>, <a href="snapshot-design.html">snapshot comparison</a>, and <a href="snapshot-comparison.json">raw results</a>. The decision log now contains 75 entries.</p>
+<h2>Existing issues and open investigations</h2>
+<p>These are not all newly discovered defects, and several are deliberate limitations.</p>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Observation / question</th>
+<th>Next evidence to collect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Canonical naming quality</td>
+<td>The length rule is removed; validated model nominations and established-identity guards are covered by regressions. The model can still misidentify new referents.</td>
+<td>Real-provider false-merge/name-choice rates across genres, including generic descriptions.</td>
+</tr>
+<tr>
+<td>Cross-type identity</td>
+<td>Per-type resolution can file one referent under multiple entity types.</td>
+<td>Cross-type diagnostic on more genres; review type correction vs identity merge policy.</td>
+</tr>
+<tr>
+<td>Overlapping chunks</td>
+<td>State deltas concatenate in chunk order without source-span identity. Repeated overlap can produce repeated intermediate movement/possession history.</td>
+<td>A scene that gains then loses an item inside an overlap; compare extracted spans, replay order, final state, and intervals. Not reproduced in this review.</td>
+</tr>
+<tr>
+<td>Read consistency</td>
+<td>Atomic replacement commits all writes together, but a response assembled by separate pooled queries can straddle that commit. Hybrid retrieval uses multiple concurrent queries.</td>
+<td>Force a replacement commit between constituent reads and check for mixed old/new results. Consider one read snapshot or a novel revision token.</td>
+</tr>
+<tr>
+<td>Projection freshness</td>
+<td>Appends commit source data before projection rebuilding; failure leaves stale state until repair. Result flags expose this and next append checks the horizon.</td>
+<td>Read behavior during failed rebuild; persistent freshness indicators and explicit repair UX.</td>
+</tr>
+<tr>
+<td>Context budget</td>
+<td>Character/location rosters are capped; open threads/custom entity collections are not uniformly bounded. Mentioned entities beyond the cap can still be dropped.</td>
+<td>Token-size and latency distribution for long novels; recall when relevant identities fall outside selected context.</td>
+</tr>
+<tr>
+<td>Snapshot semantics</td>
+<td>Emotional state is deliberately not carried forward, unlike goals/location/condition; tests document this. Notes also do not carry in snapshot construction.</td>
+<td>Decide and document the product meaning of transient emotions and notes. Do not call emotional reset an accidental bug.</td>
+</tr>
+<tr>
+<td>Time model</td>
+<td>Chapter ordering is primary; within-chapter intervals can overlap, while flashbacks and world chronology require more than chapter numbers.</td>
+<td>Explain acquisition time vs story-event time vs correction time; add scene ordinals only if product needs them.</td>
+</tr>
+<tr>
+<td>Search scale</td>
+<td>Structured facts reconstruct history and compute text vectors in the query. This can prevent direct reuse of current-table indexes.</td>
+<td><code>EXPLAIN (ANALYZE, BUFFERS)</code> on realistic chapter/novel sizes and restrictive cutoffs; recall under HNSW filtering.</td>
+</tr>
+<tr>
+<td>Materialization scale</td>
+<td>Full-novel replay and delete/reinsert occur after each append. Total ingestion work can grow quadratically with chapter count if per-chapter facts remain comparable.</td>
+<td>Measure replay rows, wall time, writes, and DB size for 10/100/1000 chapters before incremental checkpoints.</td>
+</tr>
+<tr>
+<td>Long transactions</td>
+<td>Embedding network calls run while a persistence transaction is open; suffix replacement also holds a transaction across model calls.</td>
+<td>Transaction duration, connection use, retries, rollback cost, and dead tuple/vacuum impact.</td>
+</tr>
+<tr>
+<td>Recovery/retry</td>
+<td>Duplicate chapter admission is rejected; there is no end-to-end request idempotency token for a client retry after a lost response.</td>
+<td>Simulate commit followed by network loss; define status/reconciliation behavior before automatic retry.</td>
+</tr>
+<tr>
+<td>Rule quality</td>
+<td>Knowledge overlap is lexical, canon equality is normalized strings, unresolved references can disappear, and possession/payoff findings are warnings.</td>
+<td>Negations, synonyms, ambiguous aliases, in-chapter learning/transfer, and human-labeled precision/recall.</td>
+</tr>
+<tr>
+<td>Lineage</td>
+<td>Some evidence fields exist, but state-delta persistence does not preserve the extracted <code>quote</code> or attach an <code>event_id</code>.</td>
+<td>Trace a displayed state value back to the exact source span, extraction run/model/prompt, and resolution decision.</td>
+</tr>
+<tr>
+<td>Access control</td>
+<td>No auth, ownership, quotas, or tenant isolation policy. Compose binds the UI to localhost.</td>
+<td>Keep local scope explicit; shared deployment needs authentication and authorization on every novel/job/tool operation.</td>
+</tr>
+<tr>
+<td>Metrics</td>
+<td>No verified per-chapter token/dollar/latency accounting or broad held-out model-quality evidence in this run.</td>
+<td>Repeated real-provider runs with model/prompt versions, cost and latency, baselines, and error examples.</td>
+</tr>
+<tr>
+<td>Frontend performance</td>
+<td>Build flags a large graph library chunk; it is already split separately.</td>
+<td>Measure actual graph route load and interaction on representative networks; chunk size alone is not a user-latency benchmark.</td>
+</tr>
+</tbody>
+</table>
+<h2>Claims to use carefully</h2>
+<ul>
+<li><strong>“Hybrid retrieval”</strong> is accurate: lexical full-text retrieval plus cosine-vector retrieval, RRF, then optional MMR. <strong>“BM25”</strong> is not the implemented ranker: <code>ts_rank_cd</code> supplies PostgreSQL cover-density ranking.</li>
+<li><strong>“Deterministic replay”</strong> applies to a fixed set of stored assertions and replay semantics. Re-extracting prose is nondeterministic. R1 now preserves supersession at the replacement chapter; this is belief-validity history, not a full immutable audit log.</li>
+<li><strong>“Atomic replacement”</strong> is supported by an enclosing transaction. <strong>“Every read response is snapshot-consistent”</strong> is a separate claim that needs validation.</li>
+<li><strong>“Event-sourcing-inspired state”</strong> is defensible. <strong>“A complete immutable event-sourced system”</strong> overstates it: metadata is mutable/versioned by chapter, merges repair earlier identities, and not every edit has independent immutable provenance.</li>
+<li><strong>“Chapter-aware history”</strong> is accurate with documented migration baselines. <strong>“Fully bitemporal”</strong> requires independently queryable valid-time and transaction-time semantics, which this design does not generally provide.</li>
+<li><strong>“Agent writes require a critic verdict”</strong> describes the policy. <strong>“A passing verdict proves continuity”</strong> overstates extraction coverage and heuristic checks; see R4.</li>
+<li><strong>“608 offline tests passed on the fixed working tree”</strong> is established. <strong>“The model is accurate”</strong>, a production SLA, a user adoption claim, or a particular relevance score is not established by this run.</li>
+<li>The offline metric named <code>bm25_recall_at_k</code> still includes hash-vector noise and uses PostgreSQL FTS. Describe it as an <strong>offline retrieval regression</strong>, not a pure BM25 baseline or real hybrid quality measurement. Older blog counts, five-check descriptions, and six-list search descriptions predate the current implementation; use code and fresh run evidence.</li>
+</ul>
+<h2>Recommended next steps</h2>
+<ol>
+<li>Review the new regressions and the companion decision log so you can explain the failure, invariant, chosen fix, and tradeoff.</li>
+<li>Repair existing derived state with the replay command above if your novel contains superseded knowledge. Reprocessing manuscripts is a separate, paid action.</li>
+<li>Run a small real-provider evaluation on a held-out manuscript with shared names, changed beliefs, long chapters, and contradictory facts. Include lexical-only, dense-only, fusion, and MMR comparisons; record cost/latency and error examples.</li>
+<li>Investigate source-span identity for overlap, response snapshot consistency, and query/replay scale before expanding infrastructure.</li>
+<li>Keep the single-process, trusted-local deployment boundary explicit until durable jobs, access control, and operational recovery are implemented.</li>
+</ol>
+<p>The eight concrete defects are resolved in code and offline regressions. The open investigations above remain open; a schema-valid model response can still be incomplete or factually wrong.</p>
+</main></body></html>

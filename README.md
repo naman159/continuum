@@ -241,9 +241,11 @@ only through chapter N−1. A typical workflow is to look up characters, open
 threads, and unresolved commitments, draft a chapter, call `check_continuity`,
 revise, and call `save_chapter`.
 
-`save_chapter` runs its own continuity check. Failing drafts go to the wiki's
-**Review** page for a human decision; a missing or unavailable critic refuses
-the write. The CLI and Process page save chapters with findings for the user
+`save_chapter` runs its own continuity check. Failing drafts and drafts with
+unresolved entity claims go to the wiki's **Review** page for a human decision;
+a missing or unavailable critic refuses the write. Unresolved claims are marked
+`unreviewable`, with coverage counts; new characters may require human approval.
+A passing report still cannot guarantee that the model found every claim. The CLI and Process page save chapters with findings for the user
 to review. See the [MCP reference](docs/reference.html#mcp-server) for tool details.
 
 ## How it works
@@ -279,10 +281,20 @@ deterministic; extracting again from prose can produce different results.
 
 ## Limitations and upgrades
 
+Schema version 6 renames chapter-version storage to `story_record_versions` and
+`story_record_history`. Stop processing and run `uv run novel-pipeline init-db`
+from `backend/` before starting updated code. Saved versions and tombstones are
+preserved in place; Docker startup applies this upgrade automatically.
+
+
 - Entity resolution can create duplicates across different entity types. The
   wiki supports inspecting and merging them, but ingestion does not prevent all
   such duplicates.
-- Processing-job status is held in memory and does not survive a server restart.
+- Processing jobs run in one API process with at most eight active jobs (two workers),
+  one queued/running job per novel, and a 500,000-character Process input limit.
+  A full queue returns HTTP 503; duplicate novel work returns 409. Job status is
+  held in memory and does not survive a server restart or support shared polling
+  across multiple API workers.
 - Changing embedding dimensions requires a fresh database and re-embedding;
   `init-db` rejects incompatible existing vector columns.
 - After upgrading, stop chapter processing and run `uv run novel-pipeline init-db`

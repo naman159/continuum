@@ -82,3 +82,68 @@ def test_job_store_thread_safety():
     assert errors == []
     record = store.get(job_id)
     assert record.passes_done == 100  # 10 threads × 10 increments
+
+
+def test_pending_admission_is_atomic_bounded_and_released():
+    from api.jobs import JobStore, JobQueueFull
+    store = JobStore(max_active=3)
+    barrier = threading.Barrier(10)
+    accepted, rejected = [], []
+    def reserve():
+        barrier.wait()
+        try:
+            accepted.append(store.create(total_passes=0))
+        except JobQueueFull:
+            rejected.append(True)
+    threads = [threading.Thread(target=reserve) for _ in range(10)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(accepted) == 3 and len(rejected) == 7
+    store.mark_done(accepted[0], {})
+    store.mark_error(accepted[1], 'failed')
+    store.create(total_passes=0)
+    store.create(total_passes=0)
+
+
+def test_novel_reservation_blocks_duplicate_until_completion():
+    import pytest
+    from api.jobs import JobStore, NovelJobBusy
+    store = JobStore()
+    job = store.create(total_passes=0, novel_id='novel')
+    with pytest.raises(NovelJobBusy):
+        store.create(total_passes=0, novel_id='novel')
+    store.mark_error(job, 'failed')
+    assert store.create(total_passes=0, novel_id='novel')
+
+
+def test_executor_rejection_releases_reservation(monkeypatch):
+    import pytest
+    from api import jobs
+    store = jobs.JobStore(max_active=1)
+    monkeypatch.setattr(jobs, '_job_store', store)
+    class Reject:
+        def submit(self, fn):
+            raise RuntimeError('executor stopped')
+    monkeypatch.setattr(jobs, '_executor', Reject())
+    with pytest.raises(RuntimeError, match='executor stopped'):
+        jobs.submit_job(novel_id='n', chapter_number=1, text='Story.')
+    assert store.create(total_passes=0, novel_id='n')
+
+
+def test_processing_failure_releases_capacity(monkeypatch):
+    from api import jobs
+    from pipeline import pipeline
+    store = jobs.JobStore(max_active=1)
+    monkeypatch.setattr(jobs, '_job_store', store)
+    class Inline:
+        def submit(self, fn):
+            fn()
+    monkeypatch.setattr(jobs, '_executor', Inline())
+    def fail(**kw):
+        raise RuntimeError('provider failed')
+    monkeypatch.setattr(pipeline, 'analyze_chapter', fail)
+    job = jobs.submit_job(novel_id='n', chapter_number=1, text='Story.')
+    assert store.get(job).status == 'error'
+    assert store.create(total_passes=0, novel_id='n')

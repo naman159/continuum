@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from reads import search as search_reads
 
 
 @dataclass
 class _R:
+    item_id: str = "record-1"
+    metadata: dict = field(default_factory=dict)
     kind: str = "chapter"
     chapter_number: int = 1
     score: float = 0.9

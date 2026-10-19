@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from pipeline.db.history import metadata_table
+from pipeline.db.story_records import story_record_table
 
 from reads.common import resolve_cutoff_and_uncapped
 
@@ -33,7 +33,7 @@ def list_threads(
                  WHEN pt.status = 'closed' THEN 'progressing'
                  ELSE pt.status
                END AS status_at_cutoff
-          FROM {metadata_table('plot_threads', novel_id, cutoff)} pt
+          FROM {story_record_table('plot_threads', novel_id, cutoff)} pt
          WHERE pt.novel_id = %(novel_id)s
            AND (pt.opened_chapter IS NULL OR pt.opened_chapter <= %(cutoff)s)
          ORDER BY pt.opened_chapter NULLS LAST, pt.title

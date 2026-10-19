@@ -68,3 +68,19 @@ def test_recall_at_k():
     assert recall_at_k([1], [3, 1, 2], k=2) == 1.0
     assert recall_at_k([1], [3, 2, 1], k=2) == 0.0
     assert recall_at_k([1, 2], [1, 5, 6], k=3) == 0.5
+
+
+def test_entity_coverage_rejects_ambiguous_and_duplicate_predictions():
+    collapsed = score_entities(['Aria North', 'Aria South'], ['Aria'])
+    assert collapsed['recall'] == 0
+    assert collapsed['ambiguous'] == ['aria']
+    duplicated = score_entities(['Aria North'], ['Aria North', 'Aria'])
+    assert duplicated['precision'] == 0.5
+    assert duplicated['recall'] == 1
+    assert score_entities(['Ann'], ['Joanne'])['recall'] == 0
+
+
+def test_curated_alias_disambiguates_shared_first_names():
+    result = score_entities(['Aria North', 'Aria South'], ['Aria', 'Aria South'],
+                            aliases={'Aria North': ['Aria']})
+    assert result['recall'] == result['precision'] == 1

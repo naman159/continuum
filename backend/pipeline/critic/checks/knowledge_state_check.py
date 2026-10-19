@@ -53,12 +53,15 @@ def check_knowledge_state(
     rows = db.fetchall(
         """
         SELECT character_id, fact_description, learned_chapter, source_type
-          FROM knows_edges
+          FROM knows_edges k
          WHERE character_id = ANY(%s::uuid[])
            AND learned_chapter < %s
-           AND superseded_by_id IS NULL
+           AND NOT EXISTS (
+               SELECT 1 FROM knows_edges newer
+                WHERE newer.id = k.superseded_by_id AND newer.learned_chapter < %s
+           )
         """,
-        (char_ids, chapter_number),
+        (char_ids, chapter_number, chapter_number),
         dict_rows=True,
     )
     known: dict[str, set[str]] = {}
@@ -77,7 +80,7 @@ def check_knowledge_state(
         # acquires this fact within this draft, regardless of source_type —
         # inference/assumed are valid ways to learn something too, and gating
         # the exemption on a source_type allowlist FAILed those spuriously.
-        if k.get("learned_this_chapter", True):
+        if k.get("learned_this_chapter") is True:
             continue
         # Otherwise the character must already know the fact.
         if not _fact_is_known(fact, known.get(cid, set())):

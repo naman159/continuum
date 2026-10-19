@@ -248,7 +248,7 @@ class EntityGraph(BaseModel):
 
 class ProcessRequest(BaseModel):
     number: int = Field(ge=1)
-    text: str
+    text: str = Field(max_length=500_000)
     replace: bool = False
     # None defers to CRITIC_ENABLED. This human-facing endpoint records a
     # pre-ingest critique without blocking on its verdict. A skipped review
@@ -420,9 +420,11 @@ class EntityMergeRequest(BaseModel):
 
 class SearchResultRow(BaseModel):
     kind: str
+    item_id: str | None = None
     chapter_number: int | None = None
     score: float
     snippet: str | None = None
+    record: dict[str, Any] | None = None
 
 
 class SearchResults(BaseModel):

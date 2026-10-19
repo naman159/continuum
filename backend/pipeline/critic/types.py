@@ -30,6 +30,8 @@ class CritiqueReport:
     novel_id: str
     chapter_number: int
     findings: list[Finding] = field(default_factory=list)
+    coverage: dict[str, int] = field(default_factory=dict)
+    reviewable: bool = True
 
     @property
     def fails(self) -> list[Finding]:
@@ -41,7 +43,7 @@ class CritiqueReport:
 
     @property
     def passed(self) -> bool:
-        return len(self.fails) == 0
+        return self.reviewable and len(self.fails) == 0
 
     def by_check(self) -> dict[str, list[Finding]]:
         out: dict[str, list[Finding]] = {}
@@ -58,6 +60,8 @@ class CritiqueReport:
             "fails": len(self.fails),
             "warns": len(self.warns),
             "by_check": {k: len(v) for k, v in self.by_check().items()},
+            "coverage": dict(self.coverage),
+            "reviewable": self.reviewable,
         }
 
 
@@ -80,6 +84,8 @@ class DraftChapter:
     possession_claims: list[dict[str, Any]] = field(default_factory=list)
     # Events extracted from the draft (used for commitment checks)
     events: list[dict[str, Any]] = field(default_factory=list)
+    unresolved_claims: list[dict[str, str]] = field(default_factory=list)
+    claim_counts: dict[str, int] = field(default_factory=dict)
 
 
 def normalize_text(text: str) -> str:

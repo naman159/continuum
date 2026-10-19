@@ -44,6 +44,19 @@ def delete_chapter_data(db: DBClient, *, novel_id: str, chapter_number: int) -> 
     Number-keyed assertions need explicit deletion. The coordinator then restores
     versioned entity/canon/thread metadata and rebuilds all dependent chapters.
     """
+    # A suffix rewind restores older beliefs when their replacements vanish.
+    # Clear incoming supersession links in the same transaction before deleting
+    # number-keyed assertions (their self-FK otherwise prevents the rewind).
+    db.execute(
+        """
+        UPDATE knows_edges SET superseded_by_id = NULL
+         WHERE superseded_by_id IN (
+             SELECT k.id FROM knows_edges k JOIN characters c ON c.id = k.character_id
+              WHERE c.novel_id = %s AND k.learned_chapter = %s
+         )
+        """,
+        (novel_id, chapter_number),
+    )
     # knows_edges has no chapter FK — keyed by learned_chapter int.
     db.execute(
         """

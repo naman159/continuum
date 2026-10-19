@@ -107,3 +107,24 @@ def test_process_accepts_replace_flag(monkeypatch):
         )
     assert response.status_code == 202
     assert captured["replace"] is True
+
+
+def test_queue_saturation_is_503_with_retry_and_duplicate_novel_is_409():
+    from api.jobs import JobQueueFull, NovelJobBusy
+    novel_id = _novel_id()
+    for error, expected in [(JobQueueFull('Full'), 503), (NovelJobBusy('Busy'), 409)]:
+        with patch('api.routes.process.novels_reads.get_novel', return_value=_fake_novel(novel_id)), \
+             patch('api.routes.process.submit_job', side_effect=error):
+            response = client.post(f'/api/novels/{novel_id}/chapters/process', json={'number': 1, 'text': 'Story.'})
+        assert response.status_code == expected
+        if expected == 503:
+            assert response.headers['retry-after'] == '30'
+
+
+def test_oversize_chapter_is_rejected_before_submission():
+    from api.jobs import MAX_CHAPTER_CHARACTERS
+    with patch('api.routes.process.submit_job') as submit:
+        response = client.post(f'/api/novels/{_novel_id()}/chapters/process',
+                               json={'number': 1, 'text': 'x' * (MAX_CHAPTER_CHARACTERS + 1)})
+    assert response.status_code == 422
+    submit.assert_not_called()

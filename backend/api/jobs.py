@@ -7,9 +7,23 @@ from dataclasses import dataclass
 from typing import Any
 
 
+# Local single-process admission: two workers plus six waiting jobs.
+MAX_ACTIVE_JOBS = 8
+MAX_CHAPTER_CHARACTERS = 500_000
+
+
+class JobQueueFull(RuntimeError):
+    pass
+
+
+class NovelJobBusy(RuntimeError):
+    pass
+
+
 @dataclass
 class JobRecord:
     job_id: str
+    novel_id: str | None = None
     status: str = "pending"  # pending | running | done | error
     current_pass: str | None = None
     passes_done: int = 0
@@ -42,17 +56,33 @@ class JobStore:
     # Finished jobs kept around for status polling; oldest are evicted past this.
     _MAX_FINISHED = 50
 
-    def __init__(self) -> None:
+    def __init__(self, max_active: int = MAX_ACTIVE_JOBS) -> None:
+        self._max_active = max_active
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.Lock()
 
-    def create(self, *, total_passes: int) -> str:
+    def create(self, *, total_passes: int, novel_id: str | None = None) -> str:
         job_id = str(uuid.uuid4())
-        record = JobRecord(job_id=job_id, total_passes=total_passes)
+        record = JobRecord(job_id=job_id, total_passes=total_passes, novel_id=novel_id)
         with self._lock:
+            active = [r for r in self._jobs.values() if r.status in ('pending', 'running')]
+            if novel_id is not None and any(r.novel_id == novel_id for r in active):
+                raise NovelJobBusy('This novel already has a queued or running processing job')
+            if len(active) >= self._max_active:
+                raise JobQueueFull('Processing queue is full; retry after an active job finishes')
             self._evict_finished_locked()
             self._jobs[job_id] = record
         return job_id
+
+    def discard(self, job_id: str) -> None:
+        with self._lock:
+            self._jobs.pop(job_id, None)
+
+    def start(self, job_id: str, *, total_passes: int) -> None:
+        with self._lock:
+            record = self._jobs[job_id]
+            record.status = 'running'
+            record.total_passes = total_passes
 
     def get(self, job_id: str) -> JobRecord | None:
         with self._lock:
@@ -99,18 +129,19 @@ def submit_job(
     from pipeline.extraction.prompts import PASS_ORDER
     from pipeline.pipeline import analyze_chapter
 
-    chunks = sliding_window_chunks(
-        text, chunk_size=settings.chunk_size, overlap=settings.chunk_overlap
-    )
-    # Replacement processes a suffix whose size is determined under the novel
-    # lock. Use indeterminate progress rather than showing a one-chapter total.
-    total_passes = 0 if replace else len(chunks) * len(PASS_ORDER) + 2
-
-    job_id = _job_store.create(total_passes=total_passes)
+    if len(text) > MAX_CHAPTER_CHARACTERS:
+        raise ValueError(f'Chapter text exceeds {MAX_CHAPTER_CHARACTERS} characters')
+    # Reserve admission before tokenization or retaining text in the executor.
+    job_id = _job_store.create(total_passes=0, novel_id=novel_id)
     tracker = ProgressTracker(job_id=job_id, store=_job_store)
 
     def _run() -> None:
         try:
+            chunks = sliding_window_chunks(
+                text, chunk_size=settings.chunk_size, overlap=settings.chunk_overlap
+            )
+            total_passes = 0 if replace else len(chunks) * len(PASS_ORDER) + 2
+            _job_store.start(job_id, total_passes=total_passes)
             result = analyze_chapter(
                 novel_id=novel_id,
                 chapter_number=chapter_number,
@@ -127,7 +158,11 @@ def submit_job(
         except Exception as exc:
             _job_store.mark_error(job_id, str(exc))
 
-    _executor.submit(_run)
+    try:
+        _executor.submit(_run)
+    except Exception:
+        _job_store.discard(job_id)
+        raise
     return job_id
 
 

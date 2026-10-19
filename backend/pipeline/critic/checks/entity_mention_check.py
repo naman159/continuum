@@ -17,7 +17,7 @@ import re
 
 from pipeline.critic.types import Finding, Severity, normalize_text
 from pipeline.db.client import DBClient
-from pipeline.db.history import metadata_table
+from pipeline.db.story_records import story_record_table
 
 
 def _canon_equivalent(a: str, b: str) -> bool:
@@ -53,7 +53,7 @@ def check_entity_mentions(
     # the time the critique runs, so without this bound every mention is
     # compared against the row it just produced and the check can never
     # disagree with itself.
-    relation = "canon_facts" if chapter_number is None else metadata_table("canon_facts", novel_id, chapter_number - 1)
+    relation = "canon_facts" if chapter_number is None else story_record_table("canon_facts", novel_id, chapter_number - 1)
     rows = db.fetchall(
         f"""
         SELECT subject_entity_id, predicate, value, locked, source_chapter, confidence

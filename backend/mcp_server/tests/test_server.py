@@ -13,6 +13,7 @@ EXPECTED_TOOLS = {
     "character_knowledge", "relationships", "open_threads",
     "unresolved_commitments", "timeline_events", "canon_facts",
     "scene_list", "check_continuity", "save_chapter",
+    "list_story_entities", "get_world_entity", "possessions", "entity_locations", "known_facts",
 }
 
 

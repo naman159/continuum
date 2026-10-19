@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pipeline.db.client import DBClient
-from pipeline.db.history import metadata_table
+from pipeline.db.story_records import story_record_table
 from pipeline.entity_tables import table_for
 
 logger = logging.getLogger(__name__)
@@ -426,7 +426,7 @@ def lookup_typed(
     for read-only callers like the draft-claims critic bridge.
     """
     table = table_for(entity_type)
-    relation = table if cutoff is None else metadata_table(table, novel_id, cutoff)
+    relation = table if cutoff is None else story_record_table(table, novel_id, cutoff)
     row = db.fetchone(
         f"""
         SELECT id, entity_id

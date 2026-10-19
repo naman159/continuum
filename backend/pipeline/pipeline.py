@@ -9,7 +9,7 @@ from pipeline.config import settings
 from pipeline.critic.persist import persist_critique
 from pipeline.critic.service import critique_draft
 from pipeline.db.client import DBClient, DBSession
-from pipeline.db.history import capture_metadata, restore_metadata
+from pipeline.db.story_records import capture_story_records, restore_story_records
 from pipeline.embeddings import EmbeddingService, embed_chapter_and_events
 from pipeline.extraction.canonicalizer import (
     EntityCanonicalizer,
@@ -36,7 +36,7 @@ from pipeline.state.materializer import StateMaterializer
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 
 
 def _normalize_custom_entities(
@@ -90,8 +90,8 @@ def init_db(schema_path: str | None = None) -> None:
         with db.session() as session:
             novels = session.fetchall("SELECT n.id, COALESCE(MAX(c.number), 0) FROM novels n LEFT JOIN chapters c ON c.novel_id = n.id GROUP BY n.id")
             for novel_id, horizon in novels:
-                if session.fetchval("SELECT baseline_chapter FROM metadata_history WHERE novel_id = %s", (novel_id,)) is None:
-                    capture_metadata(session, str(novel_id), horizon)
+                if session.fetchval("SELECT baseline_chapter FROM story_record_history WHERE novel_id = %s", (novel_id,)) is None:
+                    capture_story_records(session, str(novel_id), horizon)
         for novel_id, _ in novels:
             StateMaterializer(db).materialize(str(novel_id))
         _assert_embedding_dimension_matches(db)
@@ -339,7 +339,7 @@ def analyze_chapter(
                 )
                 for chapter in reversed(suffix):
                     delete_chapter_data(session, novel_id=novel_id, chapter_number=chapter["number"])
-                restore_metadata(session, novel_id, chapter_number - 1)
+                restore_story_records(session, novel_id, chapter_number - 1)
                 StateMaterializer(session).materialize(novel_id, already_locked=True)
                 results = []
                 for chapter in suffix:
@@ -364,7 +364,9 @@ def analyze_chapter(
             result["submission_id"] = park_draft(
                 client, novel_id=novel_id, chapter_number=chapter_number,
                 title=chapter_title, raw_text=raw_text,
-                findings={"fails": result.get("fails", []), "warns": result.get("warns", [])},
+                findings={"fails": result.get("fails", []), "warns": result.get("warns", []),
+                          "coverage": result.get("coverage", {}),
+                          **({"error": result["error"]} if result.get("error") else {})},
             )
         return result
     finally:
@@ -438,6 +440,7 @@ def _process_chapter(
             findings={
                 "fails": critique.fails,
                 "warns": critique.warns,
+                "coverage": dict(critique.report.coverage) if critique.report else {},
                 **({"error": critique.error} if critique.error else {}),
             },
         )
@@ -446,6 +449,8 @@ def _process_chapter(
             "status": "pending_review",
             "submission_id": submission_id,
             "reason": "fail" if critique.status == "ok" else critique.status,
+            "error": critique.error,
+            "coverage": dict(critique.report.coverage) if critique.report else {},
             "fails": critique.fails,
             "warns": critique.warns,
         }
@@ -480,15 +485,16 @@ def _process_chapter(
 
     if progress is not None:
         progress.on_pass_start("intra_dedup")
+    canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
+    rosters = canonicalizer.load_rosters([kind for kind, names in collect_names_by_type(extracted).items() if names])
     deduplicator = IntraExtractionDeduplicator(use_mock=use_mock_llm)
-    extracted = deduplicator.deduplicate(extracted, raw_text)
+    extracted = deduplicator.deduplicate(extracted, raw_text, established_rosters=rosters)
     if progress is not None:
         progress.on_pass_done("intra_dedup")
 
     # Resolve names before persistence; alias changes are only planned here.
     if progress is not None:
         progress.on_pass_start("canonicalization")
-    canonicalizer = EntityCanonicalizer(client, novel_id=novel_id, use_mock=use_mock_llm)
     merges = canonicalizer.canonicalize(
         chapter_text=raw_text,
         candidate_names_by_type=collect_names_by_type(extracted),
@@ -505,8 +511,8 @@ def _process_chapter(
     # calls below; jobs.py limits processing to two worker threads.
     enrichment_warnings: list[str] = [*deduplicator.warnings, *canonicalizer.warnings]
     with client.session() as s:
-        if s.fetchval("SELECT baseline_chapter FROM metadata_history WHERE novel_id = %s", (novel_id,)) is None:
-            capture_metadata(s, novel_id, chapter_number - 1)
+        if s.fetchval("SELECT baseline_chapter FROM story_record_history WHERE novel_id = %s", (novel_id,)) is None:
+            capture_story_records(s, novel_id, chapter_number - 1)
         canonicalizer.persist_aliases(s)
         chapter_id = ingest_chapter(
             s,
@@ -568,6 +574,7 @@ def _process_chapter(
             learnings=extracted.get("learnings", []),
             resolver=resolver,
             warnings=enrichment_warnings,
+            embedder=embedding_service,
         )
         commitment_ids = persist_commitments(
             s,
@@ -586,6 +593,7 @@ def _process_chapter(
             chapter_number=chapter_number,
             facts=extracted.get("canon_facts", []),
             resolver=resolver,
+            embedder=embedding_service,
         )
         deltas_written = persist_state_deltas(
             s,
@@ -595,7 +603,7 @@ def _process_chapter(
         )
         if deltas_written < len(extracted.get("state_deltas", [])):
             enrichment_warnings.append(f"State changes skipped: {len(extracted.get('state_deltas', [])) - deltas_written} unresolved or invalid deltas.")
-        capture_metadata(s, novel_id, chapter_number)
+        capture_story_records(s, novel_id, chapter_number)
         if on_continuity_fail == "block":
             # Resolve the parked draft only when its replacement commits.
             # Extraction or persistence failures must leave it reviewable.

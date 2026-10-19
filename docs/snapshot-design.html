@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Continuum: snapshot duplication comparison</title><style>*{box-sizing:border-box}body{margin:0;background:#0f1117;color:#e6edf3;font:16px/1.7 system-ui,sans-serif}main{max-width:1180px;margin:auto;padding:36px 24px 90px}nav{display:flex;flex-wrap:wrap;gap:22px;border-bottom:1px solid #30363d;padding-bottom:18px}a{color:#79bcff}h1,h2,h3{line-height:1.3;scroll-margin-top:20px}h1{font-size:2.2rem;margin-top:36px}h2{margin-top:48px;border-bottom:1px solid #30363d;padding-bottom:12px}h3{margin-top:34px;color:#c1d7fa}p,li{max-width:100ch}code{font:0.88em ui-monospace,monospace;background:#21262d;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{overflow:auto;background:#161b22;padding:18px}table{display:block;overflow-x:auto;border-collapse:collapse;width:100%;font-size:14px;margin:24px 0}th,td{border:1px solid #30363d;text-align:left;padding:12px;vertical-align:top;min-width:130px}th{background:#21262d}td:first-child{min-width:110px}tr:nth-child(even){background:#161b22}strong{color:#fff}@media(max-width:600px){main{padding:20px 14px}h1{font-size:1.8rem}table{font-size:13px}}@media print{body{background:white;color:#111}a,h3,strong{color:#111}main{max-width:none;padding:0}table{display:table;font-size:10px}th,td{min-width:0;border-color:#aaa}nav{display:none}code,th,tr:nth-child(even){background:#eee}}</style></head><body><main><nav aria-label="Documentation"><a href="index.html">Documentation home</a><a href="interview-review.html">Review findings</a><a href="interview-decisions.html">75 decisions and questions</a><a href="snapshot-design.md">Markdown source</a></nav><h1>Character snapshot duplication: measured decision</h1>
+<p>October 18, 2026. Resolution of the third item in <a href="../naman-review.md">Naman's review</a>.</p>
+<h2>Decision</h2>
+<p>Retain <code>character_states.location_id</code> and <code>character_states.knowledge</code> as derived read fields. They are not independent sources of truth. The alternative is viable and saves substantial row storage, but adds temporal joins and was slower for full character-history reads in both measured synthetic cases. The current local workload does not justify a migration solely to eliminate duplication.</p>
+<p>This is a bounded design decision, not proof that duplication is necessary at every scale. Revisit if snapshot storage, write amplification, or replay memory becomes the measured bottleneck.</p>
+<h2>Compared designs</h2>
+<p><strong>Current:</strong> state deltas and learning assertions feed one replay; one transaction writes snapshots, location intervals, possession intervals, and the successful-run checkpoint. Character history reads the stored snapshot fields.</p>
+<p><strong>Alternative prototype:</strong> keep the same snapshot row boundaries and status fields, but omit persisted location/knowledge. Resolve location from temporal edges and knowledge from assertions at each row's chapter. Keep all ended edges; historical intervals are not removed. The prototype uses a regular scratch PostgreSQL table, comparable indexes and foreign keys, the existing replay, and the same edge writes. It does not implement a separate optimized status-only replay engine.</p>
+<p>Both queries return one character's complete history, including the fields under investigation. They are not whole API request timings. The alternative needs a temporal location lateral join, same-chapter supersession exclusion, and a cutoff-aware knowledge aggregate for each history row. A status-only snapshot schema would also need to preserve knowledge-only and movement-only history rows if the current UI contract is retained.</p>
+<h2>Results</h2>
+<p>PostgreSQL <strong>17.9</strong>, local disposable database. Synthetic data: one learning and a location change per character per chapter, with mid-story belief replacement and same-chapter double movement. Every historical location/knowledge row agreed between designs for all characters in both cases.</p>
+<table>
+<thead>
+<tr>
+<th>Characters × chapters</th>
+<th style="text-align:right">Snapshot rows</th>
+<th style="text-align:right">Stored row bytes</th>
+<th style="text-align:right">Status-only row bytes</th>
+<th style="text-align:right">Stored history read median</th>
+<th style="text-align:right">Assembled history read median</th>
+<th style="text-align:right">Current rebuild median</th>
+<th style="text-align:right">Status-only rebuild median</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>8 × 12</td>
+<td style="text-align:right">96</td>
+<td style="text-align:right">76,800</td>
+<td style="text-align:right">8,445</td>
+<td style="text-align:right">0.097 ms</td>
+<td style="text-align:right">0.575 ms</td>
+<td style="text-align:right">23.244 ms</td>
+<td style="text-align:right">26.107 ms</td>
+</tr>
+<tr>
+<td>24 × 48</td>
+<td style="text-align:right">1,152</td>
+<td style="text-align:right">763,752</td>
+<td style="text-align:right">101,373</td>
+<td style="text-align:right">0.726 ms</td>
+<td style="text-align:right">1.883 ms</td>
+<td style="text-align:right">433.567 ms</td>
+<td style="text-align:right">567.270 ms</td>
+</tr>
+</tbody>
+</table>
+<p>Row bytes are sums of PostgreSQL <code>pg_column_size(row)</code> for the selected novel; they are not total heap/index/TOAST allocation or an uncompressed manuscript-size estimate. Read measurements use 15 warm samples; rebuild measurements use 3. The raw output includes sample p95 values, but three rebuild samples do not establish a stable tail-latency percentile.</p>
+<p>The status-only projection used roughly 87–89% fewer measured row bytes. Both read medians were below 2 ms; the absolute differences are small on this local machine. The tested storage change did not demonstrate a rebuild-time benefit because it retained the same replay and edge work. Candidate order was not randomized; these single-session, single-run timings do not establish statistically significant general performance differences or concurrent production capacity.</p>
+<p><a href="snapshot-comparison.json">Raw measurements</a>. Reproduce from <code>backend/</code> against an initialized <strong>disposable</strong> database:</p>
+<pre><code class="language-bash">PYTHON_DOTENV_DISABLED=1 .venv/bin/python -m benchmarks.snapshot_projection \
+  --database-url postgresql://127.0.0.1:55439/continuum_review \
+  --output ../docs/snapshot-comparison.json
+</code></pre>
+<p>The benchmark creates unique synthetic novels and regular scratch tables and removes them transactionally. It does not call a model. Run it separately from schema-drift tests because scratch tables temporarily exist in the disposable database's public schema.</p>
+<h2>Correctness and failure boundaries</h2>
+<ul>
+<li>Supersession takes effect at the replacement chapter; earlier character snapshots agree with cutoff-aware assertion reads. Repeated replay, same-chapter replacement chains, duplicate assertion text, prefix rebuilds, and suffix rewind/rollback are regression-tested.</li>
+<li>Same-chapter movement can have multiple history intervals. The final active location excludes an edge whose successor has already begun at the cutoff. Ended edges remain queryable as history.</li>
+<li>A new regression injects failure after snapshot/location writes and verifies snapshots, location edges, possession edges, and the checkpoint all roll back to their exact prior rows together. Source assertions committed before a failed rebuild remain saved; successful repair then advances the projections.</li>
+<li>During that failure window, direct source-assertion reads can be newer than derived snapshot/edge reads. Ingestion result flags and checkpoint repair expose/manage this existing boundary. Keeping duplicated fields does not make this window disappear; removing them would also mix live knowledge with potentially stale derived location unless freshness is addressed explicitly.</li>
+<li>Replacements restore story-record versions and rebuild dependent chapters transactionally. Naming changes in schema version 6 do not change snapshot or interval semantics.</li>
+</ul>
+<h2>What would change the decision</h2>
+<p>Measure larger casts/books, realistic read concurrency, actual relation/TOAST/index sizes, replay memory, and WAL volume. Compare an optimized alternative that avoids constructing unused knowledge arrays, rather than assuming a narrower persisted table makes replay cheaper. If storage dominates, prototype that engine and verify UI-history behavior and cutoff equivalence before migrating fields.</p>
+</main></body></html>

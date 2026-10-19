@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 """Extract the critic's claim shapes from draft prose, then resolve names to
-ids READ-ONLY (unknown names drop the claim; critiquing a draft must never
-create entities)."""
+ids READ-ONLY. Unresolved references are reported as unreviewable coverage;
+critiquing a draft never creates entities."""
 
 import json
 from textwrap import dedent
@@ -10,6 +10,8 @@ from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.critic.types import DraftChapter
+from pipeline.critic.validation import validate_claims
+from pipeline.extraction.extractor import _response_text
 from pipeline.entity_tables import TYPED_TABLES
 from pipeline.extraction.prompts import CANON_PREDICATES
 from pipeline.extraction.resolver import lookup_typed
@@ -54,9 +56,11 @@ def extract_draft_claims(
     text: str, *, use_mock: bool | None = None, completion_fn=None
 ) -> dict[str, list]:
     completion = completion_fn if completion_fn is not None else _load_completion()
-    mock = (settings.use_mock_llm or completion is None) if use_mock is None else use_mock
+    mock = settings.use_mock_llm if use_mock is None else use_mock
     if mock:
         return {k: [] for k in _EMPTY}
+    if completion is None:
+        raise RuntimeError("draft_claims: LiteLLM unavailable; explicitly enable mock mode for offline development")
     try:
         response = completion(
             model=LLM_CONFIG["model"],
@@ -67,22 +71,18 @@ def extract_draft_claims(
                 {"role": "user", "content": f"DRAFT CHAPTER\n{text}\n\nReturn JSON only."},
             ],
         )
-        content = response.choices[0].message.content
-        if isinstance(content, list):
-            content = "".join(str(p) for p in content)
-        data = safe_json_loads(str(content))
+        choice = response.choices[0]
+        message = choice.message
+        if getattr(choice, 'finish_reason', None) in {'length', 'content_filter'} or getattr(message, 'refusal', None):
+            raise ValueError('truncated, refused, or filtered response')
+        data = safe_json_loads(_response_text(message.content))
     except Exception as exc:
         # Empty claims would make the critic pass vacuously and let an
         # unchecked draft through the ingest gate — fail loudly instead.
         raise RuntimeError(f"draft_claims: extraction failed: {exc}") from exc
     if not data:
         raise RuntimeError("draft_claims: extraction returned unparseable JSON")
-    for key in _EMPTY:
-        if not isinstance(data.get(key), list) or any(
-            not isinstance(claim, dict) for claim in data[key]
-        ):
-            raise RuntimeError(f"draft_claims: missing or malformed {key!r} list")
-    return {k: data[k] for k in _EMPTY}
+    return validate_claims(data, text)
 
 
 def build_draft_chapter(
@@ -95,6 +95,8 @@ def build_draft_chapter(
 ) -> DraftChapter:
     # The same names repeat across a draft's claims; memoize the read-only
     # lookups so one draft costs one query per distinct (type, name).
+    raw_claims = validate_claims(raw_claims, text)
+    unresolved: list[dict[str, str]] = []
     cache: dict[tuple[str, str], tuple[str, str] | None] = {}
 
     def _find(entity_type: str, name: str) -> tuple[str, str] | None:
@@ -115,6 +117,7 @@ def build_draft_chapter(
             continue
         found = _find(entity_type, str(m.get("entity_name", "")))
         if found is None:
+            unresolved.append({'kind': 'mention', 'name': m['entity_name']})
             continue
         mentions.append({
             "entity_id": found[1],
@@ -133,15 +136,13 @@ def build_draft_chapter(
             continue
         cid = _char(str(k.get("character_name", "")))
         if cid is None:
+            unresolved.append({'kind': 'knowledge', 'name': k['character_name']})
             continue
-        learned = k.get("learned_this_chapter")
         knowledge_claims.append({
             "character_id": cid,
             "fact_description": str(k.get("fact_description", "")).strip(),
             "source_type": k.get("source_type"),
-            # Lenient when the model omitted the flag; a non-bool must not
-            # silently disable the knowledge check via truthiness.
-            "learned_this_chapter": learned if isinstance(learned, bool) else True,
+            "learned_this_chapter": k['learned_this_chapter'],
             "quote": k.get("quote"),
         })
 
@@ -152,6 +153,7 @@ def build_draft_chapter(
         cid = _char(str(c.get("character_name", "")))
         obj = _find("object", str(c.get("object_name", "")))
         if cid is None or obj is None:
+            unresolved.append({'kind': 'possession', 'name': c['character_name'] if cid is None else c['object_name']})
             continue
         possession_claims.append({"character_id": cid, "object_id": obj[0], "quote": c.get("quote")})
 
@@ -165,6 +167,12 @@ def build_draft_chapter(
         knowledge_claims=knowledge_claims,
         possession_claims=possession_claims,
         events=events,
+        unresolved_claims=unresolved,
+        claim_counts={
+            'extracted': sum(len(v) for v in raw_claims.values()),
+            'resolved_entity_claims': len(mentions) + len(knowledge_claims) + len(possession_claims),
+            'unresolved': len(unresolved), 'events': len(events),
+        },
     )
 
 

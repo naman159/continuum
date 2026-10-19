@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-RetrievalKind = Literal["chapter", "scene", "event"]
+RetrievalKind = Literal["chapter", "scene", "event", "knowledge", "canon_fact", "commitment"]
 
 
 @dataclass

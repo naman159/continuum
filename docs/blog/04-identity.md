@@ -396,26 +396,13 @@ for entity_type, names in by_type.items():
         continue                # nothing to deduplicate — skip the call entirely
 ```
 
-### Longest name wins
+### Preferred names, with established identity first
 
-When a group comes back — `["Jane", "Jane Bennet", "Miss Bennet"]` — which one becomes
-canonical?
+The original implementation chose `max(valid, key=len)`. That was wrong: a descriptive phrase can be much longer than a proper name. The October 18 review replaced that rule.
 
-```python
-canonical = max(valid, key=len)
-for variant in valid:
-    if variant.lower() != canonical.lower():
-        type_map[variant.lower()] = canonical
-```
+The model now nominates `canonical_name` from the group and explains the identity and naming evidence, preferring a proper name over a temporary description. Python validates the nominated member. An unambiguous existing identity, including a match through a saved alias, takes priority and uses its established canonical name. A group joining two established identities, overlapping through generic references, or conflicting on object owners is skipped with a warning.
 
-The longest. Why?
-
-Because longer names carry more information and are less ambiguous. "Jane Bennet"
-uniquely identifies a person; "Jane" might be any of three. If you later add a second
-Jane, a database keyed on "Jane Bennet" survives; one keyed on "Jane" has a collision.
-It's a heuristic, and occasionally it picks something clunky ("the woman who called
-herself Kessa Dray" over "Kessa Dray"), but it always picks something *specific*, and
-that's the safe direction.
+This is contextual model selection with deterministic safeguards, not a capitalization or length heuristic. It can still be wrong for new identities. Choosing a display name also does not by itself authorize a permanent alias. See [the resolved review](../../naman-review.md) for regression coverage and limits.
 
 ### Guarding against a hallucinated canonical form
 
@@ -427,7 +414,7 @@ input:  ["Jane", "Jane Bennet"]
 output: {"names": ["Jane", "Jane Bennet", "Miss Jane Bennet of Longbourn"]}
 ```
 
-That third string is invented. If it wins the length contest, every occurrence of "Jane"
+That third string is invented. If it is accepted as the preferred form, every occurrence of "Jane"
 and "Jane Bennet" gets renamed to a string that appears nowhere in the novel — and the
 canonicalizer, which compares against the roster in later chapters, will never match it
 again. You've quietly renamed a main character to a hallucination.

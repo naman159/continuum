@@ -87,8 +87,8 @@ same ones.
 | `LLM_TEMPERATURE` | `0.1` | Sampling temperature |
 | `EMBEDDING_MODEL` | `gemini/gemini-embedding-2` | LiteLLM embedding model |
 | `EMBEDDING_DIMENSIONS` | `768` | Substituted into `VECTOR(__EMBEDDING_DIM__)` at `init-db` time. `init-db` exits if it drifts from the live column |
-| `CHUNK_SIZE` | `2000` | Tokens per extraction window |
-| `CHUNK_OVERLAP` | `200` | Token overlap between windows |
+| `CHUNK_SIZE` | `5000` | Tokens per extraction window |
+| `CHUNK_OVERLAP` | `500` | Token overlap between windows |
 | `CANONICALIZER_MAX_ROSTER` | `80` | Cap on canonicalizer candidates per LLM call |
 | `CONTEXT_MAX_CHARACTERS` | `40` | Cap on characters injected into prompts |
 | `CONTEXT_MAX_LOCATIONS` | `30` | Cap on locations injected into prompts |
@@ -123,7 +123,7 @@ comparable. Nothing in this system tokenizes text once and reuses it.
 | Dense retrieval | Whatever `EMBEDDING_MODEL` uses internally; never exposed | Provider-side |
 | Mock embeddings (`USE_MOCK_LLM=true`) | None. SHA-256 over raw UTF-8 bytes | Locally |
 
-The consequence worth internalizing: **`CHUNK_SIZE=2000` is an estimate, not a
+The consequence worth internalizing: **`CHUNK_SIZE=5000` is an estimate, not a
 measurement.** tiktoken maps OpenAI models only, so on the shipped Gemini config
 it falls back to `o200k_base` and counts in a vocabulary the serving model does
 not use. That is fine for sizing a window — it is stable, local, and close
@@ -207,3 +207,63 @@ possible commitment payoffs. Unused planner and location-claim paths were remove
 Relationship endings now preserve earlier assertions and chapter-cutoff reads.
 Run `uv run novel-pipeline init-db` after updating an existing installation to
 apply schema version 4's knowledge migration and metadata history.
+
+
+### 2026-10-18 interview review fixes
+
+All 13 real extraction passes validate strict nested output contracts before
+normalization. Missing keys, invalid enums/types/ranges, and unregistered custom
+types retry only the failed pass and eventually fail ingestion. Nullable schema
+fields must be explicit. Model JSON validity alone is not accepted as success.
+
+Critic claim output rejects truncation/refusal and requires verbatim draft quotes
+and a boolean learning flag. Unresolved entity references produce an
+`unreviewable` verdict with coverage counts, rather than disappearing from a clean
+report. Agent submissions are parked for human review, including legitimate new
+characters that cannot yet resolve. Empty claim lists remain legal and expose
+zero extracted coverage; they cannot prove model completeness.
+
+Knowledge supersession expires the old assertion at the replacement's learning
+chapter; earlier snapshots and re-critiques retain the prior belief. Suffix
+rewind clears supersession links transactionally before deleting replacements.
+For existing affected novels, rebuild projections without model calls:
+
+```bash
+uv run python -m pipeline.state.cli --novel-id NOVEL_ID
+```
+
+Chunk summaries at each granularity are assembled in order, and the full assembled
+medium summary is stored/embedded. Their length grows with chunk count. Previously
+saved incomplete summaries require reprocessing to change; this incurs normal
+provider costs and rebuilds the suffix. No automatic manuscript repair runs.
+
+Mock extraction, identity resolution, embeddings, and claims require explicit
+mock selection; a missing SDK in real mode now errors. Entity coverage scoring
+uses one-to-one, word-boundary matching with optional curated aliases and rejects
+ambiguous shorthand; old quality numbers need remeasurement.
+
+Processing admission is local and bounded: eight active jobs per API process,
+one queued/running job per novel, and 500,000 characters per Process request.
+Saturation returns 503 with `Retry-After: 30`, duplicate novel work 409, oversized
+text 422. Reservations are released on completion, processing error, or executor
+rejection. Job status remains in memory; use a single API process for this app.
+
+See [review findings](../docs/interview-review.md) and the updated
+[decision log](../docs/interview-decisions.md) for regressions and remaining limits.
+
+
+### Schema version 6 and Naman review resolution
+
+Before starting the updated app/MCP, run `uv run novel-pipeline init-db` with no
+processing active. The upgrade renames existing `metadata_versions` and
+`metadata_history` in place to `story_record_versions` and `story_record_history`.
+The SQL function is now `story_records_at`; Python helpers live in
+`pipeline.db.story_records`. Payloads, baselines, and tombstones are retained.
+Old internal names are retired; update external scripts using them.
+
+Intra-extraction groups nominate a preferred canonical input name instead of
+using string length. An unambiguous established identity wins; ambiguous groups
+abstain with warnings. Permanent alias admission is still a separate operation.
+Snapshot location/knowledge remain derived fields after a measured comparison;
+see [the experiment](../docs/snapshot-design.md) and
+[Naman review resolution](../naman-review.md).

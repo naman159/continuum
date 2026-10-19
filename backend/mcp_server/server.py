@@ -22,8 +22,20 @@ from reads import search as search_reads
 from reads import threads as threads_reads
 from reads import timeline as timeline_reads
 from reads import db as reads_db
+from reads import world as world_reads
 
-mcp = FastMCP("continuum")
+mcp = FastMCP("continuum", instructions="""
+Use structured tools first for story facts. Interpret the request, discover entity
+IDs with list_story_entities, then call the relevant tool: possessions for ownership,
+entity_locations for whereabouts, known_facts for who knows what, relationships
+for character connections, get_world_entity for world details, canon_facts for rules,
+and timeline_events, open_threads or unresolved_commitments for plot questions.
+Combine tool calls for questions involving multiple kinds of facts. search_story is
+for discovering relevant scenes/events when structured lookups do not suffice.
+All lookups use writing_chapter N to read through N-1. Returned absence means no
+recorded evidence, not proof that something is false. Cite returned record IDs and
+chapter anchors. Entity IDs and typed IDs differ: use the IDs documented by each tool.
+""")
 
 
 def _call(fn: Callable[[], Any]) -> Any:
@@ -55,8 +67,13 @@ def list_chapters(novel_id: str, writing_chapter: int) -> Any:
 
 @mcp.tool()
 def search_story(novel_id: str, query: str, writing_chapter: int, k: int = 8) -> Any:
-    """Semantic + keyword search over prose and extracted facts from chapters
-    before writing_chapter. Use for 'has X happened yet?' style questions."""
+    """Discover relevant chapter/scene summaries, events, character knowledge,
+    canon facts and commitments before
+    writing_chapter using semantic + keyword search. Use for finding narrative
+    evidence or unknown events. For ownership, whereabouts, knowledge, rules,
+    and relationships, prefer the corresponding structured tools first.
+    Results include item_id and, for structured matches, the actual record with
+    source/chapter references. Search is not a complete inventory of facts."""
     return _call(
         lambda: search_reads.search(
             reads_db.get_db(), UUID(novel_id), query, writing_chapter - 1, k=k
@@ -79,7 +96,8 @@ def get_character(novel_id: str, name: str, writing_chapter: int) -> Any:
 def character_knowledge(
     novel_id: str, writing_chapter: int, character_id: str | None = None
 ) -> Any:
-    """Who knows what (theory of mind), plus location and possession history,
+    """Broad legacy overview; prefer known_facts, possessions and entity_locations
+    for focused questions. Who knows what, plus novel-wide location and possession history,
     before writing_chapter. Optionally restrict 'knows' to one character id."""
 
     def run() -> Any:
@@ -94,6 +112,85 @@ def character_knowledge(
         }
 
     return _call(run)
+
+
+@mcp.tool()
+def list_story_entities(novel_id: str, writing_chapter: int, entity_type: str = "character") -> Any:
+    """Discover names, aliases and IDs before writing_chapter. entity_type is
+    character, location, object, faction, or a custom type. Returned id is the
+    TYPED ID for built-in types, the universal entity ID for custom types.
+    Use these IDs in possessions, known_facts and get_world_entity. For location
+    lookups by subject, use entity_locations' entity_name filter instead."""
+    def run() -> Any:
+        db, nid, cap = reads_db.get_db(), UUID(novel_id), writing_chapter - 1
+        readers = {"character": characters_reads.list_characters,
+                   "location": world_reads.list_locations, "object": world_reads.list_objects,
+                   "faction": world_reads.list_factions}
+        if entity_type in readers:
+            return readers[entity_type](db, nid, cap)
+        return world_reads.list_custom_entities(db, nid, entity_type, cap)
+    return _call(run)
+
+
+@mcp.tool()
+def get_world_entity(novel_id: str, writing_chapter: int, entity_type: str, entity_id: str) -> Any:
+    """Read an object, location, faction or custom entity's details and linked
+    events/relationships before writing_chapter. First discover its typed ID
+    with list_story_entities. For characters use get_character by name."""
+    def run() -> Any:
+        db, nid, cap, eid = reads_db.get_db(), UUID(novel_id), writing_chapter - 1, UUID(entity_id)
+        # Validate against the cutoff-aware inventory before fetching details.
+        rows = list_story_entities(novel_id, writing_chapter, entity_type)
+        if isinstance(rows, dict) and "error" in rows:
+            return rows
+        if not any(str(row["id"]) == str(eid) for row in rows):
+            raise ValueError("Entity not found at this chapter")
+        readers = {"location": world_reads.get_location_detail,
+                   "object": world_reads.get_object_detail, "faction": world_reads.get_faction_detail}
+        if entity_type == "character":
+            raise ValueError("Use get_character for characters")
+        return readers.get(entity_type, world_reads.get_custom_entity_detail)(db, nid, eid, cap)
+    return _call(run)
+
+
+@mcp.tool()
+def possessions(novel_id: str, writing_chapter: int, character_id: str | None = None,
+                object_id: str | None = None, active_only: bool = True) -> Any:
+    """Who owns/carries an object, or what a character has, before writing_chapter.
+    Filter by typed character_id and/or object_id from list_story_entities.
+    active_only=False returns ownership history. Includes record IDs, certainty
+    and chapter intervals; an empty result means ownership is unrecorded."""
+    return _call(lambda: knowledge_reads.list_possession_edges(
+        reads_db.get_db(), UUID(novel_id), writing_chapter - 1, active_only,
+        UUID(character_id) if character_id else None, UUID(object_id) if object_id else None))
+
+
+@mcp.tool()
+def entity_locations(novel_id: str, writing_chapter: int, entity_name: str | None = None,
+                     location_id: str | None = None, active_only: bool = True) -> Any:
+    """Where an entity is, or which entities are at a location, before writing_chapter.
+    entity_name matches the canonical name exactly, ignoring case. location_id is
+    the typed location ID from list_story_entities. active_only=False returns
+    movement history. Includes universal entity IDs and chapter intervals."""
+    def run() -> Any:
+        return knowledge_reads.list_location_edges(
+            reads_db.get_db(), UUID(novel_id), writing_chapter - 1, active_only,
+            location_id=UUID(location_id) if location_id else None, entity_name=entity_name)
+    return _call(run)
+
+
+@mcp.tool()
+def known_facts(novel_id: str, writing_chapter: int, character_id: str | None = None,
+                fact_contains: str | None = None) -> Any:
+    """What a character knows, or who knows a given fact, before writing_chapter.
+    character_id is the typed ID from list_story_entities. fact_contains is an
+    optional literal case-insensitive substring, not semantic search; omit it
+    to inspect all recorded knowledge when wording is uncertain. Returns learning
+    chapter, source event, certainty and sharing evidence. Missing records do not
+    establish ignorance. Use this instead of searching chapter summaries."""
+    return _call(lambda: knowledge_reads.list_knows_edges(
+        reads_db.get_db(), UUID(novel_id), writing_chapter - 1,
+        UUID(character_id) if character_id else None, fact_contains))
 
 
 @mcp.tool()

@@ -44,9 +44,11 @@ def search(
         "results": [
             {
                 "kind": str(r.kind),
+                "item_id": r.item_id,
                 "chapter_number": r.chapter_number,
                 "score": r.score,
                 "snippet": r.snippet,
+                "record": r.metadata.get("record"),
             }
             for r in results
         ]

@@ -57,6 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("list-novels", help="List novels")
 
+    backfill = subparsers.add_parser("embed-facts", help="Embed existing knowledge, canon facts, commitments and historical canon versions")
+    backfill.add_argument("--novel-id", required=True, type=str)
+    backfill.add_argument("--mock-llm", action="store_true", help="Use non-semantic mock vectors for tests only")
+
     process_parser = subparsers.add_parser("process-chapter", help="Process one chapter")
     process_parser.add_argument("--novel-id", required=True)
     process_parser.add_argument("--number", required=True, type=int)
@@ -98,6 +102,18 @@ def main() -> None:
 
     if args.command == "list-novels":
         print(json.dumps(list_novels(), indent=2, default=str))
+        return
+
+    if args.command == "embed-facts":
+        from uuid import UUID
+        from pipeline.db.client import DBClient
+        from pipeline.embeddings import EmbeddingService
+        from pipeline.fact_embeddings import backfill_fact_embeddings
+
+        with DBClient() as db:
+            counts = backfill_fact_embeddings(db, str(UUID(args.novel_id)),
+                                             EmbeddingService(use_mock=True if args.mock_llm else None))
+        print(json.dumps(counts, indent=2))
         return
 
     if args.command == "process-chapter":

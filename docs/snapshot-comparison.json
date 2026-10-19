@@ -1,0 +1,77 @@
+{
+  "workload": "synthetic, warm reads, one session; one learning and location change per character/chapter; includes supersession and same-chapter moves",
+  "storage": "logical row bytes, not heap/index/TOAST allocation",
+  "rebuild": "same replay and edge persistence; alternative stores only status fields with comparable indexes/FKs",
+  "cases": [
+    {
+      "characters": 8,
+      "chapters": 12,
+      "snapshots": 96,
+      "postgresql": "17.9 (Homebrew)",
+      "all_historical_rows_agree": true,
+      "logical_row_bytes": {
+        "stored": 76800,
+        "status_only": 8445
+      },
+      "one_character_full_history_read": {
+        "stored": {
+          "median_ms": 0.097,
+          "p95_ms": 0.205,
+          "samples": 15
+        },
+        "assembled": {
+          "median_ms": 0.575,
+          "p95_ms": 0.738,
+          "samples": 15
+        }
+      },
+      "full_projection_rebuild": {
+        "stored": {
+          "median_ms": 23.244,
+          "p95_ms": 24.593,
+          "samples": 3
+        },
+        "status_only": {
+          "median_ms": 26.107,
+          "p95_ms": 28.879,
+          "samples": 3
+        }
+      }
+    },
+    {
+      "characters": 24,
+      "chapters": 48,
+      "snapshots": 1152,
+      "postgresql": "17.9 (Homebrew)",
+      "all_historical_rows_agree": true,
+      "logical_row_bytes": {
+        "stored": 763752,
+        "status_only": 101373
+      },
+      "one_character_full_history_read": {
+        "stored": {
+          "median_ms": 0.726,
+          "p95_ms": 0.822,
+          "samples": 15
+        },
+        "assembled": {
+          "median_ms": 1.883,
+          "p95_ms": 2.233,
+          "samples": 15
+        }
+      },
+      "full_projection_rebuild": {
+        "stored": {
+          "median_ms": 433.567,
+          "p95_ms": 596.166,
+          "samples": 3
+        },
+        "status_only": {
+          "median_ms": 567.27,
+          "p95_ms": 627.932,
+          "samples": 3
+        }
+      }
+    }
+  ]
+}

@@ -328,3 +328,14 @@ def test_failed_report_persistence_is_visible_to_the_caller(db, seed_novel, crit
     result = _analyze(db, novel_id, on_continuity_fail="warn")
     assert _chapter_count(db, novel_id, 4) == 1
     assert result["critique"]["persisted"] is False
+
+
+def test_unreviewable_agent_draft_is_parked_without_extraction(db, seed_novel, critique):
+    novel_id = seed_novel(db)['novel_id']
+    critique(DraftCritique(status='unreviewable', error='Unresolved entity claims require human review'))
+    result = _analyze(db, novel_id, on_continuity_fail='block')
+    assert result['status'] == 'pending_review'
+    assert result['reason'] == 'unreviewable'
+    assert critique.calls['extract'] == 0
+    assert _chapter_count(db, novel_id, 4) == 0
+    assert drafts_reads.get_submission(db, result['submission_id'])['status'] == 'pending'

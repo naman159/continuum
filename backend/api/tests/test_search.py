@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
 class _R:
+    item_id: str = "record-1"
+    metadata: dict = field(default_factory=dict)
     kind: str = "chapter"
     chapter_number: int = 1
     score: float = 0.9
@@ -32,6 +34,8 @@ def test_search_endpoint_returns_results(seed_novel_real, real_db, client, monke
     assert body["results"] == [
         {
             "kind": "chapter",
+            "item_id": "record-1",
+            "record": None,
             "chapter_number": 1,
             "score": 0.9,
             "snippet": "Aelric took the dagger",

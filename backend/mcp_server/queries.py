@@ -61,6 +61,7 @@ def check_continuity(
             "passed": critique.passed,
             "status": critique.status,
             "error": critique.error,
+            "coverage": dict(critique.report.coverage) if critique.report else {},
             "fails": [_brief(f) for f in critique.fails],
             "warns": [_brief(f) for f in critique.warns],
         }

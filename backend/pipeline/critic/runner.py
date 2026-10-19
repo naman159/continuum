@@ -13,7 +13,7 @@ from pipeline.critic.checks import (
     check_knowledge_state,
     check_possession,
 )
-from pipeline.critic.types import CritiqueReport, DraftChapter
+from pipeline.critic.types import CritiqueReport, DraftChapter, Finding, Severity
 from pipeline.db.client import DBClient
 
 
@@ -27,7 +27,15 @@ class ContinuityCritic:
         report = CritiqueReport(
             novel_id=draft.novel_id,
             chapter_number=draft.chapter_number,
+            coverage=dict(draft.claim_counts),
+            reviewable=not draft.unresolved_claims,
         )
+        if draft.unresolved_claims:
+            report.findings.append(Finding(
+                check='claim_resolution', severity=Severity.WARN,
+                message='Some draft claims could not be resolved to established entities; human review is required.',
+                context={'unresolved_claims': draft.unresolved_claims},
+            ))
 
         report.findings.extend(
             check_entity_mentions(

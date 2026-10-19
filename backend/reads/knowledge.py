@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from pipeline.db.history import metadata_table
+from pipeline.db.story_records import story_record_table
 
 from reads.common import resolve_cutoff
 
@@ -17,20 +17,25 @@ def list_knows_edges(
     novel_id: UUID | str,
     up_to_chapter: int | None,
     character_id: UUID | str | None,
+    fact_contains: str | None = None,
 ) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
-    where = ["c.novel_id = %s", "k.learned_chapter <= %s", "k.superseded_by_id IS NULL"]
-    params: list[Any] = [novel_id, cutoff]
+    where = ["c.novel_id = %s", "k.learned_chapter <= %s", """NOT EXISTS (SELECT 1 FROM knows_edges newer
+        WHERE newer.id = k.superseded_by_id AND newer.learned_chapter <= %s)"""]
+    params: list[Any] = [novel_id, cutoff, cutoff]
     if character_id is not None:
         where.append("k.character_id = %s")
         params.append(character_id)
+    if fact_contains is not None:
+        where.append("strpos(lower(k.fact_description), lower(%s)) > 0")
+        params.append(fact_contains)
     rows = db.fetchall(
         f"""
         SELECT k.id, k.character_id, c.name AS character_name,
                k.fact_description, k.learned_chapter, k.source_type,
                k.source_event_id, k.certainty, k.shared_with
           FROM knows_edges k
-          JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = k.character_id
+          JOIN {story_record_table('characters', novel_id, cutoff)} c ON c.id = k.character_id
          WHERE {' AND '.join(where)}
          ORDER BY k.learned_chapter, c.name
         """,
@@ -41,7 +46,7 @@ def list_knows_edges(
     name_by_id: dict[str, str] = {}
     if all_shared_ids:
         chars = db.fetchall(
-            f"SELECT id, name FROM {metadata_table('characters', novel_id, cutoff)} characters WHERE id = ANY(%s::uuid[])",
+            f"SELECT id, name FROM {story_record_table('characters', novel_id, cutoff)} characters WHERE id = ANY(%s::uuid[])",
             (all_shared_ids,),
             dict_rows=True,
         )
@@ -65,11 +70,20 @@ def list_knows_edges(
 
 
 def list_location_edges(
-    db: Any, novel_id: UUID | str, up_to_chapter: int | None, active_only: bool
+    db: Any, novel_id: UUID | str, up_to_chapter: int | None, active_only: bool,
+    entity_id: UUID | str | None = None, location_id: UUID | str | None = None,
+    entity_name: str | None = None,
 ) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     where = ["e.novel_id = %s", "le.since_chapter <= %s"]
     params: list[Any] = [novel_id, cutoff]
+    for column, value in (("le.entity_id", entity_id), ("le.location_id", location_id)):
+        if value is not None:
+            where.append(f"{column} = %s")
+            params.append(value)
+    if entity_name is not None:
+        where.append("lower(e.name) = lower(%s)")
+        params.append(entity_name)
     if active_only:
         # A later move does not erase the location at an earlier cutoff.
         # Same-chapter moves still collapse to the final location.
@@ -86,8 +100,8 @@ def list_location_edges(
                le.location_id, loc.name AS location_name,
                le.since_chapter, le.until_chapter, le.certainty
           FROM located_in_edges le
-          JOIN {metadata_table('entities', novel_id, cutoff)} e ON e.id = le.entity_id
-          LEFT JOIN {metadata_table('locations', novel_id, cutoff)} loc ON loc.id = le.location_id
+          JOIN {story_record_table('entities', novel_id, cutoff)} e ON e.id = le.entity_id
+          LEFT JOIN {story_record_table('locations', novel_id, cutoff)} loc ON loc.id = le.location_id
          WHERE {' AND '.join(where)}
          ORDER BY le.since_chapter, e.name
         """,
@@ -111,13 +125,22 @@ def list_location_edges(
 
 
 def list_possession_edges(
-    db: Any, novel_id: UUID | str, up_to_chapter: int | None, active_only: bool
+    db: Any, novel_id: UUID | str, up_to_chapter: int | None, active_only: bool,
+    character_id: UUID | str | None = None, object_id: UUID | str | None = None,
 ) -> list[dict[str, Any]]:
     cutoff = resolve_cutoff(db, novel_id, up_to_chapter)
     where = ["c.novel_id = %s", "pe.since_chapter <= %s"]
     params: list[Any] = [novel_id, cutoff]
+    for column, value in (("pe.character_id", character_id), ("pe.object_id", object_id)):
+        if value is not None:
+            where.append(f"{column} = %s")
+            params.append(value)
     if active_only:
-        where.append("pe.superseded_by_id IS NULL")
+        where.append("""NOT EXISTS (
+            SELECT 1 FROM possesses_edges newer
+            WHERE newer.id = pe.superseded_by_id AND newer.since_chapter <= %s
+        )""")
+        params.append(cutoff)
         # Possession replay records the LOSS chapter, unlike location edges
         # whose end is the last chapter at the previous location.
         where.append("(pe.until_chapter IS NULL OR pe.until_chapter > %s)")
@@ -128,8 +151,8 @@ def list_possession_edges(
                pe.object_id, o.name AS object_name,
                pe.since_chapter, pe.until_chapter, pe.certainty
           FROM possesses_edges pe
-          JOIN {metadata_table('characters', novel_id, cutoff)} c ON c.id = pe.character_id
-          LEFT JOIN {metadata_table('objects', novel_id, cutoff)} o ON o.id = pe.object_id
+          JOIN {story_record_table('characters', novel_id, cutoff)} c ON c.id = pe.character_id
+          LEFT JOIN {story_record_table('objects', novel_id, cutoff)} o ON o.id = pe.object_id
          WHERE {' AND '.join(where)}
          ORDER BY pe.since_chapter, c.name
         """,
@@ -163,8 +186,8 @@ def list_canon_facts(
         f"""
         SELECT cf.id, cf.kind, cf.subject_entity_id, e.name AS subject_name,
                cf.predicate, cf.value, cf.source_chapter, cf.confidence, cf.locked
-          FROM {metadata_table('canon_facts', novel_id, cutoff)} cf
-          LEFT JOIN {metadata_table('entities', novel_id, cutoff)} e ON e.id = cf.subject_entity_id
+          FROM {story_record_table('canon_facts', novel_id, cutoff)} cf
+          LEFT JOIN {story_record_table('entities', novel_id, cutoff)} e ON e.id = cf.subject_entity_id
          WHERE {' AND '.join(where)}
          ORDER BY cf.locked DESC, e.name NULLS LAST, cf.predicate
         """,

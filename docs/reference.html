@@ -215,6 +215,8 @@
 
   <section id="top">
     <h1>Developer Reference</h1>
+    <p>Schema version 6 renames the domain history tables to <code>story_record_versions</code> and <code>story_record_history</code>, with <code>story_records_at</code> for cutoff lookup. Run <code>novel-pipeline init-db</code> before starting updated code; existing histories are renamed in place. <a href="snapshot-design.html">Snapshot duplication experiment and decision</a>.</p>
+    <div class="callout"><strong>October 18 correctness update:</strong> extraction validates all pass schemas; the critic rejects incomplete/refused output, verifies quotes, and reports unresolved references as <code>unreviewable</code> with coverage counts. Agent drafts requiring entity resolution are parked for human review. Knowledge replacement takes effect at its learning chapter; multi-chunk summaries retain all chunks. Mock mode must be explicitly selected. See the <a href="interview-review.html">verified fixes</a> and <a href="interview-decisions.html">decision log</a>.</div>
     <p class="lead">
       Detailed reference for the pipeline functions, database schema, API endpoints, and frontend patterns.
       Use this alongside the <a href="architecture.html">Architecture Overview</a>, which explains the
@@ -401,7 +403,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <tbody>
         <tr><td><code>novel-pipeline</code></td><td><code>pipeline.cli:main</code></td><td>Main pipeline CLI: <code>init-db</code>, <code>create-novel</code>, <code>list-novels</code>, <code>process-chapter</code></td></tr>
         <tr><td><code>novel-webapp</code></td><td><code>api.app:run</code></td><td>Run the FastAPI server (serves the API and the built frontend)</td></tr>
-        <tr><td><code>novel-mcp</code></td><td><code>mcp_server.server:main</code></td><td>Run the MCP stdio server exposing 13 tools to writing agents — see <a href="#mcp-server">MCP Server</a></td></tr>
+        <tr><td><code>novel-mcp</code></td><td><code>mcp_server.server:main</code></td><td>Run the MCP stdio server exposing 18 tools to writing agents — see <a href="#mcp-server">MCP Server</a></td></tr>
       </tbody>
     </table>
 
@@ -518,6 +520,15 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       like every other cutoff-aware tool.
     </div>
 
+    <p><strong>Query by intent:</strong> the writing agent chooses structured tools and
+      combines their results. Discover typed IDs and aliases with <code>list_story_entities</code>;
+      use <code>possessions</code> for ownership, <code>entity_locations</code> for whereabouts,
+      <code>known_facts</code> for character knowledge, and <code>canon_facts</code> for rules.
+      Use search to locate narrative evidence when needed. No internal LLM router or embedding
+      call is required for structured lookups. Empty results mean no recorded evidence, not
+      proof of absence. Cite record IDs and chapter anchors. Built-in typed IDs differ from
+      universal entity IDs; follow each tool's parameter description.</p>
+
     <table>
       <thead>
         <tr><th>Tool</th><th>Parameters</th><th>Cutoff</th><th>What It Does</th></tr>
@@ -525,7 +536,12 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       <tbody>
         <tr><td><code>list_novels</code></td><td>—</td><td>—</td><td>List all novels: id, title, author, highest chapter number <span class="badge blue">orientation</span></td></tr>
         <tr><td><code>list_chapters</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Chapters written before <code>writing_chapter</code> (number, title, summary, <code>critique: {passed, fails, warns} | null</code>) for orientation <span class="badge blue">orientation</span>. <strong>Fixed 2026-08-16</strong> — previously took no cutoff and passed <code>None</code>, returning <code>summary_long</code> for every unwritten chapter and handing the drafting agent the rest of the book.</td></tr>
-        <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Hybrid (semantic + keyword) search over prose and extracted facts — "has X happened yet?"</td></tr>
+        <tr><td><code>list_story_entities</code></td><td><code>novel_id, writing_chapter, entity_type="character"</code></td><td>yes</td><td>Names, aliases and typed IDs for characters, locations, objects, factions, or a custom type.</td></tr>
+        <tr><td><code>get_world_entity</code></td><td><code>novel_id, writing_chapter, entity_type, entity_id</code></td><td>yes</td><td>Object, location, faction or custom entity details and linked events/relationships; discover its ID first.</td></tr>
+        <tr><td><code>possessions</code></td><td><code>novel_id, writing_chapter, character_id=None, object_id=None, active_only=True</code></td><td>yes</td><td>Ownership at the cutoff, optionally restricted by typed character/object IDs. Set active_only=False for history.</td></tr>
+        <tr><td><code>entity_locations</code></td><td><code>novel_id, writing_chapter, entity_name=None, location_id=None, active_only=True</code></td><td>yes</td><td>Where an entity is, or who is at a location. Canonical entity name is an exact case-insensitive match; location_id is typed. Set active_only=False for history.</td></tr>
+        <tr><td><code>known_facts</code></td><td><code>novel_id, writing_chapter, character_id=None, fact_contains=None</code></td><td>yes</td><td>Who knows what, with learning chapter, source event and certainty. Optional literal case-insensitive fact substring; omit when wording is uncertain.</td></tr>
+        <tr><td><code>search_story</code></td><td><code>novel_id, query, writing_chapter, k=8</code></td><td>yes</td><td>Find chapter/scene summaries, events, character knowledge, canon facts and commitments using semantic + keyword search. Structured matches include their record and source references. Prefer focused tools for exact factual lookups.</td></tr>
         <tr><td><code>get_character</code></td><td><code>novel_id, name, writing_chapter</code></td><td>yes</td><td>Identity, latest state, state history, relationships, and events for one character. State history rows dropped the broken <code>relationships</code> column and gained <code>appearance</code>; event rows gained involved-character/location/object/faction name arrays. A character whose <code>first_appearance_chapter</code> is beyond the cutoff is reported not-found — same existence semantics as <code>list_characters</code>, so a writing agent never sees a character who hasn't been introduced yet.</td></tr>
         <tr><td><code>character_knowledge</code></td><td><code>novel_id, writing_chapter, character_id=None</code></td><td>yes</td><td>Who knows what (theory of mind), plus location and possession history </td></tr>
         <tr><td><code>relationships</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Character relationship graph (nodes + typed edges). Edge keys are now <code>from</code>/<code>to</code>/<code>label</code> (renamed from the old <code>source</code>/<code>target</code>/<code>rel_type</code>), each edge carries a computed <code>symmetric</code> flag, and characters with no edge are pruned from <code>nodes</code>.</td></tr>
@@ -534,8 +550,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr><td><code>timeline_events</code></td><td><code>novel_id, writing_chapter</code></td><td>yes</td><td>Story events grouped by chapter, from chapters before <code>writing_chapter</code> (fixed 2026-07-12 — previously non-functional, see callout above)</td></tr>
         <tr><td><code>canon_facts</code></td><td><code>novel_id, writing_chapter, locked_only=False</code></td><td>yes</td><td>Established world facts as of <code>writing_chapter − 1</code>; <code>locked_only=True</code> limits to hard-continuity facts . <strong>Fixed 2026-08-16</strong> — <code>writing_chapter</code> was optional and defaulted to <code>None</code>, which resolves to <code>MAX(number)</code> and leaked facts sourced from unwritten chapters.</td></tr>
         <tr><td><code>scene_list</code></td><td><code>novel_id, writing_chapter, chapter=None</code></td><td>yes</td><td>Scene segmentation (POV, location, present characters, summary); optionally one chapter </td></tr>
-        <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns pass/fail/warn with quotes and suggested fixes. A revision aid, not the enforcement point — <code>save_chapter</code> runs the same checks itself and will refuse a draft that fails them regardless of whether this was called first, so skipping it doesn't let a bad draft through <span class="badge purple">GEN</span></td></tr>
-        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code>. <strong>The one blocking caller:</strong> it asks <code>analyze_chapter</code> for <code>on_continuity_fail="block"</code>, so the pre-extraction critique refuses the write instead of ingesting with findings attached. Refusal returns <code>{ingested: false, status, submission_id, reason: "fail"|"error"|"unavailable", fails: [...], warns: [...]}</code>. For <code>reason: "fail"</code> or <code>"error"</code> the draft is parked and <code>status</code> is <code>"pending_review"</code> with a real <code>submission_id</code> — revise against <code>fails</code> and resubmit; a resubmission supersedes the parked draft. For <code>reason: "unavailable"</code> (the critique is off, or is running without a real model) nothing is parked, since there is no verdict to record: <code>status</code> is <code>"refused"</code> and <code>submission_id</code> is <code>null</code> — an outage, not a verdict, so hold the text and retry later. A clean pass returns <code>{ingested: true, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run. Still refuses to overwrite an existing chapter (<code>replace=False</code>), independent of the policy. Note: the tool hardcodes <code>use_mock_llm=None</code>, so exercising this path always makes real LLM calls <span class="badge purple">GEN</span></td></tr>
+        <tr><td><code>check_continuity</code></td><td><code>novel_id, chapter_number, draft_text</code></td><td>n/a</td><td>Runs claim extraction + the ContinuityCritic on a draft <em>without saving it</em>; returns status, pass/fail/warn, coverage counts, quotes, and suggested fixes. Unresolved references produce <code>unreviewable</code>; valid zero-claim output exposes zero coverage rather than proving model completeness. A revision aid, not the enforcement point — <code>save_chapter</code> runs the same checks itself and will refuse a draft that fails them regardless of whether this was called first, so skipping it doesn't let a bad draft through <span class="badge purple">GEN</span></td></tr>
+        <tr><td><code>save_chapter</code></td><td><code>novel_id, chapter_number, text, title=None</code></td><td>n/a</td><td>Ingests a finished draft as <code>source="agent"</code>. <strong>The one blocking caller:</strong> it asks <code>analyze_chapter</code> for <code>on_continuity_fail="block"</code>, so the pre-extraction critique refuses the write instead of ingesting with findings attached. Refusal returns <code>{ingested: false, status, submission_id, reason: "fail"|"error"|"unavailable"|"unreviewable", fails: [...], warns: [...]}</code>. For <code>reason: "fail"</code>, <code>"error"</code>, or <code>"unreviewable"</code> the draft is parked and <code>status</code> is <code>"pending_review"</code> with a real <code>submission_id</code> — revise against <code>fails</code> and resubmit; a resubmission supersedes the parked draft. For <code>reason: "unavailable"</code> (the critique is off, or is running without a real model) nothing is parked, since there is no verdict to record: <code>status</code> is <code>"refused"</code> and <code>submission_id</code> is <code>null</code> — an outage, not a verdict, so hold the text and retry later. A clean pass returns <code>{ingested: true, chapter_id, materialized, critique}</code> — <code>materialized: false</code> or <code>critique: null</code> means the corresponding best-effort post-commit phase failed and needs a manual re-run. Still refuses to overwrite an existing chapter (<code>replace=False</code>), independent of the policy. Note: the tool hardcodes <code>use_mock_llm=None</code>, so exercising this path always makes real LLM calls <span class="badge purple">GEN</span></td></tr>
       </tbody>
     </table>
 
@@ -741,7 +757,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     <p>
       Runs after <code>merge_extractions()</code> and before entity resolution.
       Uses a single LLM call to group name variants within the current extraction
-      and rename all occurrences to the longest canonical form.
+      and rewrite supported structured references to an established canonical name or validated model-nominated input name.
     </p>
 
     <div class="method-sig">
@@ -752,7 +768,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       ) <span class="ret">→ dict</span>
     </div>
 
-    <p><strong>Rule:</strong> longest form wins. <code>"Jane" + "Jane Bennet" → "Jane Bennet"</code> everywhere in the extraction dict.</p>
+    <p><strong>Selection:</strong> one unambiguous established identity wins; otherwise the model nominates a real group member, preferring a proper name over a description. Invalid preferences and ambiguous groups are skipped with warnings. Intra-dedup does not itself persist aliases.</p>
 
     <p>
       One focused LLM call per entity type with ≥ 2 extracted names — the four built-in types plus any
@@ -764,15 +780,13 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </p>
 
     <div class="callout tip">
-      <strong>Why longest wins?</strong> A longer form is almost always more specific and less ambiguous.
-      "Miss Bennet" could be any Bennet sister; "Elizabeth Bennet" is unambiguous. The LLM groups
-      the variants, Python picks the longest from each group.
+      <strong>Why length is insufficient:</strong> “the man sitting under the tree” is longer than “Toren Vale.” The model chooses a preferred group member from context. Distinct established identities, overlapping generic groups, and conflicting object owners are protected by deterministic guards. Naming and permanent alias admission are separate.
     </div>
 
     <div class="callout warn">
       <strong>Hallucination guard:</strong> group members returned by the LLM are validated
       (case-insensitively) against the names actually present in the extraction. Invented names are
-      discarded, so a hallucinated "canonical" form can never overwrite real extracted names.
+      discarded. A target must be a nominated real member or the single matched established identity’s saved canonical name.
     </div>
 
     <h2>EntityCanonicalizer</h2>
@@ -882,12 +896,31 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
     </div>
 
     <p>
-      <code>embed_text()</code> calls LiteLLM's embedding endpoint. If the call fails or
-      <code>use_mock_llm=True</code>, it falls back to <code>_hash_embedding()</code>, which
-      generates a deterministic pseudo-random vector from the SHA-256 hash of the text.
+      <code>embed_text()</code> calls LiteLLM's embedding endpoint. Failure raises an
+      error rather than silently writing a non-semantic vector. Explicit mock mode
+      uses <code>_hash_embedding()</code>, a deterministic pseudo-random vector.
       Hash embeddings are meaningless for semantic search but let the pipeline complete
       without an API key.
     </p>
+
+    <p>Search embeds chapter summaries (medium when present), scene summaries, event
+      descriptions, knowledge fact descriptions, canon predicate/value pairs, and commitment
+      foreshadowing text. It does not embed raw chapter chunks or possession/location edges.
+      Canon subject names and knowledge-holder names are returned and keyword-searchable;
+      they are not part of the fact vectors, so entity renames cannot stale those vectors.</p>
+    <p>New ingestion embeds knowledge and canon facts; manual canon value edits also refresh
+      their vectors. To upgrade existing novels, apply the current schema (version 6) with
+      <code>uv run novel-pipeline init-db</code>, then run
+      <code>uv run novel-pipeline embed-facts --novel-id UUID</code> from <code>backend/</code>.
+      Backfill calls the configured embedding provider, skips compatible existing vectors,
+      and embeds historical canon versions without changing their chapter anchors.
+      <code>--mock-llm</code> is only for offline tests. Until backfill completes, existing
+      facts remain keyword-searchable. Raw SQL fact text edits invalidate stale vectors;
+      rerun backfill to restore their semantic coverage.</p>
+    <p>Structured search results contain record IDs and source fields. Historical canon
+      values and vectors come from the same metadata version. Knowledge replacements and
+      commitment payoffs are filtered/masked at the cutoff. Commitment search ranks only
+      foreshadowing text, keeping future payoff wording out of ranking as well as output.</p>
 
     <h3>embed_chapter_and_events()</h3>
     <p>
@@ -1539,8 +1572,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       it's talking to. <strong>It is currently 4.</strong> Re-running
       <code>uv run novel-pipeline init-db</code> migrates legacy knowledge deltas into
       <code>knows_edges</code>, rebuilds state projections, and records the current
-      metadata baseline. The new <code>metadata_history</code> and
-      <code>metadata_versions</code> tables store changed records and tombstones for
+      metadata baseline. The new <code>story_record_history</code> and
+      <code>story_record_versions</code> tables store changed records and tombstones for
       cutoff-aware reads and transactional rewinds. Earlier metadata cannot be
       reconstructed for an old import; see <a href="architecture-conformance.md">upgrade limits</a>.
     </p>
@@ -1783,10 +1816,10 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
       </tbody>
     </table>
 
-    <p>Hybrid (semantic + keyword) search over chapters, scenes, and events, capped at
+    <p>Hybrid (semantic + keyword) search over chapters, scenes, events, character knowledge, canon facts, and commitments, capped at
       <code>cap</code>. <code>q</code> is required and non-empty; <code>k</code> is clamped to
       1–50 (default 8). Returns <code>SearchResults</code>:
-      <code>{"results": [{kind, chapter_number, score, snippet}]}</code>. Results are ordered
+      <code>{"results": [{kind, item_id, chapter_number, score, snippet, record}]}</code>. Results are ordered
       best-first and <code>score</code> is the MMR ranking score they were ordered by, so it
       decreases monotonically down the list; it is a within-query ranking signal, not a
       cross-query relevance measure.</p>
@@ -1941,7 +1974,7 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
         <tr>
           <td><span class="badge blue">POST</span></td>
           <td><code>/api/novels/{id}/chapters/process</code></td>
-          <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "...", "replace": false}</code>. Pass <code>"replace": true</code> to delete previously extracted data before re-processing. Returns <code>{"job_id": "..."}</code></td>
+          <td>Submit a chapter for async processing (HTTP 202). Body <code>ProcessRequest</code>: <code>{"number": N, "text": "...", "replace": false}</code>. Pass <code>"replace": true</code> to delete previously extracted data before re-processing. Returns <code>{"job_id": "..."}</code>. Maximum text: 500,000 characters (422 if exceeded). At most eight active jobs per API process, one per novel; full queue returns 503 with <code>Retry-After: 30</code>, duplicate novel work returns 409.</td>
         </tr>
         <tr>
           <td><span class="badge green">GET</span></td>
@@ -1953,8 +1986,8 @@ curl -X POST http://localhost:8000/api/novels/&lt;novel_id&gt;/process \
 
     <div class="callout warn">
       <strong>In-memory job tracking.</strong> Jobs are stored in a module-level dict in <code>jobs.py</code>.
-      Restarting the API server loses all pending job statuses. The frontend polls this every 2 seconds
-      while a job is running.
+      Admission is bounded before tokenization/submission, with two workers and at most eight active jobs.
+      Status and reservations are process-local: restarting loses job statuses, and polling across multiple API workers is unsupported. Use one API process. The frontend polls every 2 seconds while a job is running.
     </div>
   </section>
 

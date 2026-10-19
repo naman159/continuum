@@ -1,5 +1,13 @@
 from __future__ import annotations
 
+import pytest
+from pipeline.embeddings import EmbeddingService
+
+
+@pytest.fixture(autouse=True)
+def offline_embeddings(monkeypatch):
+    monkeypatch.setattr("api.admin.EmbeddingService", lambda: EmbeddingService(use_mock=True))
+
 
 def test_patch_canon_fact_sets_lock(seed_novel_real, real_db, client):
     seeded = seed_novel_real(real_db)
@@ -84,3 +92,14 @@ def test_create_canon_rejects_subject_from_another_novel(seed_novel_real, real_d
         "SELECT count(*) FROM canon_facts WHERE novel_id = %s AND subject_entity_id = %s",
         (first["novel_id"], second["char_a_eid"]),
     ) == 0
+
+
+def test_manual_canon_value_edit_refreshes_its_embedding(seed_novel_real, real_db, client):
+    seeded = seed_novel_real(real_db)
+    url = f"/api/novels/{seeded['novel_id']}/canon/{seeded['canon_fact_id']}"
+    assert client.patch(url, json={"value": "first value"}).status_code == 200
+    old = real_db.fetchval("SELECT embedding FROM canon_facts WHERE id = %s", (seeded["canon_fact_id"],))
+    assert old is not None
+    assert client.patch(url, json={"value": "second value"}).status_code == 200
+    new = real_db.fetchval("SELECT embedding FROM canon_facts WHERE id = %s", (seeded["canon_fact_id"],))
+    assert new is not None and new != old

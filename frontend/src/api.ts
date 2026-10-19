@@ -191,6 +191,8 @@ export type ContinuityFlag = {
 };
 
 type SearchResultRow = {
+  item_id: string;
+  record: Record<string, unknown> | null;
   kind: string;
   chapter_number: number | null;
   score: number;

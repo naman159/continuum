@@ -6,6 +6,7 @@ from typing import Any
 
 from pipeline.config import LLM_CONFIG, settings
 from pipeline.extraction.prompts import PASS_ORDER, build_system_prompt, build_user_prompt
+from pipeline.extraction.validation import validate_pass
 from pipeline.llm import load_completion as _load_completion
 from pipeline.llm import safe_json_loads as _safe_json_loads
 
@@ -323,15 +324,12 @@ def merge_extractions(extractions: list[dict[str, Any]]) -> dict[str, Any]:
         scene["scene_index"] = new_idx
     merged["scenes"] = collected_scenes
 
-    # Multi-granularity summaries: prefer the LAST chunk's non-empty value
-    # for each field. This favors closing recaps which often cover the most
-    # ground; if absent, fall back to earlier chunks in reverse order.
+    # Whole-chapter representations retain every chunk in narrative order.
+    # These are assembled summaries, not another lossy model synthesis. Their
+    # length grows with chapter length; no last-chunk recap is assumed.
     for field in ("summary_short", "summary_medium", "summary_long"):
-        for extraction in reversed(extractions):
-            value = str(extraction.get(field, "") or "").strip()
-            if value:
-                merged[field] = value
-                break
+        values = [str(e.get(field, "") or "").strip() for e in extractions]
+        merged[field] = "\n\n".join(_dedupe_strings(values))
 
     # Learnings: dedupe by (character_name, fact_description).
     seen_learnings: set[tuple[str, str]] = set()
@@ -410,9 +408,11 @@ class ChapterExtractor:
     def __init__(self, *, use_mock: bool | None = None) -> None:
         completion = _load_completion()
         if use_mock is None:
-            self.use_mock = settings.use_mock_llm or completion is None
+            self.use_mock = settings.use_mock_llm
         else:
             self.use_mock = use_mock
+        if not self.use_mock and completion is None:
+            raise RuntimeError("Extraction requires LiteLLM; install the dependency or explicitly enable mock mode")
 
     def extract_chapter(
         self,
@@ -491,9 +491,13 @@ class ChapterExtractor:
                 if getattr(message, "refusal", None) or finish_reason == "content_filter":
                     raise ValueError(f"model refused or filtered the extraction ({diagnostics})")
                 payload = _safe_json_loads(content)
+                schema_error = None
                 if payload and finish_reason != "length":
-                    return payload
-                reason = (
+                    try:
+                        return validate_pass(pass_name, payload, custom_entity_types)
+                    except ValueError as exc:
+                        schema_error = f"model returned invalid schema: {exc}"
+                reason = schema_error or (
                     "model response was truncated"
                     if finish_reason == "length"
                     else "model returned empty or invalid JSON"

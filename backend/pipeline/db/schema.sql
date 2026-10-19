@@ -481,6 +481,42 @@ ALTER TABLE chapters    ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 ALTER TABLE events      ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 ALTER TABLE scenes      ADD COLUMN IF NOT EXISTS embedding_model TEXT;
 ALTER TABLE commitments ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+ALTER TABLE knows_edges ADD COLUMN IF NOT EXISTS embedding VECTOR(__EMBEDDING_DIM__);
+ALTER TABLE knows_edges ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+ALTER TABLE canon_facts ADD COLUMN IF NOT EXISTS embedding VECTOR(__EMBEDDING_DIM__);
+ALTER TABLE canon_facts ADD COLUMN IF NOT EXISTS embedding_model TEXT;
+
+-- Text edits outside the embedding writers must never leave a stale vector.
+CREATE OR REPLACE FUNCTION invalidate_knowledge_embedding() RETURNS trigger AS $$
+BEGIN
+  IF NEW.fact_description IS DISTINCT FROM OLD.fact_description
+     AND NEW.embedding IS NOT DISTINCT FROM OLD.embedding THEN
+    NEW.embedding := NULL;
+    NEW.embedding_model := NULL;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS knows_embedding_invalidation ON knows_edges;
+CREATE TRIGGER knows_embedding_invalidation BEFORE UPDATE ON knows_edges
+FOR EACH ROW EXECUTE FUNCTION invalidate_knowledge_embedding();
+
+CREATE OR REPLACE FUNCTION invalidate_canon_embedding() RETURNS trigger AS $$
+BEGIN
+  IF (NEW.predicate IS DISTINCT FROM OLD.predicate OR NEW.value IS DISTINCT FROM OLD.value)
+     AND NEW.embedding IS NOT DISTINCT FROM OLD.embedding THEN
+    NEW.embedding := NULL;
+    NEW.embedding_model := NULL;
+  END IF;
+  RETURN NEW;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS canon_embedding_invalidation ON canon_facts;
+CREATE TRIGGER canon_embedding_invalidation BEFORE UPDATE ON canon_facts
+FOR EACH ROW EXECUTE FUNCTION invalidate_canon_embedding();
+
+CREATE INDEX IF NOT EXISTS idx_knows_embedding_hnsw
+    ON knows_edges USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS idx_canon_embedding_hnsw
+    ON canon_facts USING hnsw (embedding vector_cosine_ops);
 
 -- ---- events.involved_* array containment ----
 -- These UUID[] columns are the read layer's primary access path: every
@@ -589,12 +625,32 @@ DELETE FROM state_deltas d WHERE d.kind = 'knowledge'
 ALTER TABLE state_deltas DROP CONSTRAINT IF EXISTS state_deltas_kind_check;
 ALTER TABLE state_deltas ADD CONSTRAINT state_deltas_kind_check CHECK (kind IN ('possession','location','status'));
 
--- Changed metadata rows, including deletion tombstones, as known per chapter.
-CREATE TABLE IF NOT EXISTS metadata_history (
+-- Version 6: rename domain-record history in place. Qualify the current
+-- schema so schema-drift probes never rename tables in public by search_path.
+DO $$
+DECLARE ns TEXT := current_schema(); old_name TEXT; new_name TEXT;
+BEGIN
+    FOR old_name, new_name IN VALUES
+        ('metadata_history', 'story_record_history'),
+        ('metadata_versions', 'story_record_versions')
+    LOOP
+        IF to_regclass(format('%I.%I', ns, old_name)) IS NOT NULL THEN
+            IF to_regclass(format('%I.%I', ns, new_name)) IS NOT NULL THEN
+                RAISE EXCEPTION 'Both % and % exist; resolve the split history before upgrading', old_name, new_name;
+            END IF;
+            EXECUTE format('ALTER TABLE %I.%I RENAME TO %I', ns, old_name, new_name);
+        END IF;
+    END LOOP;
+    EXECUTE format('DROP FUNCTION IF EXISTS %I.metadata_at(text, uuid, integer)', ns);
+END;
+$$;
+
+-- Full changed story-domain rows and deletion tombstones, as known per chapter.
+CREATE TABLE IF NOT EXISTS story_record_history (
     novel_id UUID PRIMARY KEY REFERENCES novels(id) ON DELETE CASCADE,
     baseline_chapter INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS metadata_versions (
+CREATE TABLE IF NOT EXISTS story_record_versions (
     novel_id UUID NOT NULL REFERENCES novels(id) ON DELETE CASCADE,
     table_name TEXT NOT NULL CHECK (table_name IN ('entities','characters','locations','objects','factions','plot_threads','canon_facts')),
     row_id UUID NOT NULL,
@@ -603,23 +659,23 @@ CREATE TABLE IF NOT EXISTS metadata_versions (
     PRIMARY KEY (novel_id, table_name, row_id, chapter_number)
 );
 
-CREATE OR REPLACE FUNCTION metadata_at(wanted_table TEXT, wanted_novel UUID, cutoff INTEGER)
+CREATE OR REPLACE FUNCTION story_records_at(wanted_table TEXT, wanted_novel UUID, cutoff INTEGER)
 RETURNS TABLE(payload JSONB) LANGUAGE plpgsql STABLE AS $$
 DECLARE baseline INTEGER;
 BEGIN
     IF wanted_table NOT IN ('entities','characters','locations','objects','factions','plot_threads','canon_facts') THEN
-        RAISE EXCEPTION 'Unknown metadata table';
+        RAISE EXCEPTION 'Unknown story-record table';
     END IF;
-    SELECT baseline_chapter INTO baseline FROM metadata_history WHERE novel_id = wanted_novel;
+    SELECT baseline_chapter INTO baseline FROM story_record_history WHERE novel_id = wanted_novel;
     IF baseline IS NULL THEN
         -- A newly created/unprocessed novel may have manually registered metadata.
         RETURN QUERY EXECUTE format('SELECT to_jsonb(t) FROM %I t WHERE novel_id = $1', wanted_table) USING wanted_novel;
     ELSIF cutoff < baseline THEN
         RAISE EXCEPTION USING ERRCODE = 'P0002', MESSAGE =
-            'Historical metadata is unavailable before this database was upgraded. Re-import the original chapters into a new novel to rebuild history.';
+            'Historical story-record history is unavailable before this database was upgraded. Re-import the original chapters into a new novel to rebuild history.';
     ELSE
         RETURN QUERY SELECT latest.payload FROM (
-            SELECT DISTINCT ON (v.row_id) v.payload FROM metadata_versions v
+            SELECT DISTINCT ON (v.row_id) v.payload FROM story_record_versions v
             WHERE v.novel_id = wanted_novel AND v.table_name = wanted_table AND v.chapter_number <= cutoff
             ORDER BY v.row_id, v.chapter_number DESC
         ) latest WHERE latest.payload IS NOT NULL;

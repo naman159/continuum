@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 
 from pipeline import pipeline as coordinator
-from pipeline.db.history import capture_metadata, metadata_table
+from pipeline.db.story_records import capture_story_records, story_record_table
 from pipeline.extraction.extractor import empty_extraction
 from reads.characters import get_character_detail, list_characters
 from reads.knowledge import list_canon_facts, list_knows_edges
@@ -112,19 +112,19 @@ def test_retcon_failure_preserves_original_entire_suffix(db, novel, extracted, m
     assert 'Original opening.' in knowledge and 'Corrected opening.' not in knowledge
 
 
-def test_metadata_reads_preserve_alias_canon_and_thread_history(db, novel, extracted):
+def test_story_record_reads_preserve_alias_canon_and_thread_history(db, novel, extracted):
     process(db, novel, 1, 'Ada arrived.')
     eid = db.fetchval("SELECT entity_id FROM characters WHERE novel_id=%s", (novel,))
     with db.session() as session:
         session.execute("INSERT INTO canon_facts(novel_id,kind,subject_entity_id,predicate,value,source_chapter) VALUES(%s,'other',%s,'role','traveler',1)", (novel,eid))
         session.execute("INSERT INTO plot_threads(novel_id,title,description,status,opened_chapter) VALUES(%s,'Journey','Find a route','open',1)", (novel,))
-        capture_metadata(session, novel, 1)
+        capture_story_records(session, novel, 1)
     process(db, novel, 2, 'Ada returned.')
     with db.session() as session:
         session.execute("UPDATE characters SET aliases=ARRAY['Captain'],description='Promoted captain' WHERE novel_id=%s", (novel,))
         session.execute("UPDATE canon_facts SET value='captain',source_chapter=2 WHERE novel_id=%s", (novel,))
         session.execute("UPDATE plot_threads SET description='Route found',status='closed',closed_chapter=2 WHERE novel_id=%s", (novel,))
-        capture_metadata(session, novel, 2)
+        capture_story_records(session, novel, 2)
     assert list_characters(db, novel, 1)[0]['aliases'] == []
     assert list_characters(db, novel, 2)[0]['aliases'] == ['Captain']
     assert list_canon_facts(db, novel, 1, False)[0]['value'] == 'traveler'
@@ -156,11 +156,11 @@ def test_unresolved_enrichment_is_reported(db, novel, extracted, monkeypatch):
     assert any('Nobody' in warning for warning in result['enrichment']['warnings'])
 
 
-def test_metadata_sql_rejects_identifiers_and_values():
+def test_story_record_sql_rejects_identifiers_and_values():
     with pytest.raises(ValueError):
-        metadata_table('chapters; DELETE FROM novels', 'bad', 1)
+        story_record_table('chapters; DELETE FROM novels', 'bad', 1)
     with pytest.raises(ValueError):
-        metadata_table('characters', "' OR true", 1)
+        story_record_table('characters', "' OR true", 1)
 
 
 def test_database_error_rolls_back_instead_of_reporting_success(db, novel, extracted, monkeypatch):
@@ -174,7 +174,7 @@ def test_database_error_rolls_back_instead_of_reporting_success(db, novel, extra
         process(db, novel, 1, 'Ada arrived.')
     assert db.fetchval('SELECT count(*) FROM chapters WHERE novel_id=%s', (novel,)) == 0
     assert db.fetchval('SELECT count(*) FROM characters WHERE novel_id=%s', (novel,)) == 0
-    assert db.fetchval('SELECT count(*) FROM metadata_versions WHERE novel_id=%s', (novel,)) == 0
+    assert db.fetchval('SELECT count(*) FROM story_record_versions WHERE novel_id=%s', (novel,)) == 0
 
 
 def test_entity_repair_survives_rewind_and_keeps_knowledge(db, novel, extracted):
@@ -185,7 +185,7 @@ def test_entity_repair_survives_rewind_and_keeps_knowledge(db, novel, extracted)
     duplicate = str(db.fetchval("INSERT INTO entities(novel_id,entity_type,name) VALUES(%s,'character','The captain') RETURNING id", (novel,), commit=True))
     typed_duplicate = db.fetchval("INSERT INTO characters(novel_id,entity_id,name,first_appearance_chapter) VALUES(%s,%s,'The captain',1) RETURNING id", (novel, duplicate), commit=True)
     db.execute("INSERT INTO knows_edges(character_id,fact_description,learned_chapter) VALUES(%s,'The route is closed.',1)", (typed_duplicate,))
-    capture_metadata(db, novel, 1)
+    capture_story_records(db, novel, 1)
     process(db, novel, 2, 'Ada returned.')
     merge_entities(db, novel_id=novel, source_entity_id=duplicate, target_entity_id=target)
     assert len(list_characters(db, novel, 1)) == 1

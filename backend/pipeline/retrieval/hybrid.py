@@ -10,10 +10,11 @@ from pipeline.retrieval.dense import DenseSearch
 from pipeline.retrieval.fusion import reciprocal_rank_fusion
 from pipeline.retrieval.mmr import mmr
 from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
+from pipeline.retrieval.facts import FACT_KINDS
 
 logger = logging.getLogger(__name__)
 
-_KINDS: tuple[str, ...] = ("chapter", "scene", "event")
+_KINDS: tuple[str, ...] = ("chapter", "scene", "event", *FACT_KINDS)
 
 # How many candidates each stage emits before the next one trims.
 _PER_KIND_LIMIT = 50
@@ -47,7 +48,7 @@ class HybridRetriever:
 
         # Stage 1: BM25 + dense in parallel per kind.
         per_kind: dict[tuple[str, str], list[RetrievalResult]] = {}
-        with ThreadPoolExecutor(max_workers=2 * len(_KINDS)) as pool:
+        with ThreadPoolExecutor(max_workers=6) as pool:
             futures = {}
             for kind in _KINDS:
                 futures[("bm25", kind)] = pool.submit(
@@ -107,6 +108,12 @@ class HybridRetriever:
             by_kind.setdefault(r.kind, []).append(r.item_id)
 
         out: dict[str, list[float]] = {}
+        # Historical canon vectors must come from the candidate version, not
+        # a second fetch of the current table row with the same ID.
+        for result in results:
+            if (result.kind in FACT_KINDS and result.metadata.get("_embedding") is not None
+                    and result.metadata.get("_embedding_model") == self.embedder.model_name):
+                out[result.item_id] = _parse_vector(result.metadata["_embedding"])
         for kind, ids in by_kind.items():
             table = _TABLE_FOR_KIND.get(kind)
             if not table or not ids:

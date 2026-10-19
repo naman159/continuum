@@ -215,12 +215,12 @@ def test_entity_merge_keeps_relationship_history_and_direction(db, novel):
     from pipeline.db.entity_merge import merge_entities
     from reads.graphs import relationship_graph
 
-    from pipeline.db.history import capture_metadata
+    from pipeline.db.story_records import capture_story_records
 
     a_id = _character(db, novel, "Alice")
     alias_id = _character(db, novel, "Alias")
     _character(db, novel, "Bob")
-    capture_metadata(db, novel, 0)
+    capture_story_records(db, novel, 0)
     ch2, ch3, ch4 = (_chapter(db, novel, n) for n in (2, 3, 4))
     _persist(db, novel, ch2)
     _persist(db, novel, ch3, {"to_chapter": 3}, number=3)

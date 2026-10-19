@@ -94,18 +94,27 @@ class StateReplay:
         learnings = db.fetchall(
             """
             SELECT c.entity_id AS subject_id, k.fact_description AS detail,
-                   ch.id AS chapter_id, 'knowledge' AS kind
+                   ch.id AS chapter_id, 'knowledge' AS kind, k.id AS knowledge_id,
+                   newer.learned_chapter AS superseded_chapter
               FROM knows_edges k
+              LEFT JOIN knows_edges newer ON newer.id = k.superseded_by_id
               JOIN characters c ON c.id = k.character_id
               JOIN chapters ch ON ch.novel_id = c.novel_id AND ch.number = k.learned_chapter
              WHERE c.novel_id = %s AND k.learned_chapter <= %s
-               AND k.superseded_by_id IS NULL
              ORDER BY k.learned_chapter, k.created_at, k.id
             """,
             (novel_id, through_chapter), dict_rows=True,
         )
+        # Supersession takes effect when the replacement is learned, not at
+        # every earlier chapter. Expire after same-chapter acquisitions so
+        # even chains learned in one chapter leave only their active tail.
+        expirations = [
+            {**k, "kind": "knowledge_expiry", "chapter_id": chapter_id_by_number[k["superseded_chapter"]]}
+            for k in learnings if k["superseded_chapter"] in chapter_id_by_number
+        ]
+        active_knowledge: dict[str, dict[str, str]] = {}
         events = sorted(
-            [*deltas, *learnings],
+            [*deltas, *learnings, *expirations],
             key=lambda event: (chapter_number_by_id[str(event["chapter_id"])], event.get("ordinal", 0)),
         )
 
@@ -191,12 +200,17 @@ class StateReplay:
                                 possession_facts[i] = closed
                                 break
 
-            elif kind == "knowledge" and character_id is not None and d["detail"]:
+            elif kind in {"knowledge", "knowledge_expiry"} and character_id is not None:
+                active = active_knowledge.setdefault(character_id, {})
+                key = str(d["knowledge_id"])
+                if kind == "knowledge":
+                    active[key] = d["detail"]
+                else:
+                    active.pop(key, None)
                 snap = snapshot_for(character_id, chapter_number)
-                if d["detail"] not in snap.knowledge:
-                    snapshots[character_id][chapter_number] = replace(
-                        snap, knowledge=list(snap.knowledge) + [d["detail"]]
-                    )
+                snapshots[character_id][chapter_number] = replace(
+                    snap, knowledge=list(dict.fromkeys(active.values()))
+                )
 
             elif kind == "status" and character_id is not None:
                 attribute, value = d["attribute"], d["detail"]

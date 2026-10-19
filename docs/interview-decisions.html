@@ -1,0 +1,584 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Continuum: decisions and questions</title><style>*{box-sizing:border-box}body{margin:0;background:#0f1117;color:#e6edf3;font:16px/1.7 system-ui,sans-serif}main{max-width:1180px;margin:auto;padding:36px 24px 90px}nav{display:flex;flex-wrap:wrap;gap:22px;border-bottom:1px solid #30363d;padding-bottom:18px}a{color:#79bcff}h1,h2,h3{line-height:1.3;scroll-margin-top:20px}h1{font-size:2.2rem;margin-top:36px}h2{margin-top:48px;border-bottom:1px solid #30363d;padding-bottom:12px}h3{margin-top:34px;color:#c1d7fa}p,li{max-width:100ch}code{font:0.88em ui-monospace,monospace;background:#21262d;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre{overflow:auto;background:#161b22;padding:18px}table{display:block;overflow-x:auto;border-collapse:collapse;width:100%;font-size:14px;margin:24px 0}th,td{border:1px solid #30363d;text-align:left;padding:12px;vertical-align:top;min-width:130px}th{background:#21262d}td:first-child{min-width:110px}tr:nth-child(even){background:#161b22}strong{color:#fff}@media(max-width:600px){main{padding:20px 14px}h1{font-size:1.8rem}table{font-size:13px}}@media print{body{background:white;color:#111}a,h3,strong{color:#111}main{max-width:none;padding:0}table{display:table;font-size:10px}th,td{min-width:0;border-color:#aaa}nav{display:none}code,th,tr:nth-child(even){background:#eee}}</style></head><body><main><nav aria-label="Documentation"><a href="index.html">Documentation home</a><a href="interview-review.html">Review findings</a><a href="interview-decisions.html">75 decisions and questions</a><a href="interview-decisions.md">Markdown source</a></nav><h1>Continuum: decisions, questions, and defensible reasons</h1>
+<p>Prepared October 18, 2026 and updated after implementing review findings R1–R8 and the three Naman review items, from the current code and repository docs. Read with the <a href="interview-review.html">review findings</a>; a rationale does not erase a defect.</p>
+<p>This is a major-decision inventory, not a claim to recover every historical thought or every implementation detail. <strong>D</strong> means rationale is documented in code/comments/project docs. <strong>I</strong> means the rationale is inferred from implementation and should be confirmed by you before saying “I chose this because…”. <strong>O</strong> marks an open decision requiring a policy or evidence. No personal motivation, performance gain, or experiment is invented here.</p>
+<h2>A concise project explanation</h2>
+<p>“Continuum turns novel chapters into a relational story memory and a continuity-review tool. Models extract candidate entities, facts, events, and changes. A shared pipeline resolves identities and persists them; deterministic replay derives character state and temporal edges. A React wiki and MCP tools use the same chapter-aware query layer. The difficult part is preserving identity and historical meaning as chapters and beliefs change. It is a local prototype, and I separate deterministic software tests from real-model quality evaluation.”</p>
+<p>Be ready to explain your own contribution and the role of coding assistants in your actual workflow. This review cannot establish authorship or which experiments you personally ran.</p>
+<h2>Product and system boundaries</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D01 / D</td>
+<td>Why structured story memory instead of pasting the whole book?</td>
+<td>Chapters can exceed useful prompt budgets, while structured state supports targeted queries and explicit cutoffs. Extraction loses nuance; keep source prose and retrieve passages as well. No measured superiority over long-context baselines is established here.</td>
+<td>README; <code>docs/blog/01-the-problem.md</code></td>
+</tr>
+<tr>
+<td>D02 / D</td>
+<td>Why combine a wiki and an agent tool server?</td>
+<td>Humans inspect/correct memory; agents consult it during drafting. Two interfaces need a shared semantic contract to avoid contradictory answers.</td>
+<td><code>backend/reads/</code>; <code>backend/mcp_server/server.py</code></td>
+</tr>
+<tr>
+<td>D03 / D</td>
+<td>Why local trusted use?</td>
+<td>The project omits authentication and production controls; localhost exposure fits the stated scope. This restricts collaboration and makes public deployment a separate engineering task.</td>
+<td>README; <code>compose.yaml</code></td>
+</tr>
+<tr>
+<td>D04 / D</td>
+<td>Why keep writing outside Continuum?</td>
+<td>Its job is memory and critique; authors and writing clients remain responsible for prose. Better downstream writing is not measured.</td>
+<td>README</td>
+</tr>
+<tr>
+<td>D05 / D</td>
+<td>Why genre presets/custom entity types?</td>
+<td>Extraction categories vary by setting; registration lets one schema support skills, technologies, deities, etc. It does not supply new genre-specific continuity rules.</td>
+<td><code>pipeline/extraction/presets.py</code>; prompts; README</td>
+</tr>
+<tr>
+<td>D06 / I</td>
+<td>Why Python/FastAPI and React/TypeScript?</td>
+<td>Python integrates model and PostgreSQL tooling; typed UI code and async query caching support the wiki. This is a stack fit explanation, not evidence that alternatives were benchmarked.</td>
+<td><code>backend/pyproject.toml</code>; <code>frontend/package.json</code></td>
+</tr>
+<tr>
+<td>D07 / D</td>
+<td>Why one write pipeline across CLI/API/MCP?</td>
+<td>Admission, replacement, critique policy, and persistence rules belong in one implementation. Shared code couples these surfaces but prevents bypass by interface drift.</td>
+<td><code>pipeline/pipeline.py</code>; CLI/API/MCP callers</td>
+</tr>
+</tbody>
+</table>
+<h2>Storage, identity, and data contracts</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D08 / D</td>
+<td>Why PostgreSQL with pgvector?</td>
+<td>One store supplies transactions, relational joins, FTS, and vectors. This reduces operational coordination across SQL/search/vector services; it does not prove one store will meet arbitrary scale.</td>
+<td>schema; <code>docs/blog/02-the-mvp.md</code></td>
+</tr>
+<tr>
+<td>D09 / I</td>
+<td>Why no separate graph database?</td>
+<td>Entity IDs and relational edge tables cover current traversals. A graph database adds synchronization and operations; consider it only after traversal/query evidence warrants it.</td>
+<td><code>reads/graphs.py</code>; edge tables</td>
+</tr>
+<tr>
+<td>D10 / D</td>
+<td>Why universal entities plus typed tables?</td>
+<td>Relationships need one identity namespace while character/location/object records need specialized fields. Two ID spaces require deliberate mapping and can cause subtle join errors.</td>
+<td><code>pipeline/entity_tables.py</code>; schema; <code>docs/blog/06-modelling-a-world.md</code></td>
+</tr>
+<tr>
+<td>D11 / I</td>
+<td>Why UUIDs?</td>
+<td>IDs can be created without a centralized application counter and referenced consistently across interfaces. They increase index width; no distribution requirement or benchmark should be implied.</td>
+<td>schema defaults and API schemas</td>
+</tr>
+<tr>
+<td>D12 / D</td>
+<td>Why names and aliases instead of names as keys?</td>
+<td>One referent has many surface forms; names can collide or change. IDs preserve relationships, but aliases must not turn generic descriptions into permanent identity claims.</td>
+<td>resolver; canonicalizer</td>
+</tr>
+<tr>
+<td>D13 / D</td>
+<td>Why deterministic lookup plus contextual model resolution?</td>
+<td>Exact/alias matching is cheap and inspectable; prose descriptions need context. False merges corrupt attached facts, so ambiguity should often remain unresolved. Model decisions remain fallible.</td>
+<td><code>pipeline/extraction/resolver.py</code>; canonicalizer; blog 04</td>
+</tr>
+<tr>
+<td>D14 / D</td>
+<td>Why separate within-chapter dedup from existing-roster canonicalization?</td>
+<td>One removes duplicate surfaces in current output; the other attaches them to saved identities. Both stages remain fallible. Intra-dedup now prefers an unambiguous established identity, otherwise a validated model-nominated input name; ambiguous groups abstain.</td>
+<td><code>IntraExtractionDeduplicator</code>; <code>EntityCanonicalizer</code></td>
+</tr>
+<tr>
+<td>D15 / D</td>
+<td>Why reference-only resolution for state/knowledge links?</td>
+<td>A claim about an unknown referent should not create phantom people or objects. Dropped claims reduce coverage and need visible diagnostics.</td>
+<td><code>persist_deltas.py</code>; <code>persist_extras.py</code></td>
+</tr>
+<tr>
+<td>D16 / D</td>
+<td>Why allow manual entity merge?</td>
+<td>Automated resolution is imperfect; a human needs repair tooling. Merge must repoint references and repair history so later rewind does not resurrect duplicates. It is a retroactive correction, not ordinary story evolution.</td>
+<td>entity merge module; <code>db/story_records.py::repair_identity_history</code></td>
+</tr>
+<tr>
+<td>D17 / O</td>
+<td>Why resolve mostly within types?</td>
+<td>Per-type matching reduces the candidate space but misses cross-type duplicates. Decide when a wrong type should be corrected instead of creating a second entity.</td>
+<td>resolver; known gaps; review</td>
+</tr>
+<tr>
+<td>D18 / D</td>
+<td>Why distinguish symmetric and directed relationships?</td>
+<td>“Sibling of” and “owes money to” have different direction semantics; preserving direction prevents incorrect deduplication and display.</td>
+<td>relationship persistence and reads</td>
+</tr>
+<tr>
+<td>D19 / D</td>
+<td>Why multiple edge kinds instead of one untyped graph?</td>
+<td>Location, possession, relationship, event participation, and dynamics have different time/evidence semantics. Generic display graphs are projections of those records.</td>
+<td>schema; <code>reads/graphs.py</code></td>
+</tr>
+<tr>
+<td>D20 / I</td>
+<td>Why relational constraints if models are probabilistic?</td>
+<td>Models propose records; the database can still enforce references, uniqueness, and legal shapes. Constraints prevent structural corruption, not factual falsehood. Cross-novel business invariants also require application checks.</td>
+<td>schema; persistence modules</td>
+</tr>
+</tbody>
+</table>
+<h2>Extraction and context selection</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D21 / D</td>
+<td>Why 13 extraction passes?</td>
+<td>Focused prompts separate tasks and output shapes. They increase calls, latency, repeated context cost, and cross-pass disagreement. Pass count is an implementation choice, not evidence of optimal accuracy.</td>
+<td><code>extraction/prompts.py::PASS_ORDER</code>; extractor</td>
+</tr>
+<tr>
+<td>D22 / D</td>
+<td>Why JSON mode plus strict validation?</td>
+<td>JSON gives a transport shape; Pydantic contracts validate required/nested fields, enums, types, and ranges before normalization. Invalid extraction output retries only that pass; missing fields cannot silently become empty findings (R3).</td>
+<td><code>extraction/validation.py</code>; extractor</td>
+</tr>
+<tr>
+<td>D23 / D</td>
+<td>Why overlapping token windows?</td>
+<td>Bound input size and reduce facts split across boundaries. Overlap duplicates evidence and can disturb ordering without source spans.</td>
+<td><code>extraction/chunker.py</code>; merge logic</td>
+</tr>
+<tr>
+<td>D24 / D</td>
+<td>Why tiktoken for Gemini?</td>
+<td>A stable approximate token budget is useful even without the provider's tokenizer. Fallback <code>o200k_base</code> is an estimator, not Gemini's exact count or a full prompt-budget guarantee.</td>
+<td><code>extraction/chunker.py</code></td>
+</tr>
+<tr>
+<td>D25 / D</td>
+<td>Why cap selected entity context?</td>
+<td>Mentioned identities first and recency backfill bound roster cost. The caps can omit relevant characters, and other context collections still need budgeting.</td>
+<td><code>context_select.py</code>; config; <code>load_story_context</code></td>
+</tr>
+<tr>
+<td>D26 / D</td>
+<td>Why persist deltas instead of inferring movement/ownership with verb regexes?</td>
+<td>Typed extracted changes express subject, object, direction, and order explicitly. Correct replay still depends on extraction quality and resolved references.</td>
+<td><code>persist_deltas.py</code>; <code>state/replay.py</code>; blog 05</td>
+</tr>
+<tr>
+<td>D27 / D</td>
+<td>Why preserve delta order?</td>
+<td>Gain→loss and loss→gain differ. Blind deduplication can erase legitimate repeated actions; overlap needs evidence identity rather than dedup by entity alone.</td>
+<td><code>extractor.py::merge_extractions</code>; ordinal column</td>
+</tr>
+<tr>
+<td>D28 / D</td>
+<td>Why assemble summaries from every chunk?</td>
+<td>Ordered concatenation preserves early/middle/late chunk coverage without another model call, replacing the defective last-chunk heuristic (R5). Summary length grows with chunk count; it cannot recover model omissions.</td>
+<td>extractor merge; summary persistence</td>
+</tr>
+<tr>
+<td>D29 / D</td>
+<td>Why bounded provider retries?</td>
+<td>Transient rate limits/outages should not silently become empty output. Four transport attempts, retry hints capped at 60 seconds, and per-pass invalid-output retries bound work. Repeated attempts still multiply latency/cost.</td>
+<td><code>pipeline/llm.py</code>; extractor</td>
+</tr>
+<tr>
+<td>D30 / D</td>
+<td>Why low temperature?</td>
+<td>Intended to reduce extraction variation; it does not make provider output deterministic. Pin model/prompt versions and evaluate repeated runs.</td>
+<td>config; blog 03</td>
+</tr>
+<tr>
+<td>D31 / D</td>
+<td>Why explicit deterministic mock mode?</td>
+<td>Develop and regress software without provider cost. SDK failure now errors unless mock was explicitly selected (R6). Hash vectors and heuristic extraction measure plumbing, not semantics.</td>
+<td>embeddings; extractor; canonicalizer; critic adapter</td>
+</tr>
+</tbody>
+</table>
+<h2>Temporal state, transactions, and recovery</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D32 / D</td>
+<td>Why chapter cutoffs?</td>
+<td>An agent drafting chapter N should consult only through N−1; historical wiki views need the same boundary. Filtering chapters alone is insufficient when mutable metadata contains future values.</td>
+<td><code>reads/common.py</code>; history; MCP tools</td>
+</tr>
+<tr>
+<td>D33 / D</td>
+<td>Why version full changed rows as JSONB?</td>
+<td>Reconstruct mutable story-domain record values at a cutoff without hand-maintaining a separate version schema per table. Version 6 uses explicit story-record names with a preserving in-place upgrade. Changed-row storage limits some duplication; full payloads repeat data and must evolve with schema.</td>
+<td><code>db/story_records.py</code>; <code>story_record_versions</code></td>
+</tr>
+<tr>
+<td>D34 / D</td>
+<td>Why history baselines for old databases?</td>
+<td>Earlier metadata cannot be truthfully reconstructed from today's records. Refusing pre-baseline queries is safer than inventing historical values. Re-import is needed for full history.</td>
+<td><code>restore_story_records</code>; <code>story_records_at</code>; README</td>
+</tr>
+<tr>
+<td>D35 / D</td>
+<td>Why assertions plus materialized snapshots/edges?</td>
+<td>Deterministic replay gives inspectable, rebuildable read models. Snapshots simplify combined character history; edge tables support focused queries. A status-only prototype saved measured row bytes but had slower history reads in two synthetic workloads; the fields are retained. Those warm local timings do not establish scale necessity.</td>
+<td>state replay/materializer; <code>naman-review.md</code></td>
+</tr>
+<tr>
+<td>D36 / D</td>
+<td>What does knowledge supersession mean?</td>
+<td>A belief is active from acquisition until its replacement is learned; earlier cutoffs retain it. Replay expires assertion IDs at that chapter, including same-chapter chains (R1/R2). Retroactive corrections and undated forgetting remain distinct future policies.</td>
+<td>state replay; knowledge reads/check; rewind</td>
+</tr>
+<tr>
+<td>D37 / D</td>
+<td>Why not carry emotion to the next snapshot?</td>
+<td>Tests explicitly treat emotional state as transient while location/goals/condition carry forward. Explain the product meaning; notes need an equally explicit policy.</td>
+<td><code>state/tests/test_materializer.py</code></td>
+</tr>
+<tr>
+<td>D38 / D</td>
+<td>Why process chapters consecutively?</td>
+<td>Extraction consumes established prior context. Gaps would make derived state and identity decisions less coherent. This limits out-of-order imports.</td>
+<td><code>analyze_chapter</code> admission</td>
+</tr>
+<tr>
+<td>D39 / D</td>
+<td>Why reprocess the suffix after an earlier edit?</td>
+<td>Later facts, names, and state may depend on the edited text; updating only one chapter leaves downstream assumptions stale. It costs fresh calls and is not bitwise reproducible.</td>
+<td>replacement branch in pipeline</td>
+</tr>
+<tr>
+<td>D40 / D</td>
+<td>Why one enclosing transaction for replacement?</td>
+<td>Readers retain the previous committed novel until the entire suffix succeeds; failure restores it. The transaction can span slow network calls and is operationally expensive.</td>
+<td><code>DBSession</code>; replacement pipeline</td>
+</tr>
+<tr>
+<td>D41 / D</td>
+<td>Why a PostgreSQL per-novel advisory lock?</td>
+<td>API, CLI, MCP, and other processes share the database; a Python lock would cover only one process. Nonblocking admission avoids parallel stale-context extraction. Every mutation must cooperate with the convention.</td>
+<td><code>DBClient.novel_lock</code>; admin writes</td>
+</tr>
+<tr>
+<td>D42 / D</td>
+<td>Why a dedicated autocommit lock connection?</td>
+<td>Hold admission without a transaction open throughout ordinary extraction, or occupying a query-pool slot. It still consumes a real database connection.</td>
+<td><code>db/client.py</code></td>
+</tr>
+<tr>
+<td>D43 / D</td>
+<td>Why repeatable-read sessions?</td>
+<td>Related statements inside a transaction see a stable snapshot, and rollback can cover the write unit. Separate pooled reads outside that session do not inherit that guarantee.</td>
+<td><code>DBClient.transaction/session</code></td>
+</tr>
+<tr>
+<td>D44 / D</td>
+<td>Why append source data before materializing?</td>
+<td>A derived projection failure should not discard successfully saved extraction; rebuilding is retryable. Readers can temporarily see stale state. Flags and horizon checks mitigate, not eliminate, this boundary.</td>
+<td><code>_process_chapter</code>; materializer</td>
+</tr>
+<tr>
+<td>D45 / D</td>
+<td>Why rebuild projections in one transaction?</td>
+<td>Snapshots, edges, and checkpoint must agree on one source view. Semantic idempotence does not guarantee stable generated row IDs across rebuilds.</td>
+<td>materializer; replay</td>
+</tr>
+<tr>
+<td>D46 / O</td>
+<td>Why full replay rather than incremental state?</td>
+<td>Full replay is simple to reason about and repairs stale derived rows. Incremental checkpoints require invalidation/replacement logic. Measure cumulative cost before adding that complexity.</td>
+<td>materializer; review scale questions</td>
+</tr>
+<tr>
+<td>D47 / D</td>
+<td>Why schema SQL plus drift checks?</td>
+<td><code>CREATE TABLE IF NOT EXISTS</code> alone cannot upgrade existing constraints. Explicit alterations and schema comparison expose divergence. This is not a general reversible migration framework.</td>
+<td><code>init_db</code>; <code>db/schema_drift.py</code></td>
+</tr>
+</tbody>
+</table>
+<h2>Retrieval and critique</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D48 / D</td>
+<td>Why lexical plus vector search?</td>
+<td>Names/exact terms and paraphrases need different signals. PostgreSQL FTS uses <code>ts_rank_cd</code>, not BM25; dense uses cosine distance. Relative value must be measured with ablations.</td>
+<td><code>retrieval/bm25.py</code>; dense</td>
+</tr>
+<tr>
+<td>D49 / D</td>
+<td>Why relax lexical terms to OR?</td>
+<td>Natural-language questions often include words absent from the relevant passage. OR increases candidate recall at possible precision cost; negation retains special handling.</td>
+<td><code>_TSQUERY_CTE</code></td>
+</tr>
+<tr>
+<td>D50 / D</td>
+<td>Why reciprocal rank fusion?</td>
+<td>Lexical and cosine scores are not directly comparable. RRF combines ranks without calibrating their raw scales. Equal channel/kind weighting and k=60 remain heuristics.</td>
+<td>fusion; hybrid</td>
+</tr>
+<tr>
+<td>D51 / D</td>
+<td>Why MMR after fusion?</td>
+<td>Diversify redundant candidates while retaining fused relevance. Incoming scores are normalized; item vectors supply only the redundancy penalty. Lambda=0.7 and candidate limits need evaluation.</td>
+<td><code>retrieval/mmr.py</code></td>
+</tr>
+<tr>
+<td>D52 / D</td>
+<td>Why record embedding model provenance?</td>
+<td>Hash vectors or different model spaces must not mix in dense ranking. Model name and dimensions help, but future model revisions/task modes may need a richer embedding fingerprint.</td>
+<td>embeddings; dense</td>
+</tr>
+<tr>
+<td>D53 / D</td>
+<td>Why HNSW indexes?</td>
+<td>Approximate nearest-neighbor lookup can avoid full scans on suitable queries. Filtering and historical reconstruction may change the plan/recall; no blanket speed claim is established.</td>
+<td>schema; dense; facts</td>
+</tr>
+<tr>
+<td>D54 / D</td>
+<td>Why search scenes/events and structured facts?</td>
+<td>Narrative summaries and explicit knowledge/canon/commitments answer different queries. More candidate lists can change ranking balance and cost; historical records must be reconstructed before ranking.</td>
+<td><code>retrieval/facts.py</code>; hybrid</td>
+</tr>
+<tr>
+<td>D55 / D</td>
+<td>Why keyword fallback if embeddings fail?</td>
+<td>Local search can still work during provider outages. Degraded ranking should be observable; a successful empty stage does not prove all kinds were searched successfully.</td>
+<td>hybrid stage handling</td>
+</tr>
+<tr>
+<td>D56 / D</td>
+<td>Why critique before extraction?</td>
+<td>Avoid comparing a chapter to facts it just wrote; blocked drafts also avoid expensive ingestion. Claims still come from an imperfect model.</td>
+<td><code>critic/service.py</code>; pipeline phase 0</td>
+</tr>
+<tr>
+<td>D57 / D</td>
+<td>Why typed critic checks rather than a single opinion prompt?</td>
+<td>Explicit checks expose the evidence, rule, and severity behind findings. They cover only modeled constraints; the current runner has four checks, not all conceivable continuity errors.</td>
+<td><code>critic/runner.py</code>; checks</td>
+</tr>
+<tr>
+<td>D58 / D</td>
+<td>Why block agents but warn human ingestion?</td>
+<td>Agent drafts need a reviewable verdict; failures/errors and unresolved references are parked. The human importer can save findings for review. Strict shapes, verbatim evidence, and coverage close R4, but do not prove model completeness.</td>
+<td>critic validation/service; pipeline; MCP save</td>
+</tr>
+<tr>
+<td>D59 / D</td>
+<td>Why park failed drafts?</td>
+<td>Preserve the author's text for human adjudication rather than lose it on refusal. Superseding old pending submissions and accepting them must be transactionally consistent.</td>
+<td>submissions; drafts</td>
+</tr>
+<tr>
+<td>D60 / D</td>
+<td>Why possession/payoff warnings rather than automatic rejection?</td>
+<td>A new pickup can occur within the draft, and lexical payoff overlap does not prove an intended payoff. Human review is appropriate for uncertain evidence.</td>
+<td>possession/commitment checks</td>
+</tr>
+<tr>
+<td>D61 / O</td>
+<td>Why lexical knowledge/canon comparison?</td>
+<td>Cheap and explainable, but paraphrase, negation, and belief changes break simple overlap/equality. Consider better matching only with labeled false-positive/negative evidence.</td>
+<td>knowledge/entity checks</td>
+</tr>
+</tbody>
+</table>
+<h2>Interfaces, evaluation, and operations</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D62 / D</td>
+<td>Why shared reads for REST and MCP?</td>
+<td>One cutoff/identity contract reduces duplicated SQL and inconsistent answers. Adapters still need tests for parameter translation and error behavior.</td>
+<td><code>backend/reads/</code>; contract tests</td>
+</tr>
+<tr>
+<td>D63 / D</td>
+<td>Why stdio MCP?</td>
+<td>Local writing clients can invoke tools using the existing backend configuration without another network service. It does not supply a remote multi-user authorization system.</td>
+<td>MCP setup; README</td>
+</tr>
+<tr>
+<td>D64 / D</td>
+<td>Why bounded background jobs with polling?</td>
+<td>Processing outlasts interactive requests. Eight active jobs per process and one active job per novel bound the local backlog; 500,000-character input limit bounds retained text. Full queue returns 503, duplicate novel 409. Status remains in-memory and single-process (R8).</td>
+<td>jobs; Process route/API schema</td>
+</tr>
+<tr>
+<td>D65 / I</td>
+<td>Why React Query and route-specific chunks?</td>
+<td>Cached server state and distinct graph loading support navigation. Cache keys must include novel/cutoff; build artifacts alone do not establish UX performance.</td>
+<td>frontend routes; package manifest</td>
+</tr>
+<tr>
+<td>D66 / D</td>
+<td>Why real PostgreSQL tests?</td>
+<td>Transactions, constraints, pgvector, and PostgreSQL SQL semantics cannot be validated faithfully with SQLite or mocks alone. Test DB isolation adds setup cost.</td>
+<td>CI; backend test fixtures</td>
+</tr>
+<tr>
+<td>D67 / D</td>
+<td>Why gate real-provider evaluations?</td>
+<td>Routine checks should be offline, reproducible, and inexpensive. Passing mocks tests plumbing; separate real runs are necessary for extraction/retrieval quality.</td>
+<td>eval tests; harness</td>
+</tr>
+<tr>
+<td>D68 / D</td>
+<td>Why separate coverage, resolution, and retrieval metrics?</td>
+<td>Missing an identity differs from merging identities or retrieving the wrong passage. Entity coverage now uses one-to-one, word-boundary matching with ambiguous predictions uncredited and optional curated aliases (R7). The noisy offline retrieval label still needs care.</td>
+<td><code>evals/scoring.py</code>; ER/harness</td>
+</tr>
+<tr>
+<td>D69 / O</td>
+<td>Why a ten-chapter golden fixture?</td>
+<td>Small fixtures make failures inspectable and cheap. One synthetic story cannot establish broad generalization; add held-out genres and adversarial names/knowledge changes.</td>
+<td>golden fixtures; blog 10</td>
+</tr>
+<tr>
+<td>D70 / O</td>
+<td>Why these thresholds and search parameters?</td>
+<td>Thresholds can guard regressions, but observed baseline performance is not automatically acceptable quality. Calibrate against a justified task requirement, baselines, and repeated measurements.</td>
+<td>eval tests; blog 10; hybrid constants</td>
+</tr>
+<tr>
+<td>D71 / D</td>
+<td>Why Docker Compose?</td>
+<td>Package UI/API/pgvector into a reproducible local environment, retain data in a volume, and limit exposed ports. Backups, key handling, upgrades, and volume deletion remain operational responsibilities.</td>
+<td>Compose; README</td>
+</tr>
+<tr>
+<td>D72 / O</td>
+<td>Why not immediately add a distributed queue or incremental replay?</td>
+<td>The local backlog is now bounded (R8); durable shared jobs and incremental replay add state/invalidation complexity. Choose them from measured bottlenecks and deployment needs. One API process is still the supported job-tracking scope.</td>
+<td>jobs; materializer; review</td>
+</tr>
+</tbody>
+</table>
+<h2>Naman review follow-up</h2>
+<table>
+<thead>
+<tr>
+<th>ID / basis</th>
+<th>Decision and likely question</th>
+<th>Reason and tradeoff</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>D73 / D</td>
+<td>Why ask the model for a preferred name instead of sorting by length?</td>
+<td>Proper names require context; a longer description is not necessarily a better name. The nominated name must be a real input member unless a single saved identity supplies its canonical name. Conflicting known identities and ambiguous overlap abstain. This remains a model judgment, distinct from permanent alias admission.</td>
+<td>canonicalizer; prompts; <code>naman-review.md</code></td>
+</tr>
+<tr>
+<td>D74 / D</td>
+<td>Why rename metadata history and how are saved versions preserved?</td>
+<td>These are story-domain row versions, so <code>story_record_versions</code>, <code>story_record_history</code>, and <code>story_records_at</code> communicate the stored meaning. Version 6 renames tables in place, updates helpers, preserves baselines/tombstones, and refuses split histories rather than guessing.</td>
+<td>schema migration; <code>db/story_records.py</code>; migration regression</td>
+</tr>
+<tr>
+<td>D75 / D</td>
+<td>Why retain duplicated snapshot fields after comparing alternatives?</td>
+<td>A status-only prototype reduced measured row bytes roughly 87–89%, but added per-history-row temporal queries and had slower warm reads in both small synthetic fixtures. No rebuild improvement was demonstrated. Retain simpler reads now; revisit if measured storage/replay costs dominate.</td>
+<td><a href="snapshot-design.html">experiment and limits</a>; <a href="snapshot-comparison.json">raw data</a></td>
+</tr>
+</tbody>
+</table>
+<h2>Questions you should answer with evidence, not a prepared excuse</h2>
+<ol>
+<li><strong>What did you personally build, debug, and verify?</strong> Identify concrete changes and tests you can explain line by line, including how you used AI assistance. The two follow-ups contain 53 additional offline regression cases compared with the initial 555-test review.</li>
+<li><strong>What invariant matters most?</strong> A cutoff response must not reveal later story information; identity links must resolve to the right entity; a failed replacement must preserve the original novel. Give a counterexample and test for each.</li>
+<li><strong>Can you trace one fact end to end?</strong> Prose → chunk/pass → candidate → resolution → persisted row → version/delta → projection → cutoff query → API/MCP output. State where evidence/run provenance is currently missing.</li>
+<li><strong>What happens on failure at each phase?</strong> Extraction failure: no ordinary append write yet. Embedding/persistence failure: transaction rollback. Append projection failure: chapter remains, state may be stale. Replacement failure: enclosing suffix transaction rolls back. Critic unavailable: agent write refused. Malformed claims or unresolved references: agent draft parked for human review. Lost HTTP response after commit: reconcile before retrying.</li>
+<li><strong>How do you know search is better than a simple baseline?</strong> You do not have that evidence from this review. Prepare lexical-only, dense-only, fusion, and MMR ablations on identical labeled queries, plus cost/latency and early/middle/late chapter coverage.</li>
+<li><strong>What changes at 100 novels or 1,000 chapters?</strong> Measure total DB connections including lock connections and per-process pools; concurrent retrieval fan-out; queued text size; replay work; history-query plans; model tokens/cost. Do not invent throughput numbers.</li>
+<li><strong>How would you handle a public deployment?</strong> Establish user/novel authorization, durable work, request limits, observability, backups/recovery, and provider-data policy. Tie each to a concrete failure in the existing local architecture.</li>
+<li><strong>Can a model hallucination become canon?</strong> Yes. Structural constraints and replay do not prove factual truth. Explain locked facts, human review, dropped-reference coverage, and the limits of a passing critic.</li>
+<li><strong>What does “idempotent” mean here?</strong> Rebuilding the same assertions should produce equivalent state, although generated projection IDs may differ. Repeating extraction or retrying an entire request is a different operation.</li>
+<li><strong>What would you remove?</strong> Candidates include unnecessary duplicate projections or costly passes, but only after measuring read needs and fidelity. Do not claim extra complexity is justified because it is already implemented.</li>
+<li><strong>What is the hardest unresolved issue?</strong> The eight reviewed defects are fixed. Remaining priorities include real-model claim coverage, overlap/source-span identity, multi-query snapshot consistency, and scale. Explain which evidence is still missing and how the next experiment would resolve it.</li>
+<li><strong>Which result would change your mind?</strong> An ablation showing merged extraction passes preserve fidelity at much lower cost; query plans showing history retrieval dominates latency; human labels showing lexical knowledge matching is unusable; scale data showing full replay is cheap enough for the intended workload.</li>
+</ol>
+<h2>Evidence to gather before quoting numbers</h2>
+<ul>
+<li>A pinned commit, configuration, dependency lock, prompt/model versions, and fixture revision for every reported experiment.</li>
+<li>Real-provider extraction coverage and false merges, critic precision/recall including unresolved claims, and retrieval relevance with uncertainty across repeated runs.</li>
+<li>Chapter processing p50/p95 time, request count/tokens/dollars, transaction duration, replay duration, search latency, and database size at declared workload sizes.</li>
+<li>At least one held-out story and one adversarial fixture with shared names, negated beliefs, supersession, repeated actions in overlap, and a retcon.</li>
+<li>A short demo showing both success and failure: historical lookup, blocked draft/review, atomic failed replacement, and recovery from stale projections.</li>
+</ul>
+<p>Use measured results you actually ran. “I identified the limit and designed a falsifiable next test” is stronger than presenting an unmeasured benefit as a fact.</p>
+<h2>Fix follow-up: the choices you should now be able to defend</h2>
+<ul>
+<li><strong>R1/R2:</strong> supersession is effective at the replacement chapter. Acquisition and expiration are separate replay events; a suffix rewind restores the prior belief transactionally.</li>
+<li><strong>R3:</strong> validate strict pass contracts before normalization, with bounded retries. Nullable fields are explicit; a valid empty list differs from a missing key.</li>
+<li><strong>R4:</strong> require claim shapes and verbatim evidence, expose coverage, and route unresolved references to human review. New characters in an agent draft may need approval; zero extracted claims still cannot prove model completeness.</li>
+<li><strong>R5:</strong> concatenate chunk summaries in order without another model call. Whole-chapter coverage wins over fixed summary length; long embedding inputs remain a budgeting concern.</li>
+<li><strong>R6:</strong> synthetic output requires explicit mock selection; dependency failure is an error.</li>
+<li><strong>R7:</strong> score entity coverage with one-to-one assignments and reject ambiguous shortcuts; allow curated aliases deliberately.</li>
+<li><strong>R8:</strong> bound the local queue and text size now; keep restart loss and multiple-worker polling out of the supported job-tracking scope until durable infrastructure exists.</li>
+</ul>
+<p>Validation after this follow-up: 608 backend cases passed, 3 real-provider evaluations skipped; frontend lint, type checking, and production build passed. These results describe software behavior on the fixed working tree, not model-quality results.</p>
+</main></body></html>

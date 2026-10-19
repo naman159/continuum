@@ -14,6 +14,7 @@ import logging
 from typing import Any
 
 from pipeline.db.client import DBClient
+from pipeline.embeddings import EmbeddingService, canon_embedding_text, vector_literal
 from pipeline.extraction.resolver import EntityResolver
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,7 @@ def persist_canon_facts(
     chapter_number: int,
     facts: list[dict[str, Any]],
     resolver: EntityResolver,
+    embedder: EmbeddingService | None = None,
 ) -> dict[str, int]:
     counts = {"inserted": 0, "updated": 0, "contradictions": 0, "skipped": 0}
     for fact in facts or []:
@@ -77,17 +79,18 @@ def persist_canon_facts(
         )
 
         if existing is None:
+            vector = vector_literal(embedder.embed_text(canon_embedding_text(predicate, value))) if embedder else None
             # ON CONFLICT: a concurrent chapter job may have inserted the same (subject, predicate); losing this race must not abort the whole chapter transaction.
             db.execute(
                 """
                 INSERT INTO canon_facts (
                     novel_id, kind, subject_entity_id, predicate, value,
-                    source_chapter, confidence
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    source_chapter, confidence, embedding, embedding_model
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s::vector, %s)
                 ON CONFLICT (novel_id, subject_entity_id, predicate) DO NOTHING
                 """,
                 (novel_id, kind, subject_universal_id, predicate, value,
-                 chapter_number, confidence),
+                 chapter_number, confidence, vector, embedder.model_name if embedder else None),
             )
             counts["inserted"] += 1
             continue
@@ -114,13 +117,16 @@ def persist_canon_facts(
             continue
 
         if confidence >= float(existing.get("confidence") or 0.0):
+            vector = vector_literal(embedder.embed_text(canon_embedding_text(predicate, value))) if embedder else None
             db.execute(
                 """
                 UPDATE canon_facts
-                   SET value = %s, confidence = %s, source_chapter = %s, kind = %s
+                   SET value = %s, confidence = %s, source_chapter = %s, kind = %s,
+                       embedding = %s::vector, embedding_model = %s
                  WHERE id = %s
                 """,
-                (value, confidence, chapter_number, kind, existing["id"]),
+                (value, confidence, chapter_number, kind, vector,
+                 embedder.model_name if embedder else None, existing["id"]),
             )
             counts["updated"] += 1
         else:

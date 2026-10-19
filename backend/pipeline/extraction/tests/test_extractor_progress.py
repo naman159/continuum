@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 
@@ -15,8 +16,12 @@ class FakeProgress:
 
 
 def _make_fake_completion():
-    def fake(**_kwargs):
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"summary":"Test summary."}'))])
+    def fake(**kwargs):
+        from pipeline.extraction.prompts import PASS_ORDER
+        from testing.model_outputs import empty_pass
+        system = kwargs['messages'][0]['content']
+        name = next(n for n in PASS_ORDER if f'Extraction pass: {n}\n' in system)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=json.dumps(empty_pass(name))))])
     return fake
 
 

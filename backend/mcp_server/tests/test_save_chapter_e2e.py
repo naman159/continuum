@@ -90,3 +90,31 @@ def test_save_chapter_refuses_through_the_real_stack(db, seed_novel, stub_critic
     assert parked["status"] == "pending"
     assert parked["novel_id"] == novel_id
     assert parked["chapter_number"] == 4
+
+
+@pytest.mark.parametrize('malformed', [False, True])
+def test_unresolved_or_malformed_model_claims_cannot_enter_canon(db, seed_novel, monkeypatch, malformed):
+    import json
+    from types import SimpleNamespace
+    from pipeline.critic import adapter
+    novel_id = seed_novel(db)['novel_id']
+    text = 'Someone New had green eyes.'
+    claims = {'mentions': [{}] if malformed else [{
+        'entity_name': 'Someone New', 'entity_type': 'character', 'predicate': 'eye_color',
+        'claimed_value': 'green', 'quote': text,
+    }], 'knowledge_claims': [], 'possession_claims': [], 'events': []}
+    monkeypatch.setattr(service_mod, 'settings', replace(service_mod.settings, use_mock_llm=False, critic_enabled=True))
+    monkeypatch.setattr(adapter, '_load_completion', lambda: lambda **kw: SimpleNamespace(
+        choices=[SimpleNamespace(finish_reason='stop', message=SimpleNamespace(content=json.dumps(claims)))]))
+    outcome = queries_mod.save_chapter(novel_id, 4, text, db=db)
+    assert outcome['ingested'] is False
+    assert outcome['reason'] == ('error' if malformed else 'unreviewable')
+    assert outcome['status'] == 'pending_review'
+    assert db.fetchval('SELECT count(*) FROM chapters WHERE novel_id=%s AND number=4', (novel_id,)) == 0
+    parked = drafts_reads.get_submission(db, outcome['submission_id'])
+    assert parked['raw_text'] == text
+    if not malformed:
+        assert parked['findings']['coverage']['unresolved'] == 1
+        checked = queries_mod.check_continuity(novel_id, 4, text, db=db, use_mock=False)
+        assert checked['status'] == 'unreviewable' and checked['passed'] is False
+        assert checked['coverage']['unresolved'] == 1

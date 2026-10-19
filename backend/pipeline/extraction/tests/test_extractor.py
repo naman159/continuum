@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -103,7 +104,8 @@ def test_retry_does_not_repeat_completed_passes(monkeypatch):
         calls.append(name)
         if name == "knowledge_state_deltas" and calls.count(name) == 1:
             return _response("")
-        return _response('{"learnings": []}' if name == "knowledge_state_deltas" else '{"summary": "A summary."}')
+        from testing.model_outputs import empty_pass
+        return _response(json.dumps(empty_pass(name)))
 
     monkeypatch.setattr(extractor_module, "_load_completion", lambda: completion)
     extractor_module.ChapterExtractor(use_mock=False).extract_chunk("Real prose.", {})

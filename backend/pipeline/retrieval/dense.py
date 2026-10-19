@@ -6,6 +6,7 @@ from typing import Any
 from pipeline.db.client import DBClient
 from pipeline.embeddings import EmbeddingService, vector_literal
 from pipeline.retrieval.types import RetrievalQuery, RetrievalResult
+from pipeline.retrieval.facts import FACT_KINDS, fact_metadata, fact_source
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class DenseSearch:
         *,
         query_embedding: list[float] | None = None,
     ) -> list[RetrievalResult]:
-        if kind not in _TABLE_FOR_KIND:
+        if kind not in _TABLE_FOR_KIND and kind not in FACT_KINDS:
             raise ValueError(f"Unsupported kind for dense search: {kind}")
         vec = query_embedding if query_embedding is not None else self.embed_query(query.text)
         qvec = vector_literal(vec)
@@ -105,7 +106,14 @@ class DenseSearch:
             "embedding_model": self.embedder.model_name,
         }
 
-        if kind == "chapter":
+        if kind in FACT_KINDS:
+            sql = f"""
+                SELECT f.*, (f.embedding <=> %(qvec)s::vector) AS distance
+                FROM ({fact_source(query, kind)}) f
+                WHERE f.embedding IS NOT NULL AND f.embedding_model = %(embedding_model)s
+                ORDER BY f.embedding <=> %(qvec)s::vector LIMIT %(limit)s
+            """
+        elif kind == "chapter":
             sql = _chapter_sql()
         elif kind == "scene":
             sql = _scene_sql()
@@ -133,7 +141,8 @@ class DenseSearch:
                     snippet=row["snippet"] or "",
                     chapter_id=row.get("chapter_id"),
                     chapter_number=row.get("chapter_number"),
-                    metadata={"cosine_distance": distance, "source": "dense"},
+                    metadata={"cosine_distance": distance, "source": "dense",
+                              **(fact_metadata(row) if kind in FACT_KINDS else {})},
                 )
             )
         # Break distance ties by item_id, for the same reason bm25.py orders by

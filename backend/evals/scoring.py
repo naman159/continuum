@@ -21,18 +21,50 @@ def _names_match(a: str, b: str) -> bool:
     return a == b or a in b or b in a
 
 
-def score_entities(expected: list[str], actual: list[str]) -> dict[str, Any]:
-    exp = [_norm(e) for e in expected]
-    act = [_norm(a) for a in actual]
-    missing = [e for e in exp if not any(_names_match(e, a) for a in act)]
-    extra = [a for a in act if not any(_names_match(e, a) for e in exp)]
-    recall = (len(exp) - len(missing)) / len(exp) if exp else 1.0
-    precision = (len(act) - len(extra)) / len(act) if act else 1.0
+def score_entities(
+    expected: list[str], actual: list[str], *, aliases: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """One-to-one entity coverage; ambiguous short names receive no credit.
+
+    Exact names and curated aliases take precedence. A partial name is allowed
+    only at token boundaries and only if it identifies one expected entity.
+    Maximum matching prevents one prediction from satisfying two identities.
+    """
+    exp, act = [_norm(e) for e in expected], [_norm(a) for a in actual]
+    alias_sets = {_norm(name): {_norm(a) for a in values} for name, values in (aliases or {}).items()}
+    edges: list[list[int]] = []
+    ambiguous: list[str] = []
+    for name in act:
+        exact = [i for i, e in enumerate(exp) if name and (name == e or name in alias_sets.get(e, set()))]
+        partial = [i for i, e in enumerate(exp) if name and e and (
+            f' {name} ' in f' {e} ' or f' {e} ' in f' {name} '
+        )]
+        candidates = exact or partial
+        if len(candidates) > 1:
+            ambiguous.append(name)
+            candidates = []
+        edges.append(candidates)
+    matched: dict[int, int] = {}
+
+    def assign(prediction: int, seen: set[int]) -> bool:
+        for entity in edges[prediction]:
+            if entity in seen:
+                continue
+            seen.add(entity)
+            if entity not in matched or assign(matched[entity], seen):
+                matched[entity] = prediction
+                return True
+        return False
+
+    for prediction in range(len(act)):
+        assign(prediction, set())
+    assigned = set(matched.values())
     return {
-        "precision": precision,
-        "recall": recall,
-        "missing": sorted(missing),
-        "extra": sorted(extra),
+        'precision': len(matched) / len(act) if act else 1.0,
+        'recall': len(matched) / len(exp) if exp else 1.0,
+        'missing': sorted(e for i, e in enumerate(exp) if i not in matched),
+        'extra': sorted(a for i, a in enumerate(act) if i not in assigned),
+        'ambiguous': sorted(ambiguous),
     }
 
 

@@ -31,13 +31,20 @@ def vector_literal(values: Sequence[float]) -> str:
     return "[" + ",".join(f"{value:.6f}" for value in values) + "]"
 
 
+def canon_embedding_text(predicate: str, value: str) -> str:
+    # Names stay outside the vector so identity merges/renames cannot stale it.
+    return f"{predicate}: {value}"
+
+
 class EmbeddingService:
     def __init__(self, *, use_mock: bool | None = None) -> None:
         embedding = _load_embedding()
         if use_mock is None:
-            self.use_mock = embedding is None or settings.use_mock_llm
+            self.use_mock = settings.use_mock_llm
         else:
             self.use_mock = use_mock
+        if not self.use_mock and embedding is None:
+            raise EmbeddingError("LiteLLM embedding is unavailable; install the dependency or explicitly enable mock mode")
 
     @property
     def model_name(self) -> str:

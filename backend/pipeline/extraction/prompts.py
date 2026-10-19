@@ -671,6 +671,7 @@ INTRA_DEDUP_SCHEMA = {
     "groups": [
         {
             "names": ["string (verbatim from input list — only names that refer to the same entity)"],
+            "canonical_name": "string (one of names, prefer the explicit proper name; descriptive reference only if no proper name exists)",
             "reasoning": "string",
         }
     ]
@@ -747,6 +748,12 @@ def build_intra_dedup_system_prompt(entity_type: str) -> str:
 
         {rules}
 
+        - Choose canonical_name from the group: prefer a stated proper name over
+          a temporary description, regardless of length. Use a stable descriptive
+          reference only when no proper name exists. Never invent a name.
+        - A generic phrase that can refer to multiple distinct entities is NOT
+          an alias that joins them. Leave ambiguous entries separate.
+        - Explain identity evidence AND your preferred name in reasoning.
         - Do NOT include singleton groups (groups with only one entry).
         - Return ONLY strict JSON matching the schema. No prose, no markdown.
 

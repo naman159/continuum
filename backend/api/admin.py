@@ -1,4 +1,4 @@
-"""Novel admin operations (create/delete): SQL-only, real Postgres."""
+"""Novel admin operations against real Postgres."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from pipeline.db.client import DBClient
-from pipeline.db.history import capture_metadata
+from pipeline.db.story_records import capture_story_records
+from pipeline.embeddings import EmbeddingService, canon_embedding_text, vector_literal
 
 from reads.db import get_db
 
@@ -18,10 +19,10 @@ def _novel_write(novel_id: UUID):
     with client.novel_lock(str(novel_id)), client.session() as session:
         horizon = session.fetchval("SELECT COALESCE(MAX(number), 0) FROM chapters WHERE novel_id = %s", (novel_id,))
         if session.fetchval("SELECT id FROM novels WHERE id = %s", (novel_id,)) is not None:
-            capture_metadata(session, str(novel_id), int(horizon))
+            capture_story_records(session, str(novel_id), int(horizon))
         yield session
         if session.fetchval("SELECT id FROM novels WHERE id = %s", (novel_id,)) is not None:
-            capture_metadata(session, str(novel_id), int(horizon))
+            capture_story_records(session, str(novel_id), int(horizon))
 
 
 def create_novel(
@@ -94,21 +95,26 @@ def update_canon_fact(
     """
     with _novel_write(novel_id) as db:
         existing = db.fetchone(
-            "SELECT id FROM canon_facts WHERE id = %s AND novel_id = %s",
+            "SELECT id, predicate FROM canon_facts WHERE id = %s AND novel_id = %s",
             (str(fact_id), str(novel_id)),
             dict_rows=True,
         )
         if existing is None:
             return False
+        embedder = EmbeddingService() if value is not None else None
+        vector = vector_literal(embedder.embed_text(canon_embedding_text(existing["predicate"], value))) if embedder else None
         db.execute(
             """
             UPDATE canon_facts
                SET locked = COALESCE(%s, locked),
                    value = COALESCE(%s, value),
-                   confidence = CASE WHEN %s::text IS NULL THEN confidence ELSE 1.0 END
+                   confidence = CASE WHEN %s::text IS NULL THEN confidence ELSE 1.0 END,
+                   embedding = CASE WHEN %s::text IS NULL THEN embedding ELSE %s::vector END,
+                   embedding_model = CASE WHEN %s::text IS NULL THEN embedding_model ELSE %s END
              WHERE id = %s AND novel_id = %s
             """,
-            (locked, value, value, str(fact_id), str(novel_id)),
+            (locked, value, value, value, vector, value, embedder.model_name if embedder else None,
+             str(fact_id), str(novel_id)),
         )
         return True
 
@@ -128,16 +134,23 @@ def create_canon_fact(
     NOTHING, an admin create deliberately replaces what extraction stored.
     """
     with _novel_write(novel_id) as db:
+        if db.fetchone("SELECT id FROM entities WHERE id = %s AND novel_id = %s",
+                       (str(subject_entity_id), str(novel_id))) is None:
+            return None
+        embedder = EmbeddingService()
+        vector = vector_literal(embedder.embed_text(canon_embedding_text(predicate.strip().lower(), value)))
         row = db.fetchone(
             """
-            INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked)
-            SELECT e.novel_id, %s, e.id, %s, %s, 1.0, %s
+            INSERT INTO canon_facts (novel_id, kind, subject_entity_id, predicate, value, confidence, locked, embedding, embedding_model)
+            SELECT e.novel_id, %s, e.id, %s, %s, 1.0, %s, %s::vector, %s
               FROM entities e WHERE e.id = %s AND e.novel_id = %s
             ON CONFLICT (novel_id, subject_entity_id, predicate)
-            DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0
+            DO UPDATE SET value = EXCLUDED.value, locked = EXCLUDED.locked, confidence = 1.0,
+                          embedding = EXCLUDED.embedding, embedding_model = EXCLUDED.embedding_model
             RETURNING id, kind, subject_entity_id, predicate, value, source_chapter, confidence, locked
             """,
-            (kind, predicate.strip().lower(), value, locked, str(subject_entity_id), str(novel_id)),
+            (kind, predicate.strip().lower(), value, locked, vector, embedder.model_name,
+             str(subject_entity_id), str(novel_id)),
             dict_rows=True,
             commit=True,
         )
